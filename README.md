@@ -1,6 +1,6 @@
 # Luma.jl
 
-High-performance, portable GPU primitives for Julia. Pure Julia implementation with performance competitive against optimized CUDA C++ libraries.
+High-performance, portable GPU primitives for Julia (currently CUDA-only). Pure Julia implementation with performance competitive against optimized CUDA C++ libraries.
 
 ## Installation
 
