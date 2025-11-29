@@ -1,14 +1,11 @@
 using Revise
 using Pkg
-Pkg.activate("/home/emmanuel/Packages/Luma.jl/dev")
-#Pkg.develop(path="/home/emmanuel/Packages/MemoryAccess.jl/")
-#Pkg.develop(path="/home/emmanuel/Packages/Luma.jl")
-#Pkg.instantiacte()
-Base.retry_load_extensions()
-using MemoryAccess
-using Luma
-using KernelAbstractions, Test, CUDA, BenchmarkTools
 
+Pkg.activate("$(@__DIR__())/../../")
+
+using Luma
+using KernelAbstractions, CUDA, BenchmarkTools
+using AcceleratedKernels
 using Quaternions
 
 
@@ -24,10 +21,10 @@ Nitem = 1
 
 start_time = time()
 while time() - start_time < 0.500  # 500ms warm-up
-    Luma.copy!(dst, src, Nitem=Nitem)
+    Luma.vcopy!(dst, src, Nitem=Nitem)
 end
 
-prof = CUDA.@profile Luma.copy!(dst, src; Nitem=Nitem)
+prof = CUDA.@profile Luma.vcopy!(dst, src; Nitem=Nitem)
 
 #%%
 n = 1000000
@@ -39,10 +36,10 @@ Nitem = 4
 
 start_time = time()
 while time() - start_time < 0.500  # 500ms warm-up
-    Luma.copy!(dst, src, Nitem=Nitem)
+    Luma.vcopy!(dst, src, Nitem=Nitem)
 end
 
-prof = CUDA.@profile Luma.copy!(dst, src; Nitem=Nitem)
+prof = CUDA.@profile Luma.vcopy!(dst, src; Nitem=Nitem)
 
 
 #%%
@@ -57,10 +54,10 @@ Nitem = 8 #better
 
 start_time = time()
 while time() - start_time < 0.500  # 500ms warm-up
-    Luma.copy!(dst, src, Nitem=Nitem)
+    Luma.vcopy!(dst, src, Nitem=Nitem)
 end
 
-prof = CUDA.@profile Luma.copy!(dst, src; Nitem=Nitem)
+prof = CUDA.@profile Luma.vcopy!(dst, src; Nitem=Nitem)
 
 #%%
 n = 1000000
@@ -72,10 +69,10 @@ Nitem = 4
 
 start_time = time()
 while time() - start_time < 0.500  # 500ms warm-up
-    Luma.copy!(dst, src, Nitem=Nitem)
+    Luma.vcopy!(dst, src, Nitem=Nitem)
 end
 
-prof = CUDA.@profile Luma.copy!(dst, src; Nitem=Nitem)
+prof = CUDA.@profile Luma.vcopy!(dst, src; Nitem=Nitem)
 
 
 

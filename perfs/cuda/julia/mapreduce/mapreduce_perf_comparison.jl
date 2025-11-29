@@ -1,13 +1,12 @@
 using Revise
 using Pkg
 
-Pkg.activate("$(@__DIR__())/../")
-luma_path = "$(@__DIR__())/../../../"
+Pkg.activate("$(@__DIR__())/../../")
 
 using Luma
-using KernelAbstractions, Test, CUDA, BenchmarkTools
+using KernelAbstractions, CUDA, BenchmarkTools
 using AcceleratedKernels
-
+using Quaternions
 
 
 n = 1000000

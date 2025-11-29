@@ -1,14 +1,10 @@
 using Revise
 using Pkg
 
-Pkg.activate("$(@__DIR__())/../")
-luma_path = "$(@__DIR__())/../../../"
-#Pkg.develop(path=luma_path)
+Pkg.activate("$(@__DIR__())/../../")
 
-#Pkg.instantiate()
-using MemoryAccess
 using Luma
-using KernelAbstractions, Test, CUDA, BenchmarkTools
+using KernelAbstractions, CUDA, BenchmarkTools
 using AcceleratedKernels
 using Quaternions
 

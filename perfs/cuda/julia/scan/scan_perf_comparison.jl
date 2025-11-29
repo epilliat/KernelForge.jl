@@ -1,13 +1,10 @@
 using Revise
 using Pkg
 
-Pkg.activate("$(@__DIR__())/../")
-luma_path = "$(@__DIR__())/../../../"
-#Pkg.develop(path=luma_path)
+Pkg.activate("$(@__DIR__())/../../")
 
-#Pkg.instantiate()
 using Luma
-using KernelAbstractions, Test, CUDA, BenchmarkTools
+using KernelAbstractions, CUDA, BenchmarkTools
 using AcceleratedKernels
 using Quaternions
 
@@ -35,7 +32,7 @@ src = CuArray{T}([i for i in (1:n)])
 dst = CuArray{T}([0 for _ in (1:n)])
 
 start_time = time()
-tmp = get_allocation(scan!, op, dst, src; FlagType=FlagType)
+tmp = get_allocation(Luma.scan!, identity, op, dst, src; FlagType=FlagType)
 while time() - start_time < 0.800  # 500ms warm-up
     CUDA.@sync Luma.scan!(op, dst, src; tmp=tmp, FlagType=FlagType)
 end

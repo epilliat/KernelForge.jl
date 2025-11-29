@@ -1,6 +1,6 @@
 # Luma.jl
 
-High-performance GPU computing primitives for Julia, providing portable implementations of common parallel algorithms.
+High-performance, portable GPU primitives for Julia. Pure Julia implementation with performance competitive against optimized CUDA C++ libraries.
 
 ## Installation
 
@@ -11,10 +11,37 @@ Pkg.add("Luma")
 
 ## Features
 
-- **Vectorized memory operations** with configurable load/store widths
+- **Vectorized copy** with configurable load/store widths
 - **Map-reduce** with custom functions and operators
 - **Prefix scan** supporting non-commutative operations
-- Cross-platform GPU support via KernelAbstractions.jl
+- Currently only for 1D arrays, with plans for multi-dimensional support
+- Currently CUDA-only; cross-platform support via KernelAbstractions.jl planned
+- Includes `UnitFloat8`, a custom 8-bit floating-point type with range (-1, 1) for testing
+
+
+## Performances
+
+Luma.jl achieves performance comparable to optimized CUDA C++ libraries such as CUB and Thrust.
+
+### Copy Performance
+
+Cub optimizes copy for large input sizes (byte size of dst + src $\geq$ L2 cache size), while KernelAbstractions.jl performs better on smaller arrays. Our vcopy! function can be tuned via parameters to achieve high performance across all input sizes. Automatic adaptation based on L2 cache size could be planned in future releases.
+
+![](perfs/cuda/figures/combined_plot_copy.png)
+
+### Map-Reduce Performance
+
+For map-reduce, Luma.jl matches CUDA.jl performance on Float32 (slightly better with UInt64 flags, yielding success probability $> 1 - 2^{-64}$), and significantly outperforms it on smaller types (UInt8, UnitFloat8) even with Float32 conversion. This speedup stems from optimized memory access patterns and vectorized loads/stores.
+
+
+![](perfs/cuda/figures/mapreduce_nof64_1e6_1e8.png)
+
+### Scan Performance
+
+Our scan rivals CUB performance on Float32 and Float64, while also supporting non-commutative operations and custom types like Quaternions—enabled by an efficient decoupled lookback algorithm and optimized memory access.
+
+![](perfs/cuda/figures/combined_plot_scan.png)
+
 
 ## Examples
 
