@@ -23,6 +23,10 @@ Pkg.add("Luma")
 
 Luma.jl achieves performance comparable to optimized CUDA C++ libraries such as CUB and Thrust.
 
+- **Blue**: Main kernel execution time, measured using the `@profile` macro from CUDA.jl
+- **Other colors**: Auxiliary kernel execution times
+- **Gray**: Overhead (total time minus kernel times), including memory allocations, data transfers, and other operations
+
 ### Copy Performance
 
 Cub optimizes copy for large input sizes (byte size of dst + src $\geq$ L2 cache size), while KernelAbstractions.jl performs better on smaller arrays. Our vcopy! function can be tuned via parameters to achieve high performance across all input sizes. Automatic adaptation based on L2 cache size could be planned in future releases.
