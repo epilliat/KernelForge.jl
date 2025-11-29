@@ -22,8 +22,9 @@ include("helpers/illustration_tools.jl")
 
 
 tmax_timed = 1
-names = ["Cublas", "Luma Def", "Luma Opt", "CUDA.jl", "AK"]
+names = ["Luma Def", "Luma Opt", "CUDA.jl", "AK"]
 algos = ["Scan"]
+algo = "Scan"
 bench = DataFrame()
 
 #%%
@@ -67,7 +68,7 @@ for T in [Float32, Float64]
     name = "Luma Opt"
 
     start_time = time()
-    tmp = Luma.get_allocation(scan!, op, dst, src; FlagType=UInt64)
+    tmp = Luma.get_allocation(scan!, identity, op, dst, src; FlagType=UInt64)
     while time() - start_time < 0.500  # 500ms warm-up
         CUDA.@sync Luma.scan!(op, dst, src)
     end
@@ -129,19 +130,19 @@ for T in [Float32, Float64]
 
     start_time = time()
     while time() - start_time < 0.500  # 500ms warm-up
-        CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback())
+        CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback())
     end
 
-    prof = [CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()) for _ in (1:100)]
+    prof = [CUDA.@profile AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()) for _ in (1:100)]
     dt = 0
     dts = []
     while dt <= 2 * tmax_timed
-        timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
+        timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
         u = timed[:time]
         dt += u
         push!(dts, u)
     end
-    timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()))
+    timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()))
     benchmark_summary!(prof, timed, dts, T, N, name, algo, bench)
 end
 for T in [Float32, Float64]
@@ -153,19 +154,19 @@ for T in [Float32, Float64]
 
     start_time = time()
     while time() - start_time < 0.500  # 500ms warm-up
-        CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0))
+        CUDA.@sync AK.accumulate!(op, dst, src; init=T(0))
     end
 
-    prof = [CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=T(0))]
+    prof = [CUDA.@profile AK.accumulate!(op, dst, src; init=T(0))]
     dt = 0
     dts = []
     while dt <= 2 * tmax_timed
-        timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0)))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
+        timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0)))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
         u = timed[:time]
         dt += u
         push!(dts, u)
     end
-    timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0)))
+    timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0)))
     benchmark_summary!(prof, timed, dts, T, N, name, algo, bench)
 end
 #%%
@@ -218,12 +219,12 @@ bench.kernel2_name .= missing
 bench_with_cub = vcat(bench, cub_f32, cub_f64, cols=:union)
 
 # Plot - it will automatically use "NVCC Benchmark" from kernel4_name
-plot = create_kernel_stacked_barplot(bench_with_cub,
+p1 = create_kernel_stacked_barplot(bench_with_cub,
     algo="Scan",
-    kernel_colors=[:blue, :red, :green, :orange], overhead_alpha=1,
+    kernel_colors=[:blue, :red, :green, :orange], overhead_alpha=0.7,
     names=["CUDA", "AK Def", "Luma Def", "Luma Opt", "Cub"],
     size_anotation=9)
-savefig(plot, "$(@__DIR__())/../figures/scan_comparison_1e6.png")
+savefig(p1, "$(@__DIR__())/../figures/scan_comparison_1e6.png")
 
 
 
@@ -267,7 +268,7 @@ for T in [Float32, Float64]
     name = "Luma Opt"
 
     start_time = time()
-    tmp = Luma.get_allocation(scan!, op, dst, src)
+    tmp = Luma.get_allocation(scan!, identity, op, dst, src)
     while time() - start_time < 0.500  # 500ms warm-up
         CUDA.@sync Luma.scan!(op, dst, src)
     end
@@ -329,19 +330,19 @@ for T in [Float32, Float64]
 
     start_time = time()
     while time() - start_time < 0.500  # 500ms warm-up
-        CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback())
+        CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback())
     end
 
-    prof = [CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()) for _ in (1:100)]
+    prof = [CUDA.@profile AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()) for _ in (1:100)]
     dt = 0
     dts = []
     while dt <= 2 * tmax_timed
-        timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
+        timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
         u = timed[:time]
         dt += u
         push!(dts, u)
     end
-    timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0), alg=AcceleratedKernels.DecoupledLookback()))
+    timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0), alg=AK.DecoupledLookback()))
     benchmark_summary!(prof, timed, dts, T, N, name, algo, bench)
 end
 for T in [Float32, Float64]
@@ -353,19 +354,19 @@ for T in [Float32, Float64]
 
     start_time = time()
     while time() - start_time < 0.500  # 500ms warm-up
-        CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0))
+        CUDA.@sync AK.accumulate!(op, dst, src; init=T(0))
     end
 
-    prof = [CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=T(0))]
+    prof = [CUDA.@profile AK.accumulate!(op, dst, src; init=T(0))]
     dt = 0
     dts = []
     while dt <= 2 * tmax_timed
-        timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0)))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
+        timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0)))#(CUDA.@timed CUDA.@sync eval(exp_expr))[:time]
         u = timed[:time]
         dt += u
         push!(dts, u)
     end
-    timed = (CUDA.@timed CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=T(0)))
+    timed = (CUDA.@timed CUDA.@sync AK.accumulate!(op, dst, src; init=T(0)))
     benchmark_summary!(prof, timed, dts, T, N, name, algo, bench)
 end
 #%%
@@ -418,16 +419,16 @@ bench.kernel2_name .= missing
 bench_with_cub = vcat(bench, cub_f32, cub_f64, cols=:union)
 
 # Plot - it will automatically use "NVCC Benchmark" from kernel4_name
-plot = create_kernel_stacked_barplot(bench_with_cub,
+p2 = create_kernel_stacked_barplot(bench_with_cub,
     algo="Scan",
-    kernel_colors=[:blue, :red, :green, :orange], overhead_alpha=1,
+    kernel_colors=[:blue, :red, :green, :orange], overhead_alpha=0.7,
     names=["CUDA", "AK DL", "Luma Def", "Cub"],
-    size_anotation=9)
-savefig(plot, "$(@__DIR__())/../figures/scan_comparison_1e8.png")
+    size_anotation=9,
+    time_unit=:ms)
+savefig(p2, "$(@__DIR__())/../figures/scan_comparison_1e8.png")
 
 
-@kernel function f(result)
-    result[1] = 0.1f0 + 0.2f0
-end
-
-f(CUDABackend())(dst; ndrange=1)
+#%%
+combined_plot = Plots.plot(p1, p2, layout=(1, 2), size=(1000, 500),
+    margin=3Plots.mm, bottom_margin=10Plots.mm)
+savefig(combined_plot, "$(@__DIR__())/../figures/combined_plot_scan.png")

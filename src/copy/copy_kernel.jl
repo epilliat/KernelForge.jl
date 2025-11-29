@@ -4,8 +4,8 @@ using KernelAbstractions
 
     I = @index(Global, Linear)
 
-    values = vectorized_load(src, I, Val(Nitem))#ntuple(i -> src[idx_base+i], Val(Nitem))
-    vectorized_store!(dst, I, values)
+    values = vload(src, I, Val(Nitem))#ntuple(i -> src[idx_base+i], Val(Nitem))
+    vstore!(dst, I, values)
 
     if I == @ndrange()[1]
         idx_base = I * Nitem
@@ -22,7 +22,7 @@ end
 
 
     values = ntuple(i -> val, Val(Nitem))
-    vectorized_store!(dst, I, values)
+    vstore!(dst, I, values)
 
     if I == @ndrange()[1]
         idx_base = I * Nitem

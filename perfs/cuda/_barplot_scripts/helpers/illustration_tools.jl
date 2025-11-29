@@ -1,13 +1,13 @@
-
 function create_kernel_stacked_barplot(df;
     algo="Dot",
     N=nothing,
     kernel_colors=[:blue, :red, :green, :orange, :purple, :cyan, :magenta, :yellow],
     overhead_color=:gray,
-    overhead_alpha=0.7,
+    overhead_alpha=0.6,
     kernel_labels=nothing,
     names=nothing,
-    size_anotation=12)  # New parameter for custom labels
+    size_anotation=12,
+    time_unit=:us)  # New parameter: :us (microseconds) or :ms (milliseconds)
     # Filter for the specific algorithm and N
     if isnothing(N)
         df_filtered = filter(row -> row.algo == algo, df)
@@ -30,14 +30,18 @@ function create_kernel_stacked_barplot(df;
             N_val >= 1e3 ? "N=$(round(Int, N_val/1e3))e3" : "N=$N_val"
 
     names = isnothing(names) ? sort(unique(df_filtered.name)) : names
-    datatypes = [Float64, Float32, UInt8]
+    datatypes = [Float64, Float32, UInt8, Luma.UnitFloat8, QuaternionF32]
 
+    # Time conversion factor and label
+    time_factor = time_unit == :ms ? 0.001 : 1.0  # Convert μs to ms if needed
+    time_label = time_unit == :ms ? "Duration (ms)" : "Duration (μs)"
+    digits = time_unit == :ms ? 2 : 1
     # Initialize empty plot with N in title
     p = Plots.plot(
         legend=:topright,
         legend_background_color=RGBA(1, 1, 1, 0.9),  # Semi-transparent white background
         title="$algo: GPU Kernel Performance ($N_str)",
-        ylabel="Duration (μs)",
+        ylabel=time_label,
         xlabel="",
         grid=true,
         framestyle=:box,
@@ -104,7 +108,7 @@ function create_kernel_stacked_barplot(df;
                     end
                 end
 
-                overhead = row.median_duration_pipeline - row.mean_duration_gpu
+                overhead = (coalesce(row.mean_duration_pipeline, 0.0) - coalesce(row.mean_duration_gpu, 0.0)) * time_factor
                 has_overhead = has_overhead || (overhead > 0)
             end
         end
@@ -126,19 +130,30 @@ function create_kernel_stacked_barplot(df;
         added_labels["CPU Overhead"] = true
     end
 
-    # Second pass: Add all kernel labels in order (but draw nothing yet)
+    # Second pass: Add kernel labels to legend (but draw nothing yet)
+    has_cub = "Cub" in names
+
+    # Always add "Main Kernel" label for kernel 1 if it exists
     for k in 1:max_kernels
         if has_kernel[k]
             color = kernel_colors[min(k, length(kernel_colors))]
-            if k <= 2
+            # Only show "Main Kernel" label for kernel 1, no labels for others
+            if k == 1
                 Plots.plot!(p, dummy_rectangle, fillcolor=color, fillalpha=1.0,
-                    label=final_kernel_labels[k], linecolor=color, linewidth=0)
+                    label="Main Kernel", linecolor=color, linewidth=0)
+                added_labels["Main Kernel"] = true
             else
+                # Still add to legend system but with empty label (colors will still show)
                 Plots.plot!(p, dummy_rectangle, fillcolor=color, fillalpha=1.0,
                     label="", linecolor=color, linewidth=0)
             end
-            added_labels[final_kernel_labels[k]] = true
         end
+    end
+
+    # Add special "nvcc benchmark" label for Cub if it exists
+    if has_cub
+        Plots.plot!(p, dummy_rectangle, fillcolor=:darkblue, fillalpha=1.0,
+            label="nvcc benchmark", linecolor=:darkblue, linewidth=0)
     end
 
     # Now actually draw the bars
@@ -146,7 +161,12 @@ function create_kernel_stacked_barplot(df;
     for (group_idx, name) in enumerate(names)
         for dtype in intersect(datatypes, df.datatype)
             push!(bar_positions, position)
-            push!(bar_labels, dtype == Float32 ? "F32" : (dtype == Float64 ? "F64" : "U8"))
+            # For Cub, show U8 instead of UF8 (since Cub doesn't support Luma.UnitFloat8)
+            if name == "Cub"
+                push!(bar_labels, dtype == Float32 ? "F32" : (dtype == Float64 ? "F64" : "U8"))
+            else
+                push!(bar_labels, dtype == Float32 ? "F32" : (dtype == Float64 ? "F64" : dtype == Luma.UnitFloat8 ? "UF8" : "U8"))
+            end
 
             subset = filter(row -> row.name == name && row.datatype == dtype, df_filtered)
 
@@ -161,17 +181,22 @@ function create_kernel_stacked_barplot(df;
                     kernel_col = Symbol("kernel$k")
 
                     if has_kernel[k] && hasproperty(row, kernel_col) && !ismissing(row[kernel_col]) && row[kernel_col] > 0
-                        kernel_height = row[kernel_col]
+                        kernel_height = row[kernel_col] * time_factor
 
                         # Choose color from the provided array
-                        color = kernel_colors[min(k, length(kernel_colors))]
+                        # Special color for Cub to match the legend
+                        if name == "Cub"
+                            color = :darkblue
+                        else
+                            color = kernel_colors[min(k, length(kernel_colors))]
+                        end
 
                         rectangle = Shape([position - bar_width, position - bar_width,
                                 position + bar_width, position + bar_width],
                             [y_bottom, y_bottom + kernel_height,
                                 y_bottom + kernel_height, y_bottom])
 
-                        # Don't add label since we already added them above
+                        # Don't add labels here - we already added them above
                         Plots.plot!(p, rectangle, fillcolor=color, fillalpha=1.0,
                             label="", linecolor=color, linewidth=0.5)
 
@@ -180,7 +205,7 @@ function create_kernel_stacked_barplot(df;
                 end
 
                 # Overhead (top layer)
-                overhead = row.median_duration_pipeline - row.mean_duration_gpu
+                overhead = (coalesce(row.mean_duration_pipeline, 0.0) - coalesce(row.mean_duration_gpu, 0.0)) * time_factor
                 if overhead > 0
                     rectangle = Shape([position - bar_width, position - bar_width,
                             position + bar_width, position + bar_width],
@@ -207,13 +232,16 @@ function create_kernel_stacked_barplot(df;
         xlims=(0.2, maximum(bar_positions) + 0.8),
         ylims=(0, max_height * 1.2))  # Increased from 1.1 to 1.15 for more space above
 
-    # Add group labels BETWEEN the bars of each group
+    # Add group labels centered on each group
     for (i, name) in enumerate(names)
-        # Position label between F32 and F64 bars of each group
+        # Count how many datatypes are actually present
+        num_types = length(intersect(datatypes, unique(df.datatype)))
+
+        # Calculate the center position of the group
         if i == 1
-            label_x = 1.5  # Between positions 1 and 2
+            label_x = (1.0 + num_types) / 2.0  # Center of first group
         else
-            label_x = 1.5 + (i - 1) * 2.5  # Account for gap between groups
+            label_x = (1.0 + num_types) / 2.0 + (i - 1) * (num_types + 0.5)
         end
 
         annotate!(p, label_x, -max_height * 0.1,
@@ -236,27 +264,27 @@ function create_kernel_stacked_barplot(df;
                 for k in 1:max_kernels
                     kernel_col = Symbol("kernel$k")
                     if has_kernel[k] && hasproperty(row, kernel_col) && !ismissing(row[kernel_col]) && row[kernel_col] > 0
-                        y_bottom += row[kernel_col]
+                        y_bottom += row[kernel_col] * time_factor
                     end
                 end
 
                 # Add overhead
-                overhead = row.median_duration_pipeline - row.mean_duration_gpu
+                overhead = (coalesce(row.mean_duration_pipeline, 0.0) - coalesce(row.mean_duration_gpu, 0.0)) * time_factor
                 if overhead > 0
                     y_bottom += overhead
                 end
 
-                gpu_time = row.mean_duration_gpu
+                gpu_time = row.mean_duration_gpu * time_factor
                 total_time = y_bottom
 
                 # Total time (not bold, slightly higher)
                 if name ∉ ("Cub",)
                     annotate!(p, position, total_time + ylims(p)[2] * 0.07,
-                        text("\$$(string(round(total_time, digits=1)))\$", size_anotation, :center, :bottom))
+                        text("\$$(string(round(total_time, digits=digits)))\$", size_anotation, :center, :bottom))
                 end
                 # GPU time (bold, just below total time)
                 annotate!(p, position, total_time + ylims(p)[2] * 0.01,
-                    text("\$\\mathbf{$(string(round(gpu_time, digits=1)))}\$", size_anotation, :center, :bottom))
+                    text("\$\\mathbf{$(string(round(gpu_time, digits=digits)))}\$", size_anotation, :center, :bottom))
             end
 
             position += 1.0

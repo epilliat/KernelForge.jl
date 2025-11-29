@@ -1,2 +1,6 @@
 /dev
-/local
+**/local
+
+**/build
+**/bin
+*.csv

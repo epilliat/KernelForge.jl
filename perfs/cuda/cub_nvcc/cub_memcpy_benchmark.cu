@@ -29,59 +29,9 @@ std::string getTypeName()
 {
     if (std::is_same<T, float>::value)
         return "float32";
-    if (std::is_same<T, uint8_t>::value)
-        return "uint8";
+    if (std::is_same<T, double>::value)
+        return "float64";
     return "unknown";
-}
-
-// Helper function to generate random data
-template <typename T>
-void generate_random_data(std::vector<T> &data, std::mt19937 &gen)
-{
-    std::uniform_real_distribution<T> dist(0.0, 1.0);
-    for (size_t i = 0; i < data.size(); ++i)
-    {
-        data[i] = dist(gen);
-    }
-}
-
-// Specialization for uint8_t
-template <>
-void generate_random_data<uint8_t>(std::vector<uint8_t> &data, std::mt19937 &gen)
-{
-    std::uniform_int_distribution<int> dist(0, 255);
-    for (size_t i = 0; i < data.size(); ++i)
-    {
-        data[i] = static_cast<uint8_t>(dist(gen));
-    }
-}
-
-// Helper function to verify data
-template <typename T>
-bool verify_element(const T &output, const T &input)
-{
-    return std::abs(output - input) <= T(1e-6);
-}
-
-// Specialization for uint8_t
-template <>
-bool verify_element<uint8_t>(const uint8_t &output, const uint8_t &input)
-{
-    return output == input;
-}
-
-// Helper function to print element for debugging
-template <typename T>
-void print_element(std::ostream &os, const T &val)
-{
-    os << val;
-}
-
-// Specialization for uint8_t
-template <>
-void print_element<uint8_t>(std::ostream &os, const uint8_t &val)
-{
-    os << static_cast<int>(val);
 }
 
 template <typename T>
@@ -101,7 +51,11 @@ void benchmark_cub_memcpy(size_t N, float warmup_ms = 500.0f, int num_iterations
     // Initialize with random data
     std::random_device rd;
     std::mt19937 gen(rd());
-    generate_random_data(h_input, gen);
+    std::uniform_real_distribution<T> dist(0.0, 1.0);
+    for (size_t i = 0; i < N; ++i)
+    {
+        h_input[i] = dist(gen);
+    }
 
     // Allocate device memory
     T *d_input = nullptr;
@@ -112,6 +66,12 @@ void benchmark_cub_memcpy(size_t N, float warmup_ms = 500.0f, int num_iterations
     // Copy input to device
     CHECK_CUDA(cudaMemcpy(d_input, h_input.data(), N * sizeof(T), cudaMemcpyHostToDevice));
 
+    // Determine temporary storage requirements for CUB
+    void *d_temp_storage = nullptr;
+    size_t temp_storage_bytes = 0;
+
+    // CUB DeviceCopy doesn't need temp storage, but we'll use DeviceSelect::Flagged as a copy proxy
+    // Actually, for a pure copy, we'll just use the basic approach
     // CUB doesn't have a dedicated copy function, so we'll use cudaMemcpy for device-to-device
 
     // Create CUDA events for timing
@@ -201,14 +161,11 @@ void benchmark_cub_memcpy(size_t N, float warmup_ms = 500.0f, int num_iterations
     size_t check_count = std::min(size_t(100), N);
     for (size_t i = 0; i < check_count; ++i)
     {
-        if (!verify_element(h_output[i], h_input[i]))
+        if (std::abs(h_output[i] - h_input[i]) > T(1e-6))
         {
             verify = false;
-            std::cout << "Verification failed at index " << i << ": expected ";
-            print_element(std::cout, h_input[i]);
-            std::cout << ", got ";
-            print_element(std::cout, h_output[i]);
-            std::cout << std::endl;
+            std::cout << "Verification failed at index " << i << ": expected "
+                      << h_input[i] << ", got " << h_output[i] << std::endl;
             break;
         }
     }
@@ -255,7 +212,11 @@ void benchmark_thrust_copy(size_t N, float warmup_ms = 500.0f, int num_iteration
     // Initialize with random data
     std::random_device rd;
     std::mt19937 gen(rd());
-    generate_random_data(h_input, gen);
+    std::uniform_real_distribution<T> dist(0.0, 1.0);
+    for (size_t i = 0; i < N; ++i)
+    {
+        h_input[i] = dist(gen);
+    }
 
     // Create thrust device vectors
     thrust::device_vector<T> d_input(h_input);
@@ -347,14 +308,11 @@ void benchmark_thrust_copy(size_t N, float warmup_ms = 500.0f, int num_iteration
     size_t check_count = std::min(size_t(100), N);
     for (size_t i = 0; i < check_count; ++i)
     {
-        if (!verify_element(h_output[i], h_input[i]))
+        if (std::abs(h_output[i] - h_input[i]) > T(1e-6))
         {
             verify = false;
-            std::cout << "Verification failed at index " << i << ": expected ";
-            print_element(std::cout, h_input[i]);
-            std::cout << ", got ";
-            print_element(std::cout, h_output[i]);
-            std::cout << std::endl;
+            std::cout << "Verification failed at index " << i << ": expected "
+                      << h_input[i] << ", got " << h_output[i] << std::endl;
             break;
         }
     }
@@ -445,16 +403,16 @@ int main(int argc, char **argv)
         benchmark_thrust_copy<float>(N, warmup_ms, iterations);
     }
 
-    // Run benchmarks for uint8
+    // Run benchmarks for float64
     std::cout << "\n############################################" << std::endl;
-    std::cout << "#         UINT8 BENCHMARKS                #" << std::endl;
+    std::cout << "#         FLOAT64 BENCHMARKS              #" << std::endl;
     std::cout << "############################################" << std::endl;
 
-    benchmark_cub_memcpy<uint8_t>(N, warmup_ms, iterations);
+    benchmark_cub_memcpy<double>(N, warmup_ms, iterations);
 
     if (use_thrust)
     {
-        benchmark_thrust_copy<uint8_t>(N, warmup_ms, iterations);
+        benchmark_thrust_copy<double>(N, warmup_ms, iterations);
     }
 
     // Summary comparison

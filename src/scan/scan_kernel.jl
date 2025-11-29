@@ -24,7 +24,7 @@
     shared = @localmem Outf 32
 
     if idx_base + Nitem <= N
-        values = vectorized_load(src, I, Val(Nitem))
+        values = vload(src, I, Val(Nitem))
         values = accumulate(op, values)
     else
         values = ntuple(i -> idx_base + i <= N ? (f(src[idx_base+i])) : f(src[N]), Val(Nitem))
@@ -141,7 +141,7 @@
     end
 
     if idx_base + Nitem <= N
-        vectorized_store!(dst, I, values)
+        vstore!(dst, I, values)
     else
         for i in (1:Nitem)
             if idx_base + i <= N

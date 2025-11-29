@@ -24,6 +24,8 @@ include("mapreduce/mapreduce.jl")
 include("scan/scan_kernel.jl")
 include("scan/scan.jl")
 
+
+include("extras/unitfloats.jl")
 include("linear_algebra/reductions.jl")
 
 

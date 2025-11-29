@@ -3,36 +3,88 @@ using Pkg
 using Test
 Pkg.activate("local")
 luma_path = "/home/emmanuel/Packages/Luma.jl/"
-Pkg.develop(path=luma_path)
+#Pkg.develop(path=luma_path)
 
 #Pkg.instantiate()
-Pkg.resolve()
-Base.retry_load_extensions()
+#Pkg.resolve()
+#Base.retry_load_extensions()
 using Luma
 using KernelAbstractions, Test, CUDA, BenchmarkTools
 using AcceleratedKernels
 
 
-methods(Luma.get_default_config)
-
 op = +
-f = *
+identity
+
+f(x) = Float64(x)
+
+g(x) = Float32(x)
 #%%
 n = 1000000
-Nitem = 1
-src = CuArray{Float64}([i for i in (1:n)])
-dst = CuArray{Float64}([0 for i in (1:n)])
+Nitem = 16
+src = CuArray{Float32}([i for i in (1:n)])
+w = CuArray{Float32}([2.0 for i in (1:n)])
+dst = CuArray{Float32}([0])
 
-CUDA.@sync Luma.mapreduce1d!(f, op, dst, src, FlagType=UInt64, Nitem=Nitem)
+tmp = Luma.get_allocation(Luma.mapreduce1d!, f, op, dst, (src,); g=g, Nitem=Nitem,
+    FlagType=UInt64, config=(workgroup=256, blocks=1000))
+CUDA.@sync Luma.mapreduce1d!(f, op, dst, (src,), FlagType=UInt64, Nitem=Nitem, tmp=tmp)
 
-CUDA.@profile Luma.mapreduce1d!(f, op, dst, src, FlagType=UInt64, Nitem=Nitem)
+CUDA.@profile Luma.mapreduce1d!(f, op, dst, (src,), g=g, FlagType=UInt64, Nitem=Nitem, tmp=tmp)
+
+
+Luma.mapreduce(f, op, src; g=g, to_cpu=true)
+mapreduce(f, op, src)
 #%%
+op = +
+identity
+
+f(x) = x
+g(x) = x
+#%%
+n = 1000000
+Nitem = 16
+src = CuArray{UnitFloat8}([rand(UnitFloat8) for i in (1:n)])
+w = CuArray{Float32}([2.0 for i in (1:n)])
+dst = CuArray{Float32}([0])
+
+tmp = Luma.get_allocation(Luma.mapreduce1d!, f, op, dst, (src,); g=g, Nitem=Nitem,
+    FlagType=UInt64, config=(workgroup=256, blocks=1000))
+CUDA.@sync Luma.mapreduce1d!(f, op, dst, (src,), FlagType=UInt64, Nitem=Nitem, tmp=tmp)
+
+CUDA.@profile Luma.mapreduce1d!(f, op, dst, (src,), g=g, FlagType=UInt64, Nitem=Nitem, tmp=tmp)
+
+
+Luma.mapreduce(f, op, src; g=g, to_cpu=true)
+mapreduce(f, op, src)
+#%%
+op = +
+identity
+
+f(x) = x
+g(x) = x
+#%%
+
+#%%
+n = 100000000
+Nitem = 1
+src = CuArray{Float32}([i for i in (1:n)])
+w = CuArray{Float32}([2.0 for i in (1:n)])
+dst = CuArray{Float32}([0])
+
+
+#CUDA.@sync Luma.mapreduce1d!(f, op, dst, (src,), FlagType=UInt64, Nitem=Nitem)
+tmp = Luma.get_allocation(Luma.mapreduce1d!, f, op, dst, (src,); g=g, Nitem=Nitem,
+    FlagType=UInt64, config=(workgroup=256, blocks=400))
+dst
+CUDA.@profile Luma.mapreduce1d!(f, op, dst, (src,); g=g, FlagType=UInt64, Nitem=Nitem, tmp=tmp)
+#%% 
 methods(Luma.get_default_config_cached)
 mb = @which mapreduce(identity, op, Array(src))
 ml = @which Luma.mapreduce(identity, op, src)
 @test mb.module == Base
 @test ml.module == Luma
-@test isapprox(Luma.mapreduce(f, op, src, FlagType=UInt64, to_cpu=true), mapreduce(identity, op, Array(src)))
+isapprox(Luma.mapreduce(f, op, src, FlagType=UInt64, to_cpu=true, Nitem=Nitem), mapreduce(identity, op, Array(src)))
 
 #%%
 n = 1000000

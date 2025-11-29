@@ -1,14 +1,19 @@
 function get_default_config end
 
+"""
+T -> f -> H -> op -> H -> g -> S
+"""
 
 @kernel function mapreduce1d_kernel!(
     f::F, op::O,
-    dst::AbstractArray{Outf}, srcs::NTuple{U,AbstractArray{T}},
+    dst::AbstractArray{S},
+    srcs::NTuple{U,AbstractArray{T}},
+    g::G,
     ::Val{Nitem},
-    partial::AbstractArray{Outf},
+    partial::AbstractArray{H},
     flag::AbstractArray{FlagType},
     targetflag::FlagType
-) where {F<:Function,O<:Function,U,T,Outf,FlagType<:Integer,Nitem}
+) where {F<:Function,O<:Function,G<:Function,U,T,H,S,FlagType<:Integer,Nitem}
 
     N = length(srcs[1])
     workgroup = Int(@groupsize()[1])
@@ -24,23 +29,19 @@ function get_default_config end
     warp_id = cld(lid, warpsz)
     lane = (lid - 1) % warpsz + 1
 
-    shared = @localmem Outf 32
+    shared = @localmem H 32
 
     i = I
-    if Nitem == 1
-        val = apply(f, srcs, i) # can't compile val = f((src[i] for src in srcs)...)
-        i += ndrange
 
-        while i <= N
-            x = apply(f, srcs, i)
-            val = op(val, x)
-            i += ndrange
-        end
-    else
-        val = op(f.(vectorized_load(srcs[1], i, Val(Nitem)))...)
+    begin
+        #val = op(f.(vload(srcs[1], i, Val(Nitem)))...)
+        val = op(broadcast_apply_across(f, srcs, i, Val(Nitem))...)
+        srcs
         i += ndrange
         while i * Nitem <= N
-            val = op(val, f.(vectorized_load(srcs[1], i, Val(Nitem)))...)
+            #val = op(val, f.(vload(srcs[1], i, Val(Nitem)))...)
+            val = op(val, broadcast_apply_across(f, srcs, i, Val(Nitem))...)
+
             i += ndrange
         end
         id_base = (i - 1) * Nitem + 1
@@ -78,7 +79,7 @@ function get_default_config end
             while true
                 (@access flag[i]) == targetflag && break
             end
-            val = op(val, f(partial[i]))
+            val = op(val, partial[i])
             i += workgroup
         end
         @warpreduce(val, lane, op)
@@ -90,7 +91,7 @@ function get_default_config end
             val_acc = shared[lane]
             @warpreduce(val_acc, lane, op)
             if lane == min(cld(workgroup, warpsz), cld(blocks, warpsz))
-                dst[1] = val_acc
+                dst[1] = g(val_acc)
             end
         end
     end

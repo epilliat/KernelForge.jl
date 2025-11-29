@@ -1,9 +1,9 @@
 using Revise
 using Pkg
 
+Pkg.activate("$(@__DIR__())/../")
 include("helpers/extract_infos.jl")
 include("helpers/illustration_tools.jl")
-Pkg.activate("$(@__DIR__())/../")
 
 luma_path = abspath("$(@__DIR__())/../../../")
 #Pkg.develop(path=luma_path)
@@ -40,7 +40,7 @@ for Nitem in [1, 4]
         while time() - start_time < 0.500  # 500ms warm-up
             Luma.vcopy!(dst, src, Nitem=Nitem)
         end
-        prof = CUDA.@bprofile time = 0.05 Luma.vcopy!(dst, src, Nitem=Nitem)
+        prof = [CUDA.@profile Luma.vcopy!(dst, src, Nitem=Nitem) for _ in (1:100)]
         dt = 0
         dts = []
         while dt <= 2 * tmax_timed
@@ -76,7 +76,7 @@ for Nitem in [1, 4]
         while time() - start_time < 0.500  # 500ms warm-up
             CUDA.@sync copy_ka!(dst, src)
         end
-        prof = CUDA.@bprofile time = 0.05 copy_ka!(dst, src)
+        prof = [CUDA.@profile Luma.vcopy!(dst, src, Nitem=Nitem) for _ in (1:100)]
         dt = 0
         dts = []
         while dt <= 2 * tmax_timed
@@ -140,14 +140,16 @@ bench.kernel2_name .= missing
 bench_with_cub = vcat(bench, cub_f32, cub_u8, cols=:union)
 
 # Plot - it will automatically use "NVCC Benchmark" from kernel4_name
-plot = create_kernel_stacked_barplot(bench_with_cub,
+p1 = create_kernel_stacked_barplot(bench_with_cub,
     algo="Copy",
-    kernel_colors=[:blue, :red, :green, :orange], overhead_alpha=1, names=["KA", "Luma v1", "Luma v4", "Cub"])
-savefig(plot, "$(@__DIR__())/../figures/vcopy_comparison.png")
+    kernel_colors=[:blue, :red, :green, :orange],
+    overhead_alpha=0.7, names=["KA", "Luma v1", "Luma v4", "Cub"], time_unit=:ms)
+plot!(ylim=(0, 7))
+#savefig(plot, "$(@__DIR__())/../figures/vcopy_comparison.png")
 #%%
 #====================== COPY ===================#
-durations = Dict("v1" => [], "v4" => [])
-Ns = [Int(i * 1e5) for i in (1:2)]
+Ns = [Int(i * 1e5) for i in (1:500)]
+durations = Dict("v1" => [], "v4" => [], "Ns" => Ns)
 for N in Ns
     println("computing durations for N=$N")
     for Nitem in [1, 4]
@@ -175,13 +177,25 @@ for N in Ns
     end
 end
 
+#%%
 df = DataFrame(durations)
-CSV.write("perfs/data/memcopy_func_n.csv", df)
-df = CSV.read("perfs/data/memcopy_func_n.csv", DataFrame)
+CSV.write("$(@__DIR__())/data/memcopy_func_n.csv", df)
 
+
+#%%
 # Convert back to Dict if needed
+df = CSV.read("$(@__DIR__())/data/memcopy_func_n.csv", DataFrame)
 using Plots
-Plots.plot(Ns, df.v1 .* 1e6, label="Luma v1", linewidth=2)
-Plots.plot!(Ns, df.v4 .* 1e6, label="Luma v4", linewidth=2)
+
+plt2 = Plots.plot(df.Ns, df.v1 .* 1e6, label="Copy v1", linewidth=2,
+    xscale=:log10, yscale=:log10,
+    xlabel="Size (Float32)", ylabel="Duration (μs)")
+Plots.plot!(df.Ns, df.v4 .* 1e6, label="Copy v4", linewidth=2, title="Memory Copy Duration vs Size (Float32)", linestyle=:dash)
+
+vline!([12 * 1024 * 1024 / 4], label="L2 limit (read + write)", linestyle=:dashdot, color=:black) # L2 cache size = 24MB
 xlabel!("Length")
 ylabel!("Duration (μs)")
+
+combined_plot = Plots.plot(p1, plt2, layout=(1, 2), size=(1000, 500),
+    margin=5Plots.mm)
+savefig(combined_plot, "$(@__DIR__())/../figures/combined_plot_copy.png")
