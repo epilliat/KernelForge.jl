@@ -19,7 +19,7 @@ const DEFAULT_SCAN_NITEM = Dict(
 end
 
 
-function get_allocation(
+function _get_allocation(
     ::typeof(scan!),
     f, op,
     dst::AbstractGPUVector{Outf},
@@ -55,7 +55,7 @@ function scan!(
         Nitem = default_scan_nitem(scan!, Outf)
     end
     if isnothing(tmp)
-        tmp = get_allocation(scan!, f, op, dst, src; workgroup=workgroup, Nitem=Nitem, FlagType=FlagType)
+        tmp = _get_allocation(scan!, f, op, dst, src; workgroup=workgroup, Nitem=Nitem, FlagType=FlagType)
     end
 
     n = length(src)

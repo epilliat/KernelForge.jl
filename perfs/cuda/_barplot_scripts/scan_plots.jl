@@ -68,7 +68,7 @@ for T in [Float32, Float64]
     name = "Luma Opt"
 
     start_time = time()
-    tmp = Luma.get_allocation(scan!, identity, op, dst, src; FlagType=UInt64)
+    tmp = Luma._get_allocation(scan!, identity, op, dst, src; FlagType=UInt64)
     while time() - start_time < 0.500  # 500ms warm-up
         CUDA.@sync Luma.scan!(op, dst, src)
     end
@@ -268,7 +268,7 @@ for T in [Float32, Float64]
     name = "Luma Opt"
 
     start_time = time()
-    tmp = Luma.get_allocation(scan!, identity, op, dst, src)
+    tmp = Luma._get_allocation(scan!, identity, op, dst, src)
     while time() - start_time < 0.500  # 500ms warm-up
         CUDA.@sync Luma.scan!(op, dst, src)
     end

@@ -8,7 +8,7 @@ using ArgCheck
 const warpsz = 32 # TODO: This might change from one architecture to another
 
 export scan!, vcopy!, mapreduce!
-export get_allocation
+export _get_allocation
 
 
 

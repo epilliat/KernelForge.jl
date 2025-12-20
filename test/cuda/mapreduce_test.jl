@@ -14,7 +14,7 @@
 
                         # Get allocation - H is T since f=identity
                         tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,);
-                            blocks=400, H=T, FlagType=UInt64)
+                            blocks=400, eltype=T, FlagType=UInt64)
 
                         # Warm up
                         CUDA.@sync Luma.mapreduce!(f, op, dst, src, FlagType=UInt64)
@@ -98,7 +98,7 @@ end
 
                 # Get allocation - H is Output3 (result type of map_func)
                 tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,);
-                    blocks=400, H=Output3, FlagType=UInt64)
+                    blocks=400, eltype=Output3, FlagType=UInt64)
 
                 # Warm up
                 CUDA.@sync Luma.mapreduce!(map_func, reduce_func, dst, src, FlagType=UInt64)

@@ -60,7 +60,7 @@ src = CuArray{T}(1:n)
 dst = CuArray{T}(zeros(n))
 
 # Pre-allocate temporaries to measure pure kernel performance
-tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=100, H=Float32, FlagType=FlagType)
+tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=100, FlagType=FlagType)
 
 start_time = time()
 while time() - start_time < 0.5

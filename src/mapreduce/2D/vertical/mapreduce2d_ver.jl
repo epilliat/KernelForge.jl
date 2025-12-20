@@ -25,7 +25,7 @@ end
         return 1
     end
 end
-function get_allocation( # Temporary allocation needed only for splitgrid, when there are several blocks per column doing reductions (n>>p).
+function _get_allocation( # Temporary allocation needed only for splitgrid, when there are several blocks per column doing reductions (n>>p).
     ::typeof(mapreduce2d_ver!),
     srcs::NTuple{U,AbstractArray{T}};
     #
@@ -111,7 +111,7 @@ function mapreduce2d_ver!(
         end
     else
         if isnothing(tmp)
-            tmp = get_allocation(mapreduce2d_ver!, srcs; Nblocks=Nblocks, H=H, FlagType=FlagType)
+            tmp = _get_allocation(mapreduce2d_ver!, srcs; Nblocks=Nblocks, H=H, FlagType=FlagType)
         end
         partial, flag = partition(tmp, Nblocks * p, H, FlagType)
         if FlagType == UInt8

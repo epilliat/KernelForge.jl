@@ -32,7 +32,7 @@ src = CuArray{T}([i for i in (1:n)])
 dst = CuArray{T}([0 for _ in (1:n)])
 
 start_time = time()
-tmp = get_allocation(Luma.scan!, identity, op, dst, src; FlagType=FlagType)
+tmp = _get_allocation(Luma.scan!, identity, op, dst, src; FlagType=FlagType)
 while time() - start_time < 0.800  # 500ms warm-up
     CUDA.@sync Luma.scan!(op, dst, src; tmp=tmp, FlagType=FlagType)
 end
@@ -69,7 +69,7 @@ start_time = time()
 while time() - start_time < 0.500  # 500ms warm-up
     CUDA.@sync Luma.scan!(op, dst, src)
 end
-tmp = get_allocation(scan!, op, dst, src)
+tmp = _get_allocation(scan!, op, dst, src)
 prof = CUDA.@profile Luma.scan!(op, dst, src)
 
 #%%
