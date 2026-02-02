@@ -110,38 +110,85 @@ end
     end
 end
 
+@generated function broadcast_apply_across(f, x, A, idx_x, idx_A, ::Val{Nitem}) where {Nitem}
+    # Load from x and A
+    loads = [:(vload(x, idx_x, Val($Nitem))), :(vload(A, idx_A, Val($Nitem)))]
+
+    # Store them in variables
+    load_vars = [Symbol(:load_, k) for k in 1:2]
+    assignments = [:($var = $load) for (var, load) in zip(load_vars, loads)]
+
+    # Generate Nitem function calls
+    calls = []
+    for item in 1:Nitem
+        # f(load_1[item], load_2[item])
+        args = [:($(load_vars[k])[$item]) for k in 1:2]
+        push!(calls, :(f($(args...))))
+    end
+
+    return quote
+        $(assignments...)
+        tuple($(calls...))
+    end
+end
+x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+A = [10.0 100.0;
+    20.0 200.0;
+    30.0 300.0;
+    40.0 400.0]
+result = broadcast_apply_across(+, x, A, 2, 1, Val(4))
 """
     get_partition_sizes(blocks, Types::Type...)
 
 Calculate aligned memory partition sizes for temporary storage arrays.
 
-Computes the size in bytes needed for each type, rounded up to 8-byte alignment
-for efficient memory access patterns on GPUs.
+Computes the size in bytes needed for each type, rounded up to be a multiple of
+both 8 bytes and `sizeof(T)` for efficient memory access patterns on GPUs and
+correct reinterpretation of the buffer.
 
 # Arguments
 - `blocks`: Number of blocks (typically thread blocks or work units)
 - `Types`: Variable number of types to allocate space for
 
 # Returns
-Tuple of partition sizes (in bytes) for each type, 8-byte aligned.
+Tuple of partition sizes (in bytes) for each type, aligned to `lcm(8, sizeof(T))`.
 
 # Formula
-For each type `T`: `((blocks * sizeof(T) + 8 * sizeof(T)) >> 3) << 3`
-- Allocates space for `blocks` elements of type `T`
-- Adds padding of `8 * sizeof(T)`
-- Rounds up to nearest multiple of 8 bytes
+For each type `T`:
+- `alignment = lcm(8, sizeof(T))`
+- `raw_size = blocks * sizeof(T) + 8 * sizeof(T)`
+- `aligned_size = cld(raw_size, alignment) * alignment`
+
+This ensures the buffer can be safely reinterpreted as an array of type `T`.
 
 # Examples
 ```julia
 sizes = get_partition_sizes(100, Float32, Int64, UInt8)
-# Returns sizes for 100 blocks of each type, aligned
+# Returns sizes for 100 blocks of each type, properly aligned
+
+# For a 12-byte struct, alignment is lcm(8, 12) = 24
+struct MyStruct
+    a::Float32
+    b::Float32
+    c::Float32
+end
+sizes = get_partition_sizes(100, MyStruct)
+# Returns a size that is a multiple of 24
 ```
 
 # See Also
 - [`partition`](@ref): Uses these sizes to partition a memory buffer
 """
 function get_partition_sizes(blocks, Types::Type...)
-    return (((blocks * sizeof(T) + 8 * sizeof(T)) >> 3) << 3 for T in Types)
+    return (
+        let
+            sz = sizeof(T)
+            alignment = lcm(8, sz)
+            raw_size = blocks * sz + 8 * sz
+            cld(raw_size, alignment) * alignment
+        end
+        for T in Types
+    )
 end
 
 """
@@ -301,8 +348,52 @@ end
     end
 
     quote
-        Base.@_inline_meta
         Base.Cartesian.@nexprs $N i -> v_i = @inbounds data[i]
         $(build_tree(collect(1:N)))
+    end
+end
+
+
+@inline @generated function tree_accumulate(op::OP, data::NTuple{N,T}) where {OP,T,N}
+    if N == 1
+        return :(Base.@_inline_meta; (data[1],))
+    end
+
+    # Upsweep: build tree reductions
+    # Downsweep: propagate prefix sums
+
+    exprs = Expr[]
+
+    # Load values
+    for i in 1:N
+        push!(exprs, :($(Symbol(:v_, i)) = @inbounds data[$i]))
+    end
+
+    # Upsweep phase: compute tree reductions
+    # Level k combines pairs at stride 2^k
+    # Store intermediate results for downsweep
+    levels = ceil(Int, log2(N))
+
+    # Track current values at each position
+    # After upsweep, position 2^k will hold reduction of indices 1:2^k
+    for level in 0:levels-1
+        stride = 1 << level
+        next_stride = stride << 1
+        for i in next_stride:next_stride:N
+            left = i - stride
+            # u_{level}_{i} holds reduction of (i-next_stride+1):i
+            push!(exprs, :($(Symbol(:u_, level, :_, i)) = op($(level == 0 ? Symbol(:v_, left) : Symbol(:u_, level - 1, :_, left)),
+                $(level == 0 ? Symbol(:v_, i) : Symbol(:u_, level - 1, :_, i)))))
+        end
+    end
+
+    # For prefix sum, we need to compute cumulative sums
+    # Simpler approach: just do sequential accumulation (still generates efficient code)
+
+    # Actually, let's use the straightforward approach that unrolls nicely:
+    quote
+        Base.Cartesian.@nexprs $N i -> v_i = @inbounds data[i]
+        Base.Cartesian.@nexprs $N i -> a_i = (i == 1 ? v_1 : op(a_{i - 1}, v_i))
+        Base.Cartesian.@ntuple $N i -> a_i
     end
 end

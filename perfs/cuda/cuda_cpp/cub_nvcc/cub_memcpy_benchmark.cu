@@ -3,11 +3,10 @@
 #include <random>
 #include <cmath>
 #include <iomanip>
+#include <type_traits>
+#include <chrono>
 #include <algorithm>
 #include <cub/cub.cuh>
-#include <thrust/device_vector.h>
-#include <thrust/host_vector.h>
-#include <thrust/copy.h>
 #include <cuda_runtime.h>
 
 // Error checking macro
@@ -23,7 +22,109 @@
         }                                                                                              \
     } while (0)
 
-// Get type name for display
+// Struct to hold benchmark results
+struct BenchmarkResult
+{
+    std::string operation;
+    std::string dtype;
+    size_t N;
+    size_t element_size;
+    double memory_mb;
+    double temp_storage_kb;
+    int warmup_iterations;
+    int benchmark_iterations;
+    double mean_ms;
+    double std_ms;
+    double min_ms;
+    double max_ms;
+    double coeff_var_percent;
+    double throughput_gb_s;
+    double elements_per_sec_billion;
+    std::string gpu_name;
+    int compute_major;
+    int compute_minor;
+    double peak_bandwidth_gb_s;
+    bool verified;
+};
+
+// GPU info struct
+struct GPUInfo
+{
+    std::string name;
+    int compute_major;
+    int compute_minor;
+    double peak_bandwidth_gb_s;
+};
+
+// Global flags
+bool g_json_output = false;
+bool g_quiet = false;
+
+// Helper to get GPU info
+GPUInfo getGPUInfo()
+{
+    cudaDeviceProp prop;
+    CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
+
+    GPUInfo info;
+    info.name = prop.name;
+    info.compute_major = prop.major;
+    info.compute_minor = prop.minor;
+    // Peak bandwidth = memory_clock (Hz) * bus_width (bits) * 2 (DDR) / 8 (bits to bytes) / 1e9 (to GB)
+    info.peak_bandwidth_gb_s = (prop.memoryClockRate * 1000.0) * (prop.memoryBusWidth / 8.0) * 2.0 / 1e9;
+
+    return info;
+}
+
+// Helper template for data initialization - generic version for floating point
+template <typename T, typename Enable = void>
+struct DataInitializer
+{
+    static void initialize(std::vector<T> &data)
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<T> dist(0.0, 1.0);
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            data[i] = dist(gen);
+        }
+    }
+};
+
+// Specialization for integer types (excluding uint8_t which needs special handling)
+template <typename T>
+struct DataInitializer<T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, uint8_t>::value>::type>
+{
+    static void initialize(std::vector<T> &data)
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<T> dist(0, 100);
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            data[i] = dist(gen);
+        }
+    }
+};
+
+// Specialization for uint8_t
+template <>
+struct DataInitializer<uint8_t, void>
+{
+    static void initialize(std::vector<uint8_t> &data)
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> dist(0, 255);
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            data[i] = static_cast<uint8_t>(dist(gen));
+        }
+    }
+};
+
+// Helper to get type name as string
 template <typename T>
 std::string getTypeName()
 {
@@ -31,413 +132,380 @@ std::string getTypeName()
         return "float32";
     if (std::is_same<T, double>::value)
         return "float64";
+    if (std::is_same<T, int>::value)
+        return "int32";
+    if (std::is_same<T, uint64_t>::value)
+        return "uint64";
+    if (std::is_same<T, uint8_t>::value)
+        return "uint8";
     return "unknown";
 }
 
-template <typename T>
-void benchmark_cub_memcpy(size_t N, float warmup_ms = 500.0f, int num_iterations = 100)
+// Escape string for JSON
+std::string escapeJson(const std::string &s)
 {
-    std::cout << "\n=== CUB DeviceCopy Benchmark ===" << std::endl;
-    std::cout << "Data type: " << getTypeName<T>() << std::endl;
-    std::cout << "Vector size: " << N << " elements" << std::endl;
-    std::cout << "Element size: " << sizeof(T) << " bytes" << std::endl;
-    std::cout << "Memory size: " << (N * sizeof(T)) / (1024.0 * 1024.0) << " MB" << std::endl;
-    std::cout << "Total bandwidth (R+W): " << (2 * N * sizeof(T)) / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::string result;
+    for (char c : s)
+    {
+        switch (c)
+        {
+        case '"':
+            result += "\\\"";
+            break;
+        case '\\':
+            result += "\\\\";
+            break;
+        case '\n':
+            result += "\\n";
+            break;
+        case '\r':
+            result += "\\r";
+            break;
+        case '\t':
+            result += "\\t";
+            break;
+        default:
+            result += c;
+        }
+    }
+    return result;
+}
+
+// Print results as JSON
+void print_json_results(const std::vector<BenchmarkResult> &results)
+{
+    std::cout << "[\n";
+    for (size_t i = 0; i < results.size(); ++i)
+    {
+        const auto &r = results[i];
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "  {\n"
+                  << "    \"operation\": \"" << escapeJson(r.operation) << "\",\n"
+                  << "    \"dtype\": \"" << escapeJson(r.dtype) << "\",\n"
+                  << "    \"N\": " << r.N << ",\n"
+                  << "    \"element_size\": " << r.element_size << ",\n"
+                  << "    \"memory_mb\": " << r.memory_mb << ",\n"
+                  << "    \"temp_storage_kb\": " << r.temp_storage_kb << ",\n"
+                  << "    \"warmup_iterations\": " << r.warmup_iterations << ",\n"
+                  << "    \"benchmark_iterations\": " << r.benchmark_iterations << ",\n"
+                  << "    \"mean_ms\": " << r.mean_ms << ",\n"
+                  << "    \"std_ms\": " << r.std_ms << ",\n"
+                  << "    \"min_ms\": " << r.min_ms << ",\n"
+                  << "    \"max_ms\": " << r.max_ms << ",\n"
+                  << "    \"coeff_var_percent\": " << r.coeff_var_percent << ",\n"
+                  << "    \"throughput_gb_s\": " << r.throughput_gb_s << ",\n"
+                  << "    \"elements_per_sec_billion\": " << r.elements_per_sec_billion << ",\n"
+                  << "    \"gpu_name\": \"" << escapeJson(r.gpu_name) << "\",\n"
+                  << "    \"compute_major\": " << r.compute_major << ",\n"
+                  << "    \"compute_minor\": " << r.compute_minor << ",\n"
+                  << "    \"peak_bandwidth_gb_s\": " << r.peak_bandwidth_gb_s << ",\n"
+                  << "    \"verified\": " << (r.verified ? "true" : "false") << "\n"
+                  << "  }" << (i < results.size() - 1 ? "," : "") << "\n";
+    }
+    std::cout << "]\n";
+}
+
+template <typename T>
+BenchmarkResult benchmark_cub_memcpy(size_t N, double warmup_ms, int num_iterations, const GPUInfo &gpu_info)
+{
+    BenchmarkResult result;
+    result.operation = "memcpy";
+    result.dtype = getTypeName<T>();
+    result.N = N;
+    result.element_size = sizeof(T);
+    result.memory_mb = (N * sizeof(T)) / (1024.0 * 1024.0);
+    result.temp_storage_kb = 0.0; // No temp storage for memcpy
+    result.gpu_name = gpu_info.name;
+    result.compute_major = gpu_info.compute_major;
+    result.compute_minor = gpu_info.compute_minor;
+    result.peak_bandwidth_gb_s = gpu_info.peak_bandwidth_gb_s;
+    result.benchmark_iterations = num_iterations;
+
+    if (!g_quiet)
+    {
+        std::cout << "Vector size: " << N << " elements" << std::endl;
+        std::cout << "Data type: " << result.dtype << " (" << sizeof(T) << " bytes)" << std::endl;
+        std::cout << "Memory size: " << result.memory_mb << " MB" << std::endl;
+        std::cout << "Total bandwidth (R+W): " << (2 * result.memory_mb) << " MB" << std::endl;
+    }
 
     // Allocate host memory
     std::vector<T> h_input(N);
     std::vector<T> h_output(N);
 
     // Initialize with random data
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<T> dist(0.0, 1.0);
-    for (size_t i = 0; i < N; ++i)
-    {
-        h_input[i] = dist(gen);
-    }
+    DataInitializer<T>::initialize(h_input);
 
     // Allocate device memory
-    T *d_input = nullptr;
-    T *d_output = nullptr;
+    T *d_input, *d_output;
     CHECK_CUDA(cudaMalloc(&d_input, N * sizeof(T)));
     CHECK_CUDA(cudaMalloc(&d_output, N * sizeof(T)));
 
-    // Copy input to device
+    // Copy data to device
     CHECK_CUDA(cudaMemcpy(d_input, h_input.data(), N * sizeof(T), cudaMemcpyHostToDevice));
 
-    // Determine temporary storage requirements for CUB
-    void *d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
-
-    // CUB DeviceCopy doesn't need temp storage, but we'll use DeviceSelect::Flagged as a copy proxy
-    // Actually, for a pure copy, we'll just use the basic approach
-    // CUB doesn't have a dedicated copy function, so we'll use cudaMemcpy for device-to-device
-
     // Create CUDA events for timing
-    cudaEvent_t start, stop, warmup_start, warmup_stop;
+    cudaEvent_t start, stop;
     CHECK_CUDA(cudaEventCreate(&start));
     CHECK_CUDA(cudaEventCreate(&stop));
-    CHECK_CUDA(cudaEventCreate(&warmup_start));
-    CHECK_CUDA(cudaEventCreate(&warmup_stop));
 
-    // Warmup runs for specified duration
-    std::cout << "\nPerforming warmup for " << warmup_ms << " ms..." << std::endl;
-    int warmup_iterations = 0;
-    float elapsed_warmup = 0.0f;
+    // Warmup phase - run for specified duration
+    if (!g_quiet)
+    {
+        std::cout << "Warming up for " << warmup_ms << " ms..." << std::endl;
+    }
 
-    CHECK_CUDA(cudaEventRecord(warmup_start));
-    while (elapsed_warmup < warmup_ms)
+    auto warmup_start = std::chrono::high_resolution_clock::now();
+    int warmup_count = 0;
+    while (true)
     {
         CHECK_CUDA(cudaMemcpy(d_output, d_input, N * sizeof(T), cudaMemcpyDeviceToDevice));
-        warmup_iterations++;
+        CHECK_CUDA(cudaDeviceSynchronize());
+        warmup_count++;
 
-        CHECK_CUDA(cudaEventRecord(warmup_stop));
-        CHECK_CUDA(cudaEventSynchronize(warmup_stop));
-        CHECK_CUDA(cudaEventElapsedTime(&elapsed_warmup, warmup_start, warmup_stop));
+        auto now = std::chrono::high_resolution_clock::now();
+        double elapsed_ms = std::chrono::duration<double, std::milli>(now - warmup_start).count();
+        if (elapsed_ms >= warmup_ms)
+            break;
     }
-    std::cout << "Completed " << warmup_iterations << " warmup iterations in " << elapsed_warmup << " ms" << std::endl;
-    CHECK_CUDA(cudaDeviceSynchronize());
+    result.warmup_iterations = warmup_count;
 
-    // Benchmark runs
-    std::vector<float> times;
-    times.reserve(num_iterations);
+    if (!g_quiet)
+    {
+        std::cout << "Warmup complete (" << warmup_count << " iterations)" << std::endl;
+        std::cout << "Running " << num_iterations << " benchmark iterations..." << std::endl;
+    }
 
-    std::cout << "Performing " << num_iterations << " benchmark iterations..." << std::endl;
+    // Benchmark iterations
+    std::vector<float> times(num_iterations);
 
     for (int i = 0; i < num_iterations; ++i)
     {
-        // Record start event
         CHECK_CUDA(cudaEventRecord(start));
-
-        // Execute memory copy (device to device)
         CHECK_CUDA(cudaMemcpy(d_output, d_input, N * sizeof(T), cudaMemcpyDeviceToDevice));
-
-        // Record stop event
         CHECK_CUDA(cudaEventRecord(stop));
-        // Wait for completion
         CHECK_CUDA(cudaEventSynchronize(stop));
 
-        // Calculate elapsed time
-        float milliseconds = 0;
-        CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-        times.push_back(milliseconds);
+        float ms;
+        CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop));
+        times[i] = ms;
     }
 
     // Calculate statistics
-    float sum = 0.0f;
-    float min_time = times[0];
-    float max_time = times[0];
+    double sum = 0.0, sum_sq = 0.0;
+    double min_time = times[0], max_time = times[0];
 
-    for (float time : times)
+    for (float t : times)
     {
-        sum += time;
-        min_time = std::min(min_time, time);
-        max_time = std::max(max_time, time);
+        sum += t;
+        sum_sq += t * t;
+        min_time = std::min(min_time, (double)t);
+        max_time = std::max(max_time, (double)t);
     }
 
-    float mean = sum / num_iterations;
+    result.mean_ms = sum / num_iterations;
+    result.std_ms = std::sqrt((sum_sq / num_iterations) - (result.mean_ms * result.mean_ms));
+    result.min_ms = min_time;
+    result.max_ms = max_time;
+    result.coeff_var_percent = (result.std_ms / result.mean_ms) * 100.0;
 
-    // Calculate standard deviation
-    float variance = 0.0f;
-    for (float time : times)
-    {
-        float diff = time - mean;
-        variance += diff * diff;
-    }
-    variance /= num_iterations;
-    float std_dev = std::sqrt(variance);
+    // Calculate throughput (read + write = 2 * N elements)
+    double bytes_processed = 2.0 * N * sizeof(T);
+    result.throughput_gb_s = (bytes_processed / (result.mean_ms / 1000.0)) / 1e9;
+    result.elements_per_sec_billion = (N / (result.mean_ms / 1000.0)) / 1e9;
 
-    // Calculate throughput
-    double bytes_processed = 2 * N * sizeof(T); // read + write
-    double gb_per_sec_mean = (bytes_processed / (1024.0 * 1024.0 * 1024.0)) / (mean / 1000.0);
-    double gb_per_sec_min = (bytes_processed / (1024.0 * 1024.0 * 1024.0)) / (min_time / 1000.0);
-    double elements_per_sec = N / (mean / 1000.0) / 1e9; // in billions
-
-    // Verify result (check first few and last few elements)
+    // Verify result (check first and last elements)
     CHECK_CUDA(cudaMemcpy(h_output.data(), d_output, N * sizeof(T), cudaMemcpyDeviceToHost));
 
-    bool verify = true;
+    result.verified = true;
     size_t check_count = std::min(size_t(100), N);
     for (size_t i = 0; i < check_count; ++i)
     {
-        if (std::abs(h_output[i] - h_input[i]) > T(1e-6))
+        if (h_output[i] != h_input[i])
         {
-            verify = false;
-            std::cout << "Verification failed at index " << i << ": expected "
-                      << h_input[i] << ", got " << h_output[i] << std::endl;
+            result.verified = false;
+            break;
+        }
+    }
+    // Also check last few elements
+    for (size_t i = N - std::min(size_t(100), N); i < N; ++i)
+    {
+        if (h_output[i] != h_input[i])
+        {
+            result.verified = false;
             break;
         }
     }
 
-    if (verify)
+    if (!g_quiet)
     {
-        std::cout << "\nVerification: PASSED" << std::endl;
+        std::cout << "\nResults:" << std::endl;
+        std::cout << "  Mean time: " << std::fixed << std::setprecision(4) << result.mean_ms << " ms" << std::endl;
+        std::cout << "  Std dev:   " << result.std_ms << " ms" << std::endl;
+        std::cout << "  Min time:  " << result.min_ms << " ms" << std::endl;
+        std::cout << "  Max time:  " << result.max_ms << " ms" << std::endl;
+        std::cout << "  CV:        " << std::setprecision(2) << result.coeff_var_percent << "%" << std::endl;
+        std::cout << "\nPerformance:" << std::endl;
+        std::cout << "  Throughput:    " << std::setprecision(2) << result.throughput_gb_s << " GB/s" << std::endl;
+        std::cout << "  Elements/sec:  " << result.elements_per_sec_billion << " billion" << std::endl;
+        std::cout << "  % of peak BW:  " << (result.throughput_gb_s / gpu_info.peak_bandwidth_gb_s * 100.0) << "%" << std::endl;
+        std::cout << "\nVerification: " << (result.verified ? "PASSED" : "FAILED") << std::endl;
     }
-
-    // Print results
-    std::cout << "\n=== Results ===" << std::endl;
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "Mean time:          " << mean << " ± " << std_dev << " ms" << std::endl;
-    std::cout << "Min time:           " << min_time << " ms" << std::endl;
-    std::cout << "Max time:           " << max_time << " ms" << std::endl;
-    std::cout << "Coefficient of var: " << (std_dev / mean) * 100 << "%" << std::endl;
-    std::cout << "\n=== Performance ===" << std::endl;
-    std::cout << "Throughput (mean):  " << gb_per_sec_mean << " GB/s" << std::endl;
-    std::cout << "Throughput (best):  " << gb_per_sec_min << " GB/s" << std::endl;
-    std::cout << "Elements/sec:       " << elements_per_sec << " billion elements/s" << std::endl;
 
     // Cleanup
     CHECK_CUDA(cudaFree(d_input));
     CHECK_CUDA(cudaFree(d_output));
     CHECK_CUDA(cudaEventDestroy(start));
     CHECK_CUDA(cudaEventDestroy(stop));
-    CHECK_CUDA(cudaEventDestroy(warmup_start));
-    CHECK_CUDA(cudaEventDestroy(warmup_stop));
+
+    return result;
 }
 
-template <typename T>
-void benchmark_thrust_copy(size_t N, float warmup_ms = 500.0f, int num_iterations = 100)
+void print_help()
 {
-    std::cout << "\n=== Thrust Copy Benchmark ===" << std::endl;
-    std::cout << "Data type: " << getTypeName<T>() << std::endl;
-    std::cout << "Vector size: " << N << " elements" << std::endl;
-    std::cout << "Element size: " << sizeof(T) << " bytes" << std::endl;
-    std::cout << "Memory size: " << (N * sizeof(T)) / (1024.0 * 1024.0) << " MB" << std::endl;
-    std::cout << "Total bandwidth (R+W): " << (2 * N * sizeof(T)) / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::cout << "CUB Memory Copy Benchmark\n\n"
+              << "Usage: cub_memcpy_benchmark [options]\n\n"
+              << "Options:\n"
+              << "  -n, --size N         Vector size (default: 100000000)\n"
+              << "  -i, --iterations N   Number of benchmark iterations (default: 100)\n"
+              << "  -w, --warmup MS      Warmup duration in milliseconds (default: 500)\n"
+              << "  -t, --type TYPE      Data type: float, double, int, uint64, uint8, or all (default: all)\n"
+              << "  -j, --json           Output results as JSON\n"
+              << "  -q, --quiet          Suppress non-JSON output\n"
+              << "  -h, --help           Show this help message\n\n"
+              << "Examples:\n"
+              << "  cub_memcpy_benchmark -n 1000000 -j\n"
+              << "  cub_memcpy_benchmark --size 100000000 --iterations 200 --json\n"
+              << "  cub_memcpy_benchmark -n 10000000 -t float -j\n"
+              << "  cub_memcpy_benchmark -n 10000000 -t uint8 -j\n";
+}
 
-    // Allocate host memory
-    std::vector<T> h_input(N);
+int main(int argc, char *argv[])
+{
+    // Default parameters
+    size_t N = 100000000;
+    int iterations = 100;
+    double warmup_ms = 500.0;
+    std::string dtype = "all";
 
-    // Initialize with random data
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<T> dist(0.0, 1.0);
-    for (size_t i = 0; i < N; ++i)
+    // Parse arguments
+    for (int i = 1; i < argc; ++i)
     {
-        h_input[i] = dist(gen);
-    }
+        std::string arg = argv[i];
 
-    // Create thrust device vectors
-    thrust::device_vector<T> d_input(h_input);
-    thrust::device_vector<T> d_output(N);
-
-    // Create CUDA events for timing
-    cudaEvent_t start, stop, warmup_start, warmup_stop;
-    CHECK_CUDA(cudaEventCreate(&start));
-    CHECK_CUDA(cudaEventCreate(&stop));
-    CHECK_CUDA(cudaEventCreate(&warmup_start));
-    CHECK_CUDA(cudaEventCreate(&warmup_stop));
-
-    // Warmup runs for specified duration
-    std::cout << "\nPerforming warmup for " << warmup_ms << " ms..." << std::endl;
-    int warmup_iterations = 0;
-    float elapsed_warmup = 0.0f;
-
-    CHECK_CUDA(cudaEventRecord(warmup_start));
-    while (elapsed_warmup < warmup_ms)
-    {
-        thrust::copy(d_input.begin(), d_input.end(), d_output.begin());
-        warmup_iterations++;
-
-        CHECK_CUDA(cudaEventRecord(warmup_stop));
-        CHECK_CUDA(cudaEventSynchronize(warmup_stop));
-        CHECK_CUDA(cudaEventElapsedTime(&elapsed_warmup, warmup_start, warmup_stop));
-    }
-    std::cout << "Completed " << warmup_iterations << " warmup iterations in " << elapsed_warmup << " ms" << std::endl;
-    CHECK_CUDA(cudaDeviceSynchronize());
-
-    // Benchmark runs
-    std::vector<float> times;
-    times.reserve(num_iterations);
-
-    std::cout << "Performing " << num_iterations << " benchmark iterations..." << std::endl;
-
-    for (int i = 0; i < num_iterations; ++i)
-    {
-        // Record start event
-        CHECK_CUDA(cudaEventRecord(start));
-
-        // Execute thrust copy
-        thrust::copy(d_input.begin(), d_input.end(), d_output.begin());
-
-        // Record stop event
-        CHECK_CUDA(cudaEventRecord(stop));
-        // Wait for completion
-        CHECK_CUDA(cudaEventSynchronize(stop));
-
-        // Calculate elapsed time
-        float milliseconds = 0;
-        CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-        times.push_back(milliseconds);
-    }
-
-    // Calculate statistics
-    float sum = 0.0f;
-    float min_time = times[0];
-    float max_time = times[0];
-
-    for (float time : times)
-    {
-        sum += time;
-        min_time = std::min(min_time, time);
-        max_time = std::max(max_time, time);
-    }
-
-    float mean = sum / num_iterations;
-
-    // Calculate standard deviation
-    float variance = 0.0f;
-    for (float time : times)
-    {
-        float diff = time - mean;
-        variance += diff * diff;
-    }
-    variance /= num_iterations;
-    float std_dev = std::sqrt(variance);
-
-    // Calculate throughput
-    double bytes_processed = 2 * N * sizeof(T); // read + write
-    double gb_per_sec_mean = (bytes_processed / (1024.0 * 1024.0 * 1024.0)) / (mean / 1000.0);
-    double gb_per_sec_min = (bytes_processed / (1024.0 * 1024.0 * 1024.0)) / (min_time / 1000.0);
-    double elements_per_sec = N / (mean / 1000.0) / 1e9; // in billions
-
-    // Verify result
-    thrust::host_vector<T> h_output = d_output;
-    bool verify = true;
-    size_t check_count = std::min(size_t(100), N);
-    for (size_t i = 0; i < check_count; ++i)
-    {
-        if (std::abs(h_output[i] - h_input[i]) > T(1e-6))
+        if (arg == "-h" || arg == "--help")
         {
-            verify = false;
-            std::cout << "Verification failed at index " << i << ": expected "
-                      << h_input[i] << ", got " << h_output[i] << std::endl;
-            break;
+            print_help();
+            return 0;
+        }
+        else if (arg == "-j" || arg == "--json")
+        {
+            g_json_output = true;
+            g_quiet = true;
+        }
+        else if (arg == "-q" || arg == "--quiet")
+        {
+            g_quiet = true;
+        }
+        else if ((arg == "-n" || arg == "--size") && i + 1 < argc)
+        {
+            N = std::stoull(argv[++i]);
+        }
+        else if ((arg == "-i" || arg == "--iterations") && i + 1 < argc)
+        {
+            iterations = std::stoi(argv[++i]);
+        }
+        else if ((arg == "-w" || arg == "--warmup") && i + 1 < argc)
+        {
+            warmup_ms = std::stod(argv[++i]);
+        }
+        else if ((arg == "-t" || arg == "--type") && i + 1 < argc)
+        {
+            dtype = argv[++i];
+        }
+        else if (arg[0] != '-' && i == 1)
+        {
+            // Legacy positional argument for N
+            N = std::stoull(arg);
+        }
+        else if (arg[0] != '-' && i == 2)
+        {
+            // Legacy positional argument for iterations
+            iterations = std::stoi(arg);
+        }
+        else if (arg[0] != '-' && i == 3)
+        {
+            // Legacy positional argument for warmup_ms
+            warmup_ms = std::stod(arg);
         }
     }
 
-    if (verify)
+    // Get GPU info
+    GPUInfo gpu_info = getGPUInfo();
+
+    if (!g_quiet)
     {
-        std::cout << "\nVerification: PASSED" << std::endl;
+        std::cout << "=== CUB Memory Copy Benchmark ===" << std::endl;
+        std::cout << "GPU: " << gpu_info.name << std::endl;
+        std::cout << "Compute Capability: " << gpu_info.compute_major << "." << gpu_info.compute_minor << std::endl;
+        std::cout << "Peak Memory Bandwidth: " << gpu_info.peak_bandwidth_gb_s << " GB/s" << std::endl;
     }
 
-    // Print results
-    std::cout << "\n=== Results ===" << std::endl;
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "Mean time:          " << mean << " ± " << std_dev << " ms" << std::endl;
-    std::cout << "Min time:           " << min_time << " ms" << std::endl;
-    std::cout << "Max time:           " << max_time << " ms" << std::endl;
-    std::cout << "Coefficient of var: " << (std_dev / mean) * 100 << "%" << std::endl;
-    std::cout << "\n=== Performance ===" << std::endl;
-    std::cout << "Throughput (mean):  " << gb_per_sec_mean << " GB/s" << std::endl;
-    std::cout << "Throughput (best):  " << gb_per_sec_min << " GB/s" << std::endl;
-    std::cout << "Elements/sec:       " << elements_per_sec << " billion elements/s" << std::endl;
+    std::vector<BenchmarkResult> results;
 
-    // Cleanup
-    CHECK_CUDA(cudaEventDestroy(start));
-    CHECK_CUDA(cudaEventDestroy(stop));
-    CHECK_CUDA(cudaEventDestroy(warmup_start));
-    CHECK_CUDA(cudaEventDestroy(warmup_stop));
-}
-
-int main(int argc, char **argv)
-{
-    // Parse command line arguments
-    size_t N = 100000000;     // Default: 100 million elements
-    float warmup_ms = 500.0f; // Default: 500ms warmup
-    int iterations = 100;     // Default: 100 iterations
-    bool use_thrust = true;   // Default: benchmark both CUB and Thrust
-
-    if (argc > 1)
+    if (dtype == "all" || dtype == "uint8")
     {
-        N = std::stoull(argv[1]);
-    }
-    if (argc > 2)
-    {
-        iterations = std::stoi(argv[2]);
-    }
-    if (argc > 3)
-    {
-        warmup_ms = std::stof(argv[3]);
-    }
-    if (argc > 4)
-    {
-        std::string mode(argv[4]);
-        if (mode == "cub_only")
-            use_thrust = false;
+        if (!g_quiet)
+            std::cout << "\n### UInt8 (8-bit) ###" << std::endl;
+        results.push_back(benchmark_cub_memcpy<uint8_t>(N, warmup_ms, iterations, gpu_info));
     }
 
-    // Print GPU info
-    int device;
-    cudaGetDevice(&device);
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device);
-
-    std::cout << "==========================================" << std::endl;
-    std::cout << "        Memory Copy Benchmark" << std::endl;
-    std::cout << "==========================================" << std::endl;
-    std::cout << "GPU: " << prop.name << std::endl;
-    std::cout << "Compute Capability: " << prop.major << "." << prop.minor << std::endl;
-    std::cout << "Memory Clock Rate: " << prop.memoryClockRate / 1000 << " MHz" << std::endl;
-    std::cout << "Memory Bus Width: " << prop.memoryBusWidth << " bits" << std::endl;
-    std::cout << "Peak Memory Bandwidth: " << 2.0 * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1.0e6 << " GB/s" << std::endl;
-    std::cout << "L2 Cache Size: " << prop.l2CacheSize / 1024 << " KB" << std::endl;
-    std::cout << "==========================================" << std::endl;
-
-    std::cout << "\nBenchmark Configuration:" << std::endl;
-    std::cout << "  Vector size: " << N << " elements" << std::endl;
-    std::cout << "  Iterations: " << iterations << std::endl;
-    std::cout << "  Warmup time: " << warmup_ms << " ms" << std::endl;
-    std::cout << "==========================================" << std::endl;
-
-    // Run benchmarks for float32
-    std::cout << "\n############################################" << std::endl;
-    std::cout << "#         FLOAT32 BENCHMARKS              #" << std::endl;
-    std::cout << "############################################" << std::endl;
-
-    benchmark_cub_memcpy<float>(N, warmup_ms, iterations);
-
-    if (use_thrust)
+    if (dtype == "all" || dtype == "float")
     {
-        benchmark_thrust_copy<float>(N, warmup_ms, iterations);
+        if (!g_quiet)
+            std::cout << "\n### Float (32-bit) ###" << std::endl;
+        results.push_back(benchmark_cub_memcpy<float>(N, warmup_ms, iterations, gpu_info));
     }
 
-    // Run benchmarks for float64
-    std::cout << "\n############################################" << std::endl;
-    std::cout << "#         FLOAT64 BENCHMARKS              #" << std::endl;
-    std::cout << "############################################" << std::endl;
-
-    benchmark_cub_memcpy<double>(N, warmup_ms, iterations);
-
-    if (use_thrust)
+    if (dtype == "all" || dtype == "double")
     {
-        benchmark_thrust_copy<double>(N, warmup_ms, iterations);
+        if (!g_quiet)
+            std::cout << "\n### Double (64-bit) ###" << std::endl;
+        results.push_back(benchmark_cub_memcpy<double>(N, warmup_ms, iterations, gpu_info));
     }
 
-    // Summary comparison
-    std::cout << "\n==========================================" << std::endl;
-    std::cout << "           BENCHMARK COMPLETE" << std::endl;
-    std::cout << "==========================================" << std::endl;
-    std::cout << "Note: CUB uses cudaMemcpy for device-to-device copy" << std::endl;
-    std::cout << "      Thrust uses thrust::copy algorithm" << std::endl;
-    std::cout << "==========================================" << std::endl;
+    if (dtype == "all" || dtype == "int")
+    {
+        if (!g_quiet)
+            std::cout << "\n### Int (32-bit) ###" << std::endl;
+        results.push_back(benchmark_cub_memcpy<int>(N, warmup_ms, iterations, gpu_info));
+    }
+
+    if (dtype == "all" || dtype == "uint64")
+    {
+        if (!g_quiet)
+            std::cout << "\n### UInt64 (64-bit) ###" << std::endl;
+        results.push_back(benchmark_cub_memcpy<uint64_t>(N, warmup_ms, iterations, gpu_info));
+    }
+
+    // Output JSON if requested
+    if (g_json_output)
+    {
+        print_json_results(results);
+    }
 
     return 0;
 }
 
 // Compilation command:
-// nvcc -O3 -std=c++14 -arch=sm_70 cub_memcpy_benchmark.cu -o cub_memcpy_benchmark
+// nvcc -O3 -std=c++17 -arch=sm_70 cub_memcpy_benchmark.cu -o bin/cub_memcpy_benchmark
 //
-// For newer architectures:
-// nvcc -O3 -std=c++14 -arch=sm_80 cub_memcpy_benchmark.cu -o cub_memcpy_benchmark
-// nvcc -O3 -std=c++14 -arch=sm_90 cub_memcpy_benchmark.cu -o cub_memcpy_benchmark
+// Usage (new style with flags):
+// ./cub_memcpy_benchmark --help
+// ./cub_memcpy_benchmark -n 1000000 -j
+// ./cub_memcpy_benchmark --size 100000000 --iterations 200 --json
+// ./cub_memcpy_benchmark -n 10000000 -t float -j
+// ./cub_memcpy_benchmark -n 10000000 -t uint8 -j
 //
-// Usage:
-// ./cub_memcpy_benchmark [N] [iterations] [warmup_ms] [mode]
-//
-// Examples:
-// ./cub_memcpy_benchmark                           # Default: 100M elements, both libraries
-// ./cub_memcpy_benchmark 1000000                   # 1 million elements
-// ./cub_memcpy_benchmark 100000000 200 1000        # 100M elements, 200 iterations, 1000ms warmup
-// ./cub_memcpy_benchmark 500000000 100 500 cub_only # 500M elements, CUB only (no Thrust)
+// Usage (legacy positional):
+// ./cub_memcpy_benchmark [N] [iterations] [warmup_ms]

@@ -14,210 +14,80 @@ using Pkg
 Pkg.activate("$(@__DIR__())/../../")
 
 using Luma
+using Luma: UnitFloat8
 using KernelAbstractions, CUDA, BenchmarkTools
 using AcceleratedKernels
 using Quaternions
 
-#=============================================================================
-  SECTION 1: Float32 Baseline (n=1M)
-  ---------------------------------
-  Basic mapreduce with default parameters.
-  Tests the simplest case: identity map + addition reduce.
-=============================================================================#
-
-n = 1_000_000
-T = Float32
-op = +
-f(x) = x
-
-src = CuArray{T}(1:n)
-dst = CuArray{T}([0])
-
-# Warm-up ensures JIT compilation doesn't affect profiling
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync Luma.mapreduce!(f, op, dst, src)
+# Helper functions
+function warmup(f; duration=0.5)
+  start = time()
+  while time() - start < duration
+    CUDA.@sync f()
+  end
 end
-CUDA.@profile Luma.mapreduce!(f, op, dst, src)
+
+function bench(name, f; duration=0.5)
+  warmup(f; duration)
+  println("=== $name ===")
+  prof = CUDA.@profile f()
+  display(prof)
+end
+
+function run_mapreduce_benchmarks(src::CuArray{T}, f=identity; init=zero(T), luma_kw...) where T
+  dst = CuArray{T}([init])
+
+  bench("Luma.mapreduce!", () -> Luma.mapreduce!(f, +, dst, src; luma_kw...))
+  bench("CUDA.mapreduce", () -> mapreduce(f, +, src))
+  bench("AcceleratedKernels", () -> AcceleratedKernels.mapreduce(f, +, src; init))
+end
 
 #=============================================================================
-  SECTION 2: Float32 with Pre-allocated Temporaries
-  -------------------------------------------------
-  - Pre-allocates tmp buffer to exclude allocation overhead from timing
-  - Uses UInt64 flags (default behavior skips flag initialization)
-  - Nitem=4: each thread processes 4 elements (improves ILP)
+  Float32 (n=1M) - Basic mapreduce with default parameters
 =============================================================================#
-
 #%%
-n = 1_000_000
-T = Float32
-FlagType = UInt64
-Nitem = 4
-op = +
-f(x) = x
-
-src = CuArray{T}(1:n)
-dst = CuArray{T}(zeros(n))
-
-# Pre-allocate temporaries to measure pure kernel performance
-tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=100, FlagType=FlagType)
-
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync Luma.mapreduce!(f, op, dst, src; tmp, FlagType, Nitem)
-end
-CUDA.@profile Luma.mapreduce!(f, op, dst, src; tmp, FlagType, Nitem)
+run_mapreduce_benchmarks(CuArray{Float32}(1:1_000_000))
 
 #=============================================================================
-  SECTION 3: CUDA.jl Reference (Float32)
-  --------------------------------------
-  Baseline comparison using CUDA.jl's built-in mapreduce.
-  Note: Returns value directly (allocating), not in-place like Luma.
+  Float32 with Pre-allocated Temporaries (n=1M)
+  - UInt64 flags, Nitem=4 for improved ILP
 =============================================================================#
-
 #%%
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync mapreduce(f, op, src)
+let src = CuArray{Float32}(1:1_000_000)
+  tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=100, FlagType=UInt64)
+  run_mapreduce_benchmarks(src; tmp, FlagType=UInt64, Nitem=4)
 end
-prof = CUDA.@profile mapreduce(f, op, src)
 
 #=============================================================================
-  SECTION 4: AcceleratedKernels Reference (Float32)
-  -------------------------------------------------
-  Comparison with AcceleratedKernels.jl (portable GPU library).
-  Requires explicit init value for type stability.
-=============================================================================#
-
-#%%
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync AcceleratedKernels.mapreduce(f, op, src; init=T(0))
-end
-prof = CUDA.@profile AcceleratedKernels.mapreduce(f, op, src; init=T(0))
-
-#=============================================================================
-  SECTION 5: Float64 (n=1M)
-  -------------------------
-  Double precision test.
-  - Nitem=1: fewer items per thread due to larger register pressure
+  Float64 (n=1M)
+  - Nitem=1 due to larger register pressure
   - Memory bandwidth bound: 2x bytes per element vs Float32
 =============================================================================#
-
 #%%
-n = 1_000_000
-T = Float64
-op = +
-f(x) = x
-
-src = CuArray{T}(1:n)
-dst = CuArray{T}([0])
-
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync Luma.mapreduce!(f, op, dst, src; Nitem=1)
-end
-CUDA.@profile Luma.mapreduce!(f, op, dst, src; Nitem=1)
-
-#%% CUDA.jl reference (Float64)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync mapreduce(f, op, src)
-end
-prof = CUDA.@profile mapreduce(f, op, src)
-
-#%% AcceleratedKernels reference (Float64)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync AcceleratedKernels.mapreduce(f, op, src; init=T(0))
-end
-prof = CUDA.@profile AcceleratedKernels.mapreduce(f, op, src; init=T(0))
+run_mapreduce_benchmarks(CuArray{Float64}(1:1_000_000))
 
 #=============================================================================
-  SECTION 6: UInt8 (n=1M)
-  -----------------------
-  Small type test (1 byte per element).
-  - Nitem=8: more items per thread to compensate for small element size
+  UInt8 (n=1M)
+  - Tests vectorized load capabilities (8 UInt8 = 8 bytes at once)
   - Challenges memory coalescing efficiency
-  - Tests vectorized load capabilities (can load 8 bytes = 8 UInt8 at once)
 =============================================================================#
-
 #%%
-n = 1_000_000
-T = UInt8
-op = +
-f(x) = x
-
-src = CuArray{T}(fill(0x01, n))
-dst = CuArray{T}(zeros(UInt8, n))
-
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync Luma.mapreduce!(f, op, dst, src;)
-end
-CUDA.@profile Luma.mapreduce!(f, op, dst, src;)
-
-#%% CUDA.jl reference (UInt8)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync mapreduce(f, op, src)
-end
-prof = CUDA.@profile mapreduce(f, op, src)
-
-#%% AcceleratedKernels reference (UInt8)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync AcceleratedKernels.mapreduce(f, op, src; init=T(0))
-end
-prof = CUDA.@profile AcceleratedKernels.mapreduce(f, op, src; init=T(0))
+run_mapreduce_benchmarks(CUDA.ones(UInt8, 1_000_000))
 
 #=============================================================================
-  SECTION 7: UnitFloat8 Custom Type (n=1M)
-  ----------------------------------------
-  Tests Luma's custom 8-bit float type.
-  - f(x) = Float32(x): promotes to Float32 for accumulation (avoids overflow)
-  - g(x) = x: identity for output conversion
-  - Manual tmp allocation with explicit config for fine control
-
-  Note: sum(src_cpu) would overflow; Float32 accumulation is necessary.
+  UnitFloat8 Custom Type (n=1M)
+  - f(x) = Float32(x): promotes to avoid overflow during accumulation
+  - Manual tmp allocation with explicit H=Float32 config
 =============================================================================#
-
 #%%
-using Luma: UnitFloat8
+let n = 1_000_000, T = UnitFloat8
+  src = CuArray([rand(T) for _ in 1:n])
+  dst = CuArray{T}([T(0)])
+  f = Float32  # Promote to Float32 during reduction
 
-n = 1_000_000
-T = UnitFloat8
-op = +
-f(x) = Float32(x)  # Promote to Float32 during reduction to avoid overflow
-g(x) = x
+  tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=1000, FlagType=UInt64)
 
-src_cpu = [rand(UnitFloat8) for _ in 1:n]
-src = CuArray{T}(src_cpu)
-dst = CuArray{T}([T(0)])
-
-# Custom configuration: 256 threads/block, 1000 blocks
-# H=Float32 because f promotes UnitFloat8 to Float32
-tmp = Luma.get_allocation(Luma.mapreduce1d!, (src,); blocks=1000, H=Float32, FlagType=UInt64)
-
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync Luma.mapreduce!(f, +, dst, src; tmp)
+  bench("Luma.mapreduce! (UnitFloat8→Float32)", () -> Luma.mapreduce!(f, +, dst, src; tmp))
+  bench("CUDA.mapreduce (UnitFloat8)", () -> mapreduce(f, +, src))
+  bench("AcceleratedKernels (UnitFloat8)", () -> AcceleratedKernels.mapreduce(f, +, src; init=T(0)))
 end
-CUDA.@profile Luma.mapreduce!(f, +, dst, src; tmp)
-
-# Verification (commented out):
-# sum(Float32.(src_cpu)), dst[1:1], sum(src_cpu)  # sum(src_cpu) overflows
-
-#%% CUDA.jl reference (UnitFloat8)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync mapreduce(f, op, src)
-end
-prof = CUDA.@profile mapreduce(f, op, src)
-
-#%% AcceleratedKernels reference (UnitFloat8)
-start_time = time()
-while time() - start_time < 0.5
-  CUDA.@sync AcceleratedKernels.mapreduce(f, op, src; init=T(0))
-end
-prof = CUDA.@profile AcceleratedKernels.mapreduce(f, op, src; init=T(0))

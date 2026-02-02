@@ -1,155 +1,116 @@
+#=
+Scan Performance Benchmarking Script
+====================================
+Compares Luma.scan! against CUDA.accumulate! and AcceleratedKernels for prefix scan.
+Methodology:
+- 500ms warm-up phase to ensure JIT compilation and GPU initialization
+- CUDA.@profile for accurate kernel timing
+- Tests varying sizes and data types
+=#
 using Revise
 using Pkg
-
 Pkg.activate("$(@__DIR__)/../../")
-
 using Luma
-using KernelAbstractions, CUDA, BenchmarkTools
+using CUDA
 using AcceleratedKernels
 using Quaternions
 
-#%% Basic Float32 scan
-n = 1_000_000
-T = Float32
-FlagType = UInt8
-op = +
-src = CuArray{T}(1:n)
-dst = CUDA.zeros(T, n)
-
-start_time = time()
-while time() - start_time < 0.5
-    CUDA.@sync Luma.scan!(op, dst, src)
+# Helper functions
+function warmup(f; duration=0.5)
+    start = time()
+    while time() - start < duration
+        CUDA.@sync f()
+    end
 end
-CUDA.@profile Luma.scan!(op, dst, src)
 
-#buf = IOBuffer()
-#CUDA.@device_code_ptx io = buf Luma.scan!(op, dst, src)
-#asm = String(take!(copy(buf)))
-#@test occursin("st.global.v4", asm)
-
-#%% Without tmp allocation, UInt64 flags (no initialization needed)
-n = 1_000_000
-T = Float32
-FlagType = UInt64
-op = +
-src = CuArray{T}(1:n)
-dst = CUDA.zeros(T, n)
-
-tmp = Luma.get_allocation(Luma.scan!, dst, src; FlagType=FlagType)
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync Luma.scan!(op, dst, src; tmp=tmp, FlagType=FlagType)
+function bench(name, f; duration=0.5)
+    warmup(f; duration)
+    println("=== $name ===")
+    prof = CUDA.@profile f()
+    display(prof)
+    prof
 end
-CUDA.@profile Luma.scan!(op, dst, src; tmp=tmp, FlagType=FlagType)
 
-#%% CUDA baseline
-src = CuArray{T}(1:n)
-dst = CUDA.zeros(T, n)
-
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync CUDA.accumulate!(op, dst, src)
+function sum_kernel_durations_μs(prof)
+    df = prof.device
+    # Filter out copy operations
+    kernels = filter(row -> !startswith(row.name, "[copy"), df)
+    # Sum durations: stop - start is in seconds, convert to μs
+    total_s = sum(row.stop - row.start for row in eachrow(kernels))
+    return total_s * 1e6  # convert to μs
 end
-CUDA.@profile CUDA.accumulate!(op, dst, src)
 
-#%% AcceleratedKernels baseline
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
+function run_scan_benchmarks(n::Int, ::Type{T}, op=+; src_init=:range, luma_kw...) where T
+    src = src_init == :ones ? CUDA.ones(T, n) : CuArray{T}(1:n)
+    dst = CUDA.zeros(T, n)
+    
+    println("\n" * "="^60)
+    println("Scan: n=$n, T=$T, op=$op")
+    println("="^60)
+    
+    bench("Luma.scan!", () -> Luma.scan!(op, dst, src; luma_kw...))
+    bench("CUDA.accumulate!", () -> CUDA.accumulate!(op, dst, src))
+    bench("AcceleratedKernels", () -> AcceleratedKernels.accumulate!(op, dst, src; init=zero(T)))
 end
-CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
 
-#%% ============= Float32, large n ============================
-n = 100_000_000
-T = Float32
-op = +
-src = CUDA.ones(T, n)
-dst = CUDA.zeros(T, n)
-
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync Luma.scan!(op, dst, src)
+#=============================================================================
+  Float32 scans - varying sizes
+=============================================================================#
+#%%
+for n in [1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+    run_scan_benchmarks(n, Float32, +; src_init=:ones)
 end
-CUDA.@profile Luma.scan!(op, dst, src)
 
-#%% Float64, large n
-n = 100_000_000
-T = Float64
-op = +
-src = CuArray{T}(1:n)
-dst = CUDA.zeros(T, n)
-
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync Luma.scan!(op, dst, src)
+#=============================================================================
+  Float64 scans - varying sizes
+=============================================================================#
+#%%
+for n in [1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+    run_scan_benchmarks(n, Float64, +)
 end
-CUDA.@profile Luma.scan!(op, dst, src)
 
-#%% CUDA baseline
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync CUDA.accumulate!(op, dst, src)
+#=============================================================================
+  UInt8 scans - varying sizes
+=============================================================================#
+#%%
+for n in [1_000_000, 10_000_000, 100_000_000]
+    run_scan_benchmarks(n, UInt8, +; src_init=:ones)
 end
-CUDA.@profile CUDA.accumulate!(op, dst, src)
 
-#%% AcceleratedKernels (default algorithm, not DecoupledLookback)
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
+#=============================================================================
+  Float32 with UInt64 flags (pre-allocated tmp)
+=============================================================================#
+#%%
+let n = 1_000_000, T = Float32
+    src = CuArray{T}(1:n)
+    dst = CUDA.zeros(T, n)
+    tmp = Luma.get_allocation(Luma.scan!, dst, src; FlagType=UInt64)
+    
+    println("\n" * "="^60)
+    println("Scan with UInt64 flags: n=$n, T=$T")
+    println("="^60)
+    
+    bench("Luma.scan! (UInt64 flags)", () -> Luma.scan!(+, dst, src; tmp, FlagType=UInt64))
+    bench("CUDA.accumulate!", () -> CUDA.accumulate!(+, dst, src))
+    bench("AcceleratedKernels", () -> AcceleratedKernels.accumulate!(+, dst, src; init=zero(T)))
 end
-CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
-#%% ====================     Quaternions ======================
-n = 100_000
-op = *
-T = QuaternionF64
-src_cpu = [QuaternionF64((x ./ sqrt(sum(x .^ 2)))...) for x in eachcol(randn(4, n))]
-src = CuArray(src_cpu)
-dst = CuArray(zeros(T, n))
 
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync Luma.scan!(op, dst, src; Nitem=4)
+#=============================================================================
+  Quaternions (non-commutative operation)
+=============================================================================#
+#%%
+for n in [10_000, 100_000, 1_000_000]
+    let T = QuaternionF64, op = *
+        src_cpu = [QuaternionF64((x ./ sqrt(sum(x .^ 2)))...) for x in eachcol(randn(4, n))]
+        src = CuArray(src_cpu)
+        dst = CuArray(zeros(T, n))
+        
+        println("\n" * "="^60)
+        println("Quaternion scan: n=$n, T=$T, op=$op")
+        println("="^60)
+        
+        bench("Luma.scan!", () -> Luma.scan!(op, dst, src; Nitem=4))
+        bench("CUDA.accumulate!", () -> CUDA.accumulate!(op, dst, src))
+        bench("AcceleratedKernels", () -> AcceleratedKernels.accumulate!(op, dst, src; init=one(T)))
+    end
 end
-CUDA.@profile Luma.scan!(op, dst, src; Nitem=4)
-
-#%% CUDA baseline (requires commutativity - may fail for quaternions)
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync CUDA.accumulate!(op, dst, src)
-end
-CUDA.@profile CUDA.accumulate!(op, dst, src)
-
-#%% AcceleratedKernels (default algorithm, not DecoupledLookback)
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
-end
-CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
-
-#%% ============================ UInt8 ================================
-n = 100_000_000
-op = +
-T = UInt8
-src = CUDA.ones(T, n)
-dst = CUDA.zeros(T, n)
-
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync Luma.scan!(op, dst, src)
-end
-CUDA.@profile Luma.scan!(op, dst, src)
-
-#%% CUDA baseline
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync CUDA.accumulate!(op, dst, src)
-end
-CUDA.@profile CUDA.accumulate!(op, dst, src)
-
-
-#%% AcceleratedKernels (default algorithm, not DecoupledLookback)
-start_time = time()
-while time() - start_time < 0.500
-    CUDA.@sync AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))
-end
-CUDA.@profile AcceleratedKernels.accumulate!(op, dst, src; init=zero(T))

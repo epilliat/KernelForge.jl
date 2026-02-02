@@ -1,5 +1,3 @@
-function get_default_config end
-
 """
 T -> f -> H -> op -> H -> g -> S
 """

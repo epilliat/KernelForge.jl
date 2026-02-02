@@ -1,14 +1,22 @@
+@generated function prefix_apply(op::OP, prefix::P, values::NTuple{N,T})::NTuple{N,T} where {OP,P,T,N}
+    quote
+        Base.Cartesian.@nexprs $N i -> v_i = @inbounds values[i]
+        Base.Cartesian.@nexprs $N i -> r_i = op(prefix, v_i)
+        Base.Cartesian.@ntuple $N i -> r_i
+    end
+end
 
 @kernel inbounds = true unsafe_indices = true function scan_kernel!(
     f, op,
-    dst::AbstractVector{Outf},
+    dst::AbstractVector{S},
     src::AbstractVector{T},
     ::Val{Nitem},
-    partial1::AbstractVector{Outf},
-    partial2::AbstractVector{Outf},
+    partial1::AbstractVector{H},
+    partial2::AbstractVector{H},
     flag::AbstractVector{FlagType},
-    targetflag::FlagType
-) where {Nitem,T,Outf,FlagType<:Integer}
+    targetflag::FlagType,
+    ::Type{H}
+) where {Nitem,T,H,S,FlagType<:Integer}
     N = length(src)
     workgroup = Int(@groupsize()[1])
     lid = Int(@index(Local))
@@ -21,28 +29,29 @@
     warp_id = cld(lid, warpsz)
     lane = (lid - 1) % warpsz + 1
 
-    shared = @localmem Outf 32
-
+    shared = @localmem H warpsz
+    # values = f.(vload(src, I, Val(Nitem)))
+    # values = tree_accumulate(op, values)
+    #local values::NTuple{Nitem,H}
     if idx_base + Nitem <= N
-        values = vload(src, I, Val(Nitem))
-        values = accumulate(op, values)
+        values = f.(vload(src, I, Val(Nitem)))
+        values = tree_accumulate(op, values)
     else
-        values = ntuple(i -> idx_base + i <= N ? (f(src[idx_base+i])) : f(src[N]), Val(Nitem))
-        values = accumulate(op, values)
+        values = ntuple(Val(Nitem)) do i
+            f(src[N]) # dummy value
+        end
     end
-
 
     val = values[end]
     @warpreduce(val, lane, op)
-
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
     end
+
     @synchronize
 
     last_idx = Nitem * workgroup * gid
-
     if warp_id == nwarps
         val_acc = shared[lane]
         @warpreduce(val_acc, lane, op)
@@ -86,11 +95,11 @@
                 else
                     prefix = op(val, prefix)
                 end
-                lookback += 32
+                lookback += warpsz
             end
         end
         if lane == 1
-            shared[32] = prefix
+            shared[warpsz] = prefix
         end
     end
 
@@ -126,22 +135,28 @@
     elseif warp_id >= 2 && lane >= 2 && gid == 1
         global_prefix = op(prefix_warp, prefix_lane)
     elseif warp_id >= 2 && lane >= 2 && gid >= 2
-        global_prefix = op(prefix_block, prefix_warp, prefix_lane)
+        global_prefix = op(prefix_block, op(prefix_warp, prefix_lane))
     end
-    #prefix_group = shfl_up_sync( val_acc, 1)
-    #prefix_warp = shfl_up_sync( val, 1)
 
-    #prefix = 0
-    if (gid >= 2 || lane >= 2 || warp_id >= 2)
-        values = op.(global_prefix, values)
-    end
+
 
     if idx_base + Nitem <= N
+        #prefix = 0
+        if (gid >= 2 || lane >= 2 || warp_id >= 2)
+            values = prefix_apply(op, global_prefix, values)
+        end
         vstore!(dst, I, values)
-    else
-        for i in (1:Nitem)
+    elseif idx_base <= N
+        if N > Nitem
+            val = op(global_prefix, f(src[idx_base+1]))
+        else
+            val = f(src[idx_base+1])
+        end
+        dst[idx_base+1] = val
+        for i in (2:Nitem)
             if idx_base + i <= N
-                dst[idx_base+i] = values[i]
+                val = op(val, f(src[idx_base+i]))
+                dst[idx_base+i] = val
             end
         end
     end

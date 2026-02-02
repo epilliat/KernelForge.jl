@@ -7,7 +7,7 @@ version = "0.1.0"
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-MemoryAccess = "f9588fbb-d238-4998-b15a-468e8766d49a"
+KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"
 
 [weakdeps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
@@ -19,13 +19,15 @@ LumaCUDAExt = "CUDA"
 ArgCheck = "2.5.0"
 GPUArraysCore = "0.2.0"
 KernelAbstractions = "0.9.39"
+KernelIntrinsics = "0.1"
 
 [extras]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 Quaternions = "94ee1d12-ae83-5a48-8b1c-48b8ff168ae0"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["CUDA", "Test", "Quaternions", "InteractiveUtils"]
+test = ["CUDA", "Test", "Quaternions", "InteractiveUtils", "Random"]
