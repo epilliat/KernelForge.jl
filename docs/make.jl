@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate("docs")
 using Documenter
 using Luma
 
@@ -18,7 +16,7 @@ makedocs(
     modules=[Luma],
     format=Documenter.HTML(
         prettyurls=get(ENV, "CI", nothing) == "true",
-        canonical="https://yourusername.github.io/Luma.jl/stable/",
+        canonical="https://epilliat.github.io/Luma.jl/stable/",
         assets=["assets/custom.css"],
     ),
     pages=[
@@ -32,6 +30,6 @@ makedocs(
 
 # Deploy to GitHub Pages (optional)
 deploydocs(
-    repo="github.com/yourusername/Luma.jl.git",
+    repo="github.com/epilliat/Luma.jl.git",
     devbranch="main",
 )
