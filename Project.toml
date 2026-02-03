@@ -17,9 +17,11 @@ LumaCUDAExt = "CUDA"
 
 [compat]
 ArgCheck = "2.5.0"
+CUDA = "5"
 GPUArraysCore = "0.2.0"
 KernelAbstractions = "0.9.39"
 KernelIntrinsics = "0.1"
+julia = "1.10"
 
 [extras]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
