@@ -1,7 +1,3 @@
-using Pkg
-Pkg.activate("dev")
-using Revise
-
 using Test
 using CUDA
 using Luma

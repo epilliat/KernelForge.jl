@@ -146,7 +146,7 @@ end
             values = prefix_apply(op, global_prefix, values)
         end
         vstore!(dst, I, values)
-    elseif idx_base <= N
+    elseif idx_base < N
         if N > Nitem
             val = op(global_prefix, f(src[idx_base+1]))
         else
