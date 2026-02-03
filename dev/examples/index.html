@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Examples · Luma.jl</title><meta name="title" content="Examples · Luma.jl"/><meta property="og:title" content="Examples · Luma.jl"/><meta property="twitter:title" content="Examples · Luma.jl"/><meta name="description" content="Documentation for Luma.jl."/><meta property="og:description" content="Documentation for Luma.jl."/><meta property="twitter:description" content="Documentation for Luma.jl."/><meta property="og:url" content="https://epilliat.github.io/Luma.jl/stable/examples/"/><meta property="twitter:url" content="https://epilliat.github.io/Luma.jl/stable/examples/"/><link rel="canonical" href="https://epilliat.github.io/Luma.jl/stable/examples/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Luma.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../performances/">Performance</a></li><li class="is-active"><a class="tocitem" href>Examples</a><ul class="internal"><li><a class="tocitem" href="#Vectorized-Copy"><span>Vectorized Copy</span></a></li><li><a class="tocitem" href="#Map-Reduce"><span>Map-Reduce</span></a></li><li><a class="tocitem" href="#Prefix-Scan"><span>Prefix Scan</span></a></li><li><a class="tocitem" href="#Matrix-Vector-Operations"><span>Matrix-Vector Operations</span></a></li><li><a class="tocitem" href="#Vector-Matrix-Operations"><span>Vector-Matrix Operations</span></a></li><li><a class="tocitem" href="#Pre-allocating-Temporary-Buffers"><span>Pre-allocating Temporary Buffers</span></a></li><li><a class="tocitem" href="#Complete-Example:-Online-Statistics"><span>Complete Example: Online Statistics</span></a></li></ul></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Examples</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Examples</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/epilliat/Luma.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/epilliat/Luma.jl/blob/main/docs/src/examples.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Examples"><a class="docs-heading-anchor" href="#Examples">Examples</a><a id="Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Examples" title="Permalink"></a></h1><p>This page provides practical examples demonstrating Luma.jl&#39;s capabilities.</p><h2 id="Vectorized-Copy"><a class="docs-heading-anchor" href="#Vectorized-Copy">Vectorized Copy</a><a id="Vectorized-Copy-1"></a><a class="docs-heading-anchor-permalink" href="#Vectorized-Copy" title="Permalink"></a></h2><p>Perform memory copies with vectorized loads and stores for improved bandwidth utilization:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+src = CUDA.rand(Float32, 10^6)
+dst = similar(src)
+
+# Copy with vectorized loads and stores
+Luma.vcopy!(dst, src; Nitem=4)
+
+@assert dst ≈ src</code></pre><h3 id="Custom-Types"><a class="docs-heading-anchor" href="#Custom-Types">Custom Types</a><a id="Custom-Types-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Types" title="Permalink"></a></h3><p>Luma supports copying custom struct types:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+struct Point3D
+    x::Float32
+    y::Float32
+    z::Float32
+end
+
+n = 100_000
+src = CuArray([Point3D(rand(), rand(), rand()) for _ in 1:n])
+dst = similar(src)
+
+Luma.vcopy!(dst, src; Nitem=2)
+
+@assert all(dst .== src)</code></pre><h3 id="Set-Values"><a class="docs-heading-anchor" href="#Set-Values">Set Values</a><a id="Set-Values-1"></a><a class="docs-heading-anchor-permalink" href="#Set-Values" title="Permalink"></a></h3><p>Fill an array with a constant value:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+dst = CUDA.ones(UInt8, 100_000)
+Luma.setvalue!(dst, 0x00; Nitem=4)
+
+@assert all(dst .== 0x00)</code></pre><h2 id="Map-Reduce"><a class="docs-heading-anchor" href="#Map-Reduce">Map-Reduce</a><a id="Map-Reduce-1"></a><a class="docs-heading-anchor-permalink" href="#Map-Reduce" title="Permalink"></a></h2><h3 id="Basic-Reductions"><a class="docs-heading-anchor" href="#Basic-Reductions">Basic Reductions</a><a id="Basic-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+x = CUDA.rand(Float32, 10^6)
+
+# Sum
+total = Luma.mapreduce(identity, +, x; to_cpu=true)
+
+# Sum of squares
+sum_sq = Luma.mapreduce(abs2, +, x; to_cpu=true)
+
+# Maximum
+max_val = Luma.mapreduce(identity, max, x; to_cpu=true)
+
+# Minimum
+min_val = Luma.mapreduce(identity, min, x; to_cpu=true)</code></pre><h3 id="Post-Reduction-Transformation,-Example-with-Luma.UnitFloat8"><a class="docs-heading-anchor" href="#Post-Reduction-Transformation,-Example-with-Luma.UnitFloat8">Post-Reduction Transformation, Example with Luma.UnitFloat8</a><a id="Post-Reduction-Transformation,-Example-with-Luma.UnitFloat8-1"></a><a class="docs-heading-anchor-permalink" href="#Post-Reduction-Transformation,-Example-with-Luma.UnitFloat8" title="Permalink"></a></h3><p>Apply a function after reduction using the <code>g</code> parameter:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+import Luma: UnitFloat8
+x = CuArray{UnitFloat8}([rand(UnitFloat8) for _ in 1:10^6])
+
+# convert to float 32 for reduction to avoid overflow
+to_f32(x) = Float32(x)
+# then back to unitfloat8
+to_uif8(x) = UnitFloat8(x)
+sum_uif8 = Luma.mapreduce(to_f32, +, x; g=to_uif8, to_cpu=true)
+
+# compare the sign only :
+@assert sign(Float32(sum_uif8)) == sign(sum(Float32.(x)))
+
+# We can store only 8 bit, keep rather good precision (because of intermediate Float32 conversion) and get 
+# same performance as for UInt8 addition !!!</code></pre><h3 id="Dot-Product-and-Distance"><a class="docs-heading-anchor" href="#Dot-Product-and-Distance">Dot Product and Distance</a><a id="Dot-Product-and-Distance-1"></a><a class="docs-heading-anchor-permalink" href="#Dot-Product-and-Distance" title="Permalink"></a></h3><p>Reduce multiple arrays simultaneously:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+n = 100_000
+a = CUDA.rand(Float32, n)
+b = CUDA.rand(Float32, n)
+
+# Dot product: sum(a .* b)
+dot_prod = Luma.mapreduce1d((x, y) -&gt; x * y, +, (a, b); to_cpu=true)
+
+# Euclidean distance: sqrt(sum((a - b)^2))
+distance = Luma.mapreduce1d((x, y) -&gt; (x - y)^2, +, (a, b); g=sqrt, to_cpu=true)
+
+# Weighted sum: sum(w .* x)
+w = CUDA.rand(Float32, n)
+x = CUDA.rand(Float32, n)
+weighted_sum = Luma.mapreduce1d((wi, xi) -&gt; wi * xi, +, (w, x); to_cpu=true)</code></pre><h3 id="2D-Reductions"><a class="docs-heading-anchor" href="#2D-Reductions">2D Reductions</a><a id="2D-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#2D-Reductions" title="Permalink"></a></h3><p>Reduce along rows or columns:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Column sums (reduce along dim=1)
+col_sums = Luma.mapreduce(identity, +, A; dims=1)
+@assert size(col_sums) == (500,)
+
+# Row sums (reduce along dim=2)
+row_sums = Luma.mapreduce(identity, +, A; dims=2)
+@assert size(row_sums) == (1000,)
+
+# Column means
+let u = size(A, 1) # Note that the let block is necessary for compilation of the kernel
+    g(x)::Float32 = x / u
+    col_means = Luma.mapreduce(identity, +, A; dims=1, g=g)
+end
+# Row-wise sum of squares
+row_ss = Luma.mapreduce(abs2, +, A; dims=2)
+
+# Row maximums
+row_max = Luma.mapreduce(identity, max, A; dims=2)</code></pre><h3 id="Higher-Dimensional-Reductions"><a class="docs-heading-anchor" href="#Higher-Dimensional-Reductions">Higher-Dimensional Reductions</a><a id="Higher-Dimensional-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Higher-Dimensional-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 20, 30, 40)
+
+
+# !!! For now, we provide support only for contiguous dim at start or end, so we cannot reduce on second dim here
+try
+    Luma.mapreduce(identity, +, A; dims=2)
+catch e
+    println(e)
+end
+
+# Reduce first dimension: (20, 30, 40) → (30, 40)
+result = Luma.mapreduce(identity, +, A; dims=1)
+@assert size(result) == (30, 40)
+
+# Reduce first two dimensions: (20, 30, 40) → (40,)
+result = Luma.mapreduce(identity, +, A; dims=(1, 2))
+@assert size(result) == (40,)
+
+# Reduce last dimension: (20, 30, 40) → (20, 30)
+result = Luma.mapreduce(identity, +, A; dims=3)
+@assert size(result) == (20, 30)
+
+# Reduce last two dimensions: (20, 30, 40) → (20,)
+result = Luma.mapreduce(identity, +, A; dims=(2, 3))
+@assert size(result) == (20,)</code></pre><h3 id="Custom-Structs"><a class="docs-heading-anchor" href="#Custom-Structs">Custom Structs</a><a id="Custom-Structs-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Structs" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+struct Stats
+    sum::Float32
+    sum_sq::Float32
+    count::Float32
+end
+
+# Map: convert each value to Stats
+f(x) = Stats(x, x^2, 1f0)
+
+# Reduce: combine Stats
+op(a::Stats, b::Stats) = Stats(a.sum + b.sum, a.sum_sq + b.sum_sq, a.count + b.count)
+
+x = CUDA.rand(Float32, 100_000)
+result = Luma.mapreduce(f, op, x; to_cpu=true)
+
+mean = result.sum / result.count
+variance = result.sum_sq / result.count - mean^2</code></pre><h2 id="Prefix-Scan"><a class="docs-heading-anchor" href="#Prefix-Scan">Prefix Scan</a><a id="Prefix-Scan-1"></a><a class="docs-heading-anchor-permalink" href="#Prefix-Scan" title="Permalink"></a></h2><h3 id="Basic-Scans"><a class="docs-heading-anchor" href="#Basic-Scans">Basic Scans</a><a id="Basic-Scans-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Scans" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+x = CUDA.rand(Float32, 10^6)
+dst = similar(x)
+
+# Cumulative sum
+Luma.scan!(+, dst, x)
+@assert dst ≈ CuArray(accumulate(+, Array(x)))
+
+# Cumulative product
+Luma.scan!(*, dst, x)
+@assert dst ≈ CuArray(accumulate(*, Array(x)))
+
+# Cumulative maximum
+Luma.scan!(max, dst, x)
+@assert dst ≈ CuArray(accumulate(max, Array(x)))</code></pre><h3 id="Scan-with-Map-Function"><a class="docs-heading-anchor" href="#Scan-with-Map-Function">Scan with Map Function</a><a id="Scan-with-Map-Function-1"></a><a class="docs-heading-anchor-permalink" href="#Scan-with-Map-Function" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+x = CUDA.rand(Float32, 10_000)
+
+# Cumulative sum of squares
+result = Luma.scan(abs2, +, x)
+@assert result ≈ CuArray(accumulate(+, Array(x).^2))
+
+# Cumulative sum of absolute values
+result = Luma.scan(abs, +, x)</code></pre><h3 id="Non-Commutative-Operations:-Quaternions"><a class="docs-heading-anchor" href="#Non-Commutative-Operations:-Quaternions">Non-Commutative Operations: Quaternions</a><a id="Non-Commutative-Operations:-Quaternions-1"></a><a class="docs-heading-anchor-permalink" href="#Non-Commutative-Operations:-Quaternions" title="Permalink"></a></h3><p>Luma scan function (not mapreduce) correctly handles non-commutative operations:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+using Quaternions
+
+n = 100_000
+
+# Generate random unit quaternions
+src_cpu = [QuaternionF64((x ./ sqrt(sum(x.^2)))...) for x in eachcol(randn(4, n))]
+src = CuArray(src_cpu)
+dst = similar(src)
+
+# Quaternion multiplication is non-commutative: q1 * q2 ≠ q2 * q1
+Luma.scan!(*, dst, src)
+
+@assert dst ≈ CuArray(accumulate(*, src_cpu))</code></pre><h2 id="Matrix-Vector-Operations"><a class="docs-heading-anchor" href="#Matrix-Vector-Operations">Matrix-Vector Operations</a><a id="Matrix-Vector-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Matrix-Vector-Operations" title="Permalink"></a></h2><h3 id="Standard-Matrix-Vector-Multiply"><a class="docs-heading-anchor" href="#Standard-Matrix-Vector-Multiply">Standard Matrix-Vector Multiply</a><a id="Standard-Matrix-Vector-Multiply-1"></a><a class="docs-heading-anchor-permalink" href="#Standard-Matrix-Vector-Multiply" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 500)
+
+# y = A * x
+y = Luma.matvec(A, x)
+@assert y ≈ A * x
+
+# In-place version
+dst = CUDA.zeros(Float32, 1000)
+Luma.matvec!(dst, A, x)
+@assert dst ≈ A * x</code></pre><h3 id="Row-wise-Reductions"><a class="docs-heading-anchor" href="#Row-wise-Reductions">Row-wise Reductions</a><a id="Row-wise-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Row-wise-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Row sums: y[i] = sum(A[i, :])
+row_sums = Luma.matvec(A, nothing)
+@assert row_sums ≈ vec(sum(A; dims=2))
+
+# Row maximums: y[i] = max_j(A[i, j])
+row_max = Luma.matvec(identity, max, A, nothing)
+@assert row_max ≈ vec(maximum(A; dims=2))
+
+# Row minimums
+row_min = Luma.matvec(identity, min, A, nothing)
+@assert row_min ≈ vec(minimum(A; dims=2))</code></pre><h3 id="Custom-Operations"><a class="docs-heading-anchor" href="#Custom-Operations">Custom Operations</a><a id="Custom-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Operations" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 500)
+
+# Softmax numerator: y[i] = sum_j(exp(A[i,j] - x[j]))
+y = Luma.matvec((a, b) -&gt; exp(a - b), +, A, x)
+
+# Row-wise dot product with scaling: y[i] = sqrt(sum_j(A[i,j]^2 * x[j]^2))
+y = Luma.matvec((a, b) -&gt; a^2 * b^2, +, A, x; g=sqrt)</code></pre><h3 id="Custom-Struct-Output"><a class="docs-heading-anchor" href="#Custom-Struct-Output">Custom Struct Output</a><a id="Custom-Struct-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Struct-Output" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+struct Vec3
+    x::Float32
+    y::Float32
+    z::Float32
+end
+
+# Map: combine matrix and vector elements
+f(a, b) = Vec3(a * b, a + b, a - b)
+
+# Reduce: component-wise sum
+op(v1::Vec3, v2::Vec3) = Vec3(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z)
+
+A = CUDA.rand(Float32, 200, 500)
+x = CUDA.rand(Float32, 500)
+dst = CuArray{Vec3}(undef, 200)
+
+Luma.matvec!(f, op, dst, A, x)</code></pre><h2 id="Vector-Matrix-Operations"><a class="docs-heading-anchor" href="#Vector-Matrix-Operations">Vector-Matrix Operations</a><a id="Vector-Matrix-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Vector-Matrix-Operations" title="Permalink"></a></h2><h3 id="Standard-Vector-Matrix-Multiply"><a class="docs-heading-anchor" href="#Standard-Vector-Matrix-Multiply">Standard Vector-Matrix Multiply</a><a id="Standard-Vector-Matrix-Multiply-1"></a><a class="docs-heading-anchor-permalink" href="#Standard-Vector-Matrix-Multiply" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 1000)
+
+# y = x&#39; * A (column-wise weighted sum)
+dst = CUDA.zeros(Float32, 500)
+Luma.vecmat!(dst, x, A)
+@assert dst ≈ vec(x&#39; * A)</code></pre><h3 id="Column-wise-Reductions"><a class="docs-heading-anchor" href="#Column-wise-Reductions">Column-wise Reductions</a><a id="Column-wise-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Column-wise-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Column sums: y[j] = sum(A[:, j])
+dst = CUDA.zeros(Float32, 500)
+Luma.vecmat!(dst, nothing, A)
+@assert dst ≈ vec(sum(A; dims=1))</code></pre><h2 id="Pre-allocating-Temporary-Buffers"><a class="docs-heading-anchor" href="#Pre-allocating-Temporary-Buffers">Pre-allocating Temporary Buffers</a><a id="Pre-allocating-Temporary-Buffers-1"></a><a class="docs-heading-anchor-permalink" href="#Pre-allocating-Temporary-Buffers" title="Permalink"></a></h2><p>For repeated operations, pre-allocate temporary buffers to avoid allocation overhead:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+dst = similar(x)
+
+# Pre-allocate for scan
+tmp = Luma.get_allocation(Luma.scan!, dst, x)
+
+# Reuse in a loop
+for i in 1:100
+    CUDA.rand!(x)  # new random data
+    Luma.scan!(+, dst, x; tmp=tmp)
+end</code></pre><h2 id="Complete-Example:-Online-Statistics"><a class="docs-heading-anchor" href="#Complete-Example:-Online-Statistics">Complete Example: Online Statistics</a><a id="Complete-Example:-Online-Statistics-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Example:-Online-Statistics" title="Permalink"></a></h2><p>Compute running mean and variance in a single pass:</p><pre><code class="language-julia hljs">using Luma
+using CUDA
+
+struct RunningStats
+    n::Float32
+    mean::Float32
+    m2::Float32  # sum of squared deviations
+end
+
+# Welford&#39;s online algorithm for combining statistics
+function combine(a::RunningStats, b::RunningStats)
+    n = a.n + b.n
+    delta = b.mean - a.mean
+    mean = a.mean + delta * b.n / n
+    m2 = a.m2 + b.m2 + delta^2 * a.n * b.n / n
+    return RunningStats(n, mean, m2)
+end
+
+# Initialize each element as a single observation
+init(x) = RunningStats(1f0, x, 0f0)
+
+x = CUDA.rand(Float32, 1_000_000)
+dst = CuArray{RunningStats}(undef, length(x))
+
+Luma.scan!(init, combine, dst, x)
+
+# Final statistics
+final_stats = Array(dst)[end]
+mean = final_stats.mean
+variance = final_stats.m2 / final_stats.n
+std = sqrt(variance)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../performances/">« Performance</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Tuesday 3 February 2026 08:33">Tuesday 3 February 2026</span>. Using Julia version 1.12.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
