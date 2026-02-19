@@ -34,14 +34,14 @@
     local_gid = (gid - 1) % Nblocks + 1 # block index relative to the column
     id_base = (chid - 1) * n + (lchid - 1) * Nitem + 1
     if id_base + Nitem - 1 <= n * p
-        values = vload_multi(src, id_base, Val(Nitem))
+        values = vload(src, id_base, Val(Nitem), Val(false))
     else
         values = ntuple(i -> src[n*p], Val(Nitem)) # dummy value when chid <= p
     end
 
     if !isnothing(x)
         i_x = (lchid - 1) * Nitem + 1
-        values_x = vload_multi(x, i_x, Val(Nitem)) # No bound problem if Nthreads*Nitem <=n
+        values_x = vload(x, i_x, Val(Nitem), Val(false)) # No bound problem if Nthreads*Nitem <=n
         values = f.(values_x, values) # careful to the order here
         i_x += Nthreads * Nitem
     else
@@ -51,9 +51,9 @@
     val = tree_reduce(op, values)
     i = id_base + Nthreads * Nitem
     while i + Nitem - 1 <= chid * n && chid <= p
-        values = vload_multi(src, i, Val(Nitem))
+        values = vload(src, i, Val(Nitem), Val(false))
         if !isnothing(x)
-            values_x = vload_multi(x, i_x, Val(Nitem))
+            values_x = vload(x, i_x, Val(Nitem), Val(false))
             values = f.(values_x, values)
             i_x += Nthreads * Nitem
         else

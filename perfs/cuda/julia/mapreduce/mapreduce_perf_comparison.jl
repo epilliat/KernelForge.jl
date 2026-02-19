@@ -47,7 +47,6 @@ end
 =============================================================================#
 #%%
 run_mapreduce_benchmarks(CuArray{Float32}(1:1_000_000))
-
 #=============================================================================
   Float32 with Pre-allocated Temporaries (n=1M)
   - UInt64 flags, Nitem=4 for improved ILP

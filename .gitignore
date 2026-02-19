@@ -5,6 +5,7 @@ test/local/
 **/build
 **/bin
 *.csv
+*dev.jl
 /perfs/cuda/figures
 Manifest.toml
 docs/Manifest.toml

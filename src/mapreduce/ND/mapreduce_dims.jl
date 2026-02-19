@@ -1,0 +1,159 @@
+"""
+    mapreduce_dims(f, op, src, dims; kwargs...) -> GPU array
+
+GPU parallel map-reduce over specified dimensions.
+
+Applies `f` to each element, reduces along `dims` with `op`, and optionally
+applies `g` to each final element.
+
+# Arguments
+- `f`: Map function applied to each element
+- `op`: Associative binary reduction operator
+- `src`: Input GPU array
+- `dims`: Dimension(s) to reduce over (Int or tuple of Ints)
+
+# Keyword Arguments
+- `g=identity`: Post-reduction transformation applied to each result element
+- `workgroup=256`: Workgroup size
+
+# Examples
+```julia
+# Sum along rows (reduce dim 1)
+x = CUDA.rand(Float32, 128, 64)
+result = mapreduce_dims(identity, +, x, 1)   # shape: (1, 64)
+
+# Sum of squares along columns (reduce dim 2)
+result = mapreduce_dims(x -> x^2, +, x, 2)  # shape: (128, 1)
+
+# Reduce multiple dimensions
+x = CUDA.rand(Float32, 4, 8, 16)
+result = mapreduce_dims(identity, +, x, (1, 3))  # shape: (1, 8, 1)
+```
+
+See also: [`KernelForge.mapreduce_dims!`](@ref) for the in-place version.
+"""
+function mapreduce_dims end
+
+"""
+    mapreduce_dims!(f, op, dst, src, dims; kwargs...)
+
+In-place GPU parallel map-reduce over specified dimensions, writing result to `dst`.
+
+# Arguments
+- `f`: Map function applied to each element
+- `op`: Associative binary reduction operator
+- `dst`: Output array (must have size 1 along each reduced dimension)
+- `src`: Input GPU array
+- `dims`: Dimension(s) to reduce over (Int or tuple of Ints)
+
+# Keyword Arguments
+- `g=identity`: Post-reduction transformation applied to each result element
+- `workgroup=256`: Workgroup size
+
+# Examples
+```julia
+x = CUDA.rand(Float32, 128, 64)
+dst = CUDA.zeros(Float32, 1, 64)
+
+# Sum along dim 1
+mapreduce_dims!(identity, +, dst, x, 1)
+
+# Sum of squares along dim 2 with pre-allocated dst
+dst2 = CUDA.zeros(Float32, 128, 1)
+mapreduce_dims!(x -> x^2, +, dst2, x, 2)
+```
+
+See also: [`KernelForge.mapreduce_dims`](@ref) for the allocating version.
+"""
+function mapreduce_dims! end
+
+# ============================================================================
+# Configuration helpers
+# ============================================================================
+
+const DEFAULT_MAPREDUCE_DIMS_CONFIG = (workgroup=256,)
+
+# Compute output size: size 1 along reduced dims, original size elsewhere
+function _output_size(src_size::NTuple{N,Int}, reduce_dims) where {N}
+    ntuple(Val(N)) do d
+        d in reduce_dims ? 1 : src_size[d]
+    end
+end
+
+# Build iteration ranges for the reduced dimensions
+@inline function _reduce_iters(src_size::NTuple{N,Int}, reduce_dims) where {N}
+    ntuple(length(reduce_dims)) do i
+        1:src_size[reduce_dims[i]]
+    end
+end
+
+# ============================================================================
+# Core implementation
+# ============================================================================
+
+function _mapreduce_dims_impl!(
+    f::F, op::O, g::G,
+    dst::AbstractArray,
+    src::AbstractArray,
+    reduce_dims::NTuple{R,Int},
+    workgroup::Int,
+    backend
+) where {F,O,G,R}
+    nd = ndims(src)
+
+    # Build iteration ranges for reduced dims (as a Val-wrapped tuple of ranges)
+    iters = _reduce_iters(size(src), reduce_dims)
+
+    # The output iterates over all non-reduced dimensions
+    keep_size = _output_size(size(src), reduce_dims)
+    ndrange = prod(keep_size)
+
+    mapreduce_dims_kernel!(backend, workgroup, ndrange)(
+        f, op, dst, src, g,
+        Val(reduce_dims), Val(iters), Val(keep_size)
+    )
+end
+
+# ============================================================================
+# Allocating API
+# ============================================================================
+
+function mapreduce_dims(
+    f::F, op::O,
+    src::AbstractArray{T},
+    dims;
+    g::G=identity,
+    workgroup::Int=DEFAULT_MAPREDUCE_DIMS_CONFIG.workgroup
+) where {T,F<:Function,O<:Function,G<:Function}
+    nd = ndims(src)
+    reduce_dims = _normalize_dims(dims, nd)
+
+    H = Base.promote_op(f, T)
+    S = Base.promote_op(g, H)
+
+    backend = get_backend(src)
+    out_size = _output_size(size(src), reduce_dims)
+    dst = KernelAbstractions.allocate(backend, S, out_size)
+
+    _mapreduce_dims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
+    return dst
+end
+
+# ============================================================================
+# In-place API
+# ============================================================================
+
+function mapreduce_dims!(
+    f::F, op::O,
+    dst::AbstractArray{S},
+    src::AbstractArray{T},
+    dims;
+    g::G=identity,
+    workgroup::Int=DEFAULT_MAPREDUCE_DIMS_CONFIG.workgroup
+) where {S,T,F<:Function,O<:Function,G<:Function}
+    nd = ndims(src)
+    reduce_dims = _normalize_dims(dims, nd)
+    backend = get_backend(src)
+    _mapreduce_dims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
+    return dst
+end

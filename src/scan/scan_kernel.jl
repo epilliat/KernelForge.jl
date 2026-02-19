@@ -30,12 +30,10 @@ end
     lane = (lid - 1) % warpsz + 1
 
     shared = @localmem H warpsz
-    # values = f.(vload(src, I, Val(Nitem)))
-    # values = tree_accumulate(op, values)
-    #local values::NTuple{Nitem,H}
+
     if idx_base + Nitem <= N
         values = f.(vload(src, I, Val(Nitem)))
-        values = tree_accumulate(op, values)
+        values = tree_scan(op, values)
     else
         values = ntuple(Val(Nitem)) do i
             f(src[N]) # dummy value

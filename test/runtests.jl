@@ -1,22 +1,36 @@
 using Test
 using CUDA
 using KernelForge
+import KernelForge as KF
 using Random
 
+
+
+
+const BACKEND_ARRAY_TYPES = Dict(
+    CPU() => Array,
+    CUDABackend() => CuArray,
+)
+
 @testset "CUDA" begin
+    @testset "mapreduce" begin
+        include("cuda/mapreduce/mapreduce1d_test.jl")
+        include("cuda/mapreduce/mapreduce2d_test.jl")
+        include("cuda/mapreduce/mapreduce_dims_test.jl")
+        include("cuda/mapreduce/mapreduce_test.jl")
+        include("cuda/mapreduce/vecmat_test.jl")
+        include("cuda/mapreduce/matvec_test.jl")
+    end
     @testset "copy" begin
-        include("cuda/1D/copy_test.jl")
+        include("cuda/copy/copy_test.jl")
     end
     @testset "scan" begin
-        include("cuda/1D/scan_test.jl")
+        include("cuda/scan/scan_test.jl")
     end
-    @testset "mapreduce" begin
-        include("cuda/1D/mapreduce_test.jl")
+    @testset "views" begin
+        include("cuda/views/views_1.jl")
     end
-    @testset "vecmat" begin
-        include("cuda/2D/vecmat_test.jl")
-    end
-    @testset "matvec" begin
-        include("cuda/2D/matvec_test.jl")
+    @testset "argmax" begin
+        include("cuda/search/argmax.jl")
     end
 end

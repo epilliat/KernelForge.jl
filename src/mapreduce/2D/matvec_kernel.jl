@@ -68,7 +68,7 @@
         offset <<= 1
     end
     if Nblocks == 1 && global_row <= n && (workgroup == warpsz || chunksz == workgroup)
-        dst[global_row] = val
+        dst[global_row] = g(val)
         Base.@goto done
     end
     if cld(lane, chunksz) == cld(warpsz, chunksz)

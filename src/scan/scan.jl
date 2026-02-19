@@ -82,7 +82,7 @@ function scan! end
 @inline function default_nitem(::typeof(scan!), ::Type{T}) where {T}
     sz = sizeof(T)
     if sz == 1
-        return 32
+        return 16
     elseif sz == 2
         return 16
     elseif sz == 4
@@ -133,8 +133,8 @@ end
 """
 function get_allocation(
     ::typeof(scan!),
-    dst::AbstractGPUVector{Outf},
-    src::AbstractGPUVector{T};
+    dst::AbstractArray{Outf},
+    src::AbstractArray{T};
     Nitem::Union{Integer,Nothing}=nothing,
     workgroup::Int=DEFAULT_SCAN_CONFIG.workgroup,
     FlagType::Type{FT}=UInt8
@@ -154,8 +154,8 @@ end
 # Without map function (identity)
 function scan(
     op::O,
-    src::AbstractGPUVector{T};
-    tmp::Union{AbstractGPUVector{UInt8},Nothing}=nothing,
+    src::AbstractArray{T};
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem::Union{Integer,Nothing}=nothing,
     workgroup::Int=DEFAULT_SCAN_CONFIG.workgroup,
     FlagType::Type{FT}=UInt8
@@ -166,8 +166,8 @@ end
 # With map function
 function scan(
     f::F, op::O,
-    src::AbstractGPUVector{T};
-    tmp::Union{AbstractGPUVector{UInt8},Nothing}=nothing,
+    src::AbstractArray{T};
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem::Union{Integer,Nothing}=nothing,
     workgroup::Int=DEFAULT_SCAN_CONFIG.workgroup,
     FlagType::Type{FT}=UInt8
@@ -186,9 +186,9 @@ end
 # Without map function (identity)
 function scan!(
     op::O,
-    dst::AbstractGPUVector{Outf},
-    src::AbstractGPUVector{T};
-    tmp::Union{AbstractGPUVector{UInt8},Nothing}=nothing,
+    dst::AbstractArray{Outf},
+    src::AbstractArray{T};
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem::Union{Integer,Nothing}=nothing,
     workgroup::Int=DEFAULT_SCAN_CONFIG.workgroup,
     FlagType::Type{FT}=UInt8
@@ -199,9 +199,9 @@ end
 # Main in-place entry point
 function scan!(
     f::F, op::O,
-    dst::AbstractGPUVector{Outf},
-    src::AbstractGPUVector{T};
-    tmp::Union{AbstractGPUVector{UInt8},Nothing}=nothing,
+    dst::AbstractArray{Outf},
+    src::AbstractArray{T};
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem::Union{Integer,Nothing}=nothing,
     workgroup::Int=DEFAULT_SCAN_CONFIG.workgroup,
     FlagType::Type{FT}=UInt8
@@ -223,7 +223,6 @@ function scan!(
     else
         tmp
     end
-
     _scan_impl!(f, op, dst, src, Val(_Nitem), _tmp, ndrange, blocks, workgroup, Outf, FT, n, backend)
 end
 
@@ -233,10 +232,10 @@ end
 
 function _scan_impl!(
     f::F, op::O,
-    dst::AbstractGPUVector{Outf},
-    src::AbstractGPUVector{T},
+    dst::AbstractArray{Outf},
+    src::AbstractArray{T},
     ::Val{Nitem},
-    tmp::AbstractGPUVector{UInt8},
+    tmp::AbstractArray{UInt8},
     ndrange::Int,
     blocks::Int,
     workgroup::Int,

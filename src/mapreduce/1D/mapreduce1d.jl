@@ -18,7 +18,7 @@ Applies `f` to each element, reduces with `op`, and optionally applies `g` to th
 - `workgroup=256`: Workgroup size
 - `blocks=100`: Number of blocks
 - `FlagType=UInt8`: Synchronization flag type
-- `to_cpu=false`: If true, return scalar; otherwise return 1-element GPU array
+- `to_cpu=true`: If true, return scalar; otherwise return 1-element GPU array
 
 # Examples
 ```julia
@@ -87,7 +87,7 @@ function mapreduce1d! end
     elseif sizeof(T) == 2
         return 4
     else
-        return 1
+        return 1 # even for Float32
     end
 end
 
@@ -124,9 +124,9 @@ end
 """
 function get_allocation(
     fn::typeof(mapreduce1d!),
-    src::AbstractGPUArray{T};
+    src::AbstractArray{T};
     blocks::Integer=DEFAULT_MAPREDUCE_CONFIG.blocks,
-    eltype::Union{Type,Nothing}=nothing,
+    eltype::Type,
     FlagType::Type{FT}=UInt8
 ) where {T,FT}
     return get_allocation(fn, (src,); blocks, eltype, FlagType)
@@ -134,12 +134,12 @@ end
 
 function get_allocation(
     fn::typeof(mapreduce1d!),
-    srcs::NTuple{U,AbstractGPUArray{T}};
+    srcs::NTuple{U,AbstractArray{T}};
     blocks::Integer=DEFAULT_MAPREDUCE_CONFIG.blocks,
-    eltype::Union{Type,Nothing}=nothing,
+    eltype::Type,
     FlagType::Type{FT}=UInt8
 ) where {U,T,FT}
-    H = something(eltype, T)
+    H = eltype
     backend = get_backend(srcs[1])
     sz = sum(get_partition_sizes(blocks, H, FT))
     return KernelAbstractions.allocate(backend, UInt8, sz)
@@ -152,16 +152,16 @@ end
 # Single array
 function mapreduce1d(
     f, op,
-    src::AbstractGPUArray{T};
+    src::AbstractArray{T};
     g=identity,
-    tmp::Union{AbstractGPUArray{UInt8},Nothing}=nothing,
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_MAPREDUCE_CONFIG.workgroup,
     blocks::Int=DEFAULT_MAPREDUCE_CONFIG.blocks,
     FlagType::Type{FT}=UInt8,
-    to_cpu::Bool=false
+    to_cpu::Bool=true
 ) where {T,FT}
-    H = Base.promote_op(f, T)  # Intermediate type after f
+    H = Base.promote_op(f, T)   # Intermediate type after f
     S = Base.promote_op(g, H)  # Final output type after g
     backend = get_backend(src)
     dst = KernelAbstractions.allocate(backend, S, 1)
@@ -174,14 +174,14 @@ end
 # Tuple of arrays
 function mapreduce1d(
     f::F, op::O,
-    srcs::NTuple{U,AbstractGPUArray{T}};
+    srcs::NTuple{U,AbstractArray{T}};
     g::G=identity,
-    tmp::Union{AbstractGPUArray{UInt8},Nothing}=nothing,
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_MAPREDUCE_CONFIG.workgroup,
     blocks::Int=DEFAULT_MAPREDUCE_CONFIG.blocks,
     FlagType::Type{FT}=UInt8,
-    to_cpu::Bool=false
+    to_cpu::Bool=true
 ) where {U,T,F<:Function,O<:Function,G<:Function,FT}
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)  # Intermediate type after f
     S = Base.promote_op(g, H)  # Final output type after g
@@ -200,10 +200,10 @@ end
 # Single array convenience wrapper
 function mapreduce1d!(
     f, op,
-    dst::AbstractGPUArray{S},
-    src::AbstractGPUArray{T};
+    dst::AbstractArray{S},
+    src::AbstractArray{T};
     g=identity,
-    tmp::Union{AbstractGPUArray{UInt8},Nothing}=nothing,
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_MAPREDUCE_CONFIG.workgroup,
     blocks::Int=DEFAULT_MAPREDUCE_CONFIG.blocks,
@@ -215,10 +215,10 @@ end
 # Main in-place entry point
 function mapreduce1d!(
     f::F, op::O,
-    dst::AbstractGPUArray{S},
-    srcs::NTuple{U,AbstractGPUArray{T}};
+    dst::AbstractArray{S},
+    srcs::NTuple{U,AbstractArray{T}};
     g::G=identity,
-    tmp::Union{AbstractGPUArray{UInt8},Nothing}=nothing,
+    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_MAPREDUCE_CONFIG.workgroup,
     blocks::Int=DEFAULT_MAPREDUCE_CONFIG.blocks,
@@ -242,12 +242,12 @@ end
 
 function _mapreduce1d_impl!(
     f::F, op::O, g::G,
-    dst::AbstractGPUArray{S},
-    srcs::NTuple{U,AbstractGPUArray{T}},
+    dst::AbstractArray{S},
+    srcs::NTuple{U,AbstractArray{T}},
     Nitem::Int,
     workgroup::Int,
     blocks::Int,
-    tmp::AbstractGPUArray{UInt8},
+    tmp::AbstractArray{UInt8},
     ::Type{H},
     ::Type{FT},
     n::Int,
