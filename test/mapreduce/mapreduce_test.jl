@@ -1,16 +1,3 @@
-const BACKEND_ARRAY_TYPES = Dict(
-    CUDABackend() => CuArray,
-)
-
-backend = CUDABackend()
-
-# ============================================================================
-# mapreduce_test.jl
-# Tests the unified mapreduce API (routing logic).
-# Low-level kernel correctness is tested in mapreduce1d_test.jl,
-# mapreduce2d_test.jl, and mapreduce_dims_test.jl.
-# ============================================================================
-
 @testset "mapreduce unified API" begin
     AT = BACKEND_ARRAY_TYPES[backend]
 

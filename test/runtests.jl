@@ -1,36 +1,34 @@
 using Test
-using CUDA
+using KernelAbstractions
+import KernelAbstractions as KA
 using KernelForge
 import KernelForge as KF
 using Random
 
 
+const BACKEND_ARRAY_TYPES = Dict{Any,Any}(CPU() => Array)
+
+include("helpers.jl")
 
 
-const BACKEND_ARRAY_TYPES = Dict(
-    CPU() => Array,
-    CUDABackend() => CuArray,
-)
-
-@testset "CUDA" begin
-    @testset "mapreduce" begin
-        include("cuda/mapreduce/mapreduce1d_test.jl")
-        include("cuda/mapreduce/mapreduce2d_test.jl")
-        include("cuda/mapreduce/mapreduce_dims_test.jl")
-        include("cuda/mapreduce/mapreduce_test.jl")
-        include("cuda/mapreduce/vecmat_test.jl")
-        include("cuda/mapreduce/matvec_test.jl")
+try
+    using CUDA
+    if CUDA.functional()
+        BACKEND_ARRAY_TYPES[CUDABackend()] = CuArray
+        @info "CUDA backend available, running CUDA tests"
+        AT = CuArray
+        backend = CUDABackend()
+        @testset "CUDA" begin
+            include("general_routine.jl")
+        end
+    else
+        @warn "CUDA not functional, skipping CUDA tests"
     end
-    @testset "copy" begin
-        include("cuda/copy/copy_test.jl")
-    end
-    @testset "scan" begin
-        include("cuda/scan/scan_test.jl")
-    end
-    @testset "views" begin
-        include("cuda/views/views_1.jl")
-    end
-    @testset "argmax" begin
-        include("cuda/search/argmax.jl")
-    end
+catch e
+    @warn "CUDA not available, skipping CUDA tests" exception = e
 end
+
+
+
+
+

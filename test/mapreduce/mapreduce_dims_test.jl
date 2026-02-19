@@ -1,5 +1,3 @@
-backend = CUDABackend()
-
 @testset "mapreduce_dims" begin
     AT = BACKEND_ARRAY_TYPES[backend]
 
