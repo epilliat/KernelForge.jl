@@ -1,5 +1,5 @@
 function make_test_arrays(rng, n::Int, p::Int; S=Float32)
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     x = AT(rand(rng, S, n))
     src = AT(rand(rng, S, n, p))
     dst = AT(zeros(S, p))
@@ -117,7 +117,7 @@ end
         n, p = 200, 500
         x_cpu = rand(rng, Float32, n)
         src_cpu = rand(rng, Float32, n, p)
-        AT = BACKEND_ARRAY_TYPES[backend]
+        #AT = BACKEND_ARRAY_TYPES[backend]
         x = AT(x_cpu)
         src = AT(src_cpu)
         dst = KA.allocate(backend, Vec3, p)

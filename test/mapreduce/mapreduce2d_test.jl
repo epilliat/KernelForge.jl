@@ -1,5 +1,5 @@
 @testset "mapreduce2d API" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n, p = 128, 64
     A = AT(rand(Float32, n, p))
 

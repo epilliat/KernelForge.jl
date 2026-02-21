@@ -1,5 +1,5 @@
 function make_test_arrays2(rng, n::Int, p::Int; S=Float32)
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     x = AT(rand(rng, S, p))
     src = AT(rand(rng, S, n, p))
     dst = AT(zeros(S, n))

@@ -23,13 +23,13 @@ When `x = nothing`, computes column reductions: `dst[j] = sum(A[i,j])`.
 - `blocks=nothing`: Maximum number of blocks
 - `FlagType=UInt8`: Type for synchronization flags
 """
-function vecmat! end
+function vecmat end, function vecmat! end
 
 # ============================================================================
 # Configuration helpers
 # ============================================================================
 
-@inline function default_nitem(::typeof(vecmat!), ::Type{T}) where {T}
+@inline function default_nitem(::Type{VecMat}, ::Type{T}) where {T}
     if sizeof(T) == 1
         return 16
     elseif sizeof(T) == 2
@@ -41,33 +41,31 @@ function vecmat! end
     end
 end
 
-const DEFAULT_VECMAT_WORKGROUP = 256
-const DEFAULT_VECMAT_BLOCKS = 100 # This will be Nblocks when the matrix is "tall", that is n >> p
-
 # ============================================================================
 # Allocation
 # ============================================================================
 
 # Main public entry point for allocation
 function get_allocation(
-    fn::typeof(vecmat!),
+    ::Type{VecMat},
+    f, op,
     x::Union{AbstractArray,Nothing},
     src::AbstractMatrix{T};
     Nblocks::Integer,
-    eltype::Union{Type,Nothing}=nothing,
+    out_eltype::Union{Type,Nothing}=nothing,
     FlagType::Type{FT}=UInt8
 ) where {T,FT}
-    H = if !isnothing(eltype)
-        eltype
+    H = if !isnothing(out_eltype)
+        out_eltype
     else
         isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
     end
-    return _get_allocation(fn, x, src, Nblocks, H, FT)
+    return _get_allocation(VecMat, x, src, Nblocks, H, FT)
 end
 
 # Core implementation (positional args)
 function _get_allocation(
-    ::typeof(vecmat!),
+    ::Type{VecMat},
     x::Union{AbstractArray,Nothing},
     src::AbstractMatrix{T},
     Nblocks::Integer,
@@ -86,7 +84,7 @@ end
 # ============================================================================
 
 function _resolve_parameters(
-    ::typeof(vecmat!),
+    ::Type{VecMat},
     Nthreads::Union{Int,Nothing},
     Nitem::Union{Int,Nothing},
     workgroup::Int,
@@ -97,7 +95,6 @@ function _resolve_parameters(
 )
     workgroup = min(workgroup, prevpow(2, n * p))
     if isnothing(Nthreads) && isnothing(Nitem)
-        # Auto-tune based on problem size
         thresh = prevpow(2, max(fld(n, 4), 1))
         Nitem = def_nitem
         if thresh >= workgroup
@@ -106,7 +103,6 @@ function _resolve_parameters(
         else
             Nthreads = cld(thresh, Nitem)
         end
-        # Ensure alignment constraint
         Nitem = min(Nitem, prevpow(2, max(fld(n, Nthreads), 1)))
     end
     @assert !isnothing(Nthreads) && !isnothing(Nitem) "Must provide both Nthreads and Nitem, or neither"
@@ -117,6 +113,7 @@ end
 # ============================================================================
 # Public API
 # ============================================================================
+
 # Simplified interface (standard vec-mat multiply) - allocating version
 function vecmat(
     x::Union{AbstractArray,Nothing},
@@ -162,7 +159,7 @@ function vecmat(
     return dst
 end
 
-# Simplified interface (standard vec-mat multiply)
+# Simplified interface (standard vec-mat multiply) - in-place version
 function vecmat!(
     dst::AbstractArray{S},
     x::Union{AbstractArray,Nothing},
@@ -180,7 +177,7 @@ function vecmat!(
     _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, FT)
 end
 
-# Full interface with f and op
+# Full interface with f and op - in-place version
 function vecmat!(
     f::F, op::O,
     dst::AbstractArray{S},
@@ -221,15 +218,14 @@ function _vecmat_entry!(
 
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
 
-    workgroup_ = something(workgroup, DEFAULT_VECMAT_WORKGROUP)
-    blocks_ = something(blocks, DEFAULT_VECMAT_BLOCKS)
-    def_nitem = default_nitem(vecmat!, T)
+    workgroup_ = something(workgroup, DEFAULT_WORKGROUP)
+    blocks_ = something(blocks, DEFAULT_BLOCKS)
+    def_nitem = default_nitem(VecMat, T)
 
     Nthreads_, Nitem_, workgroup__ = _resolve_parameters(
-        vecmat!, Nthreads, Nitem, workgroup_, blocks_, def_nitem, n, p
+        VecMat, Nthreads, Nitem, workgroup_, blocks_, def_nitem, n, p
     )
 
-    # Function barrier: dispatch based on tmp type
     _vecmat_dispatch!(f, op, g, dst, x, src, Nitem_, Nthreads_, workgroup__, tmp, H, FT)
 end
 
@@ -274,7 +270,7 @@ function _vecmat_dispatch!(
         _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, FT)
     else
         Nblocks = cld(Nthreads, workgroup)
-        tmp_ = _get_allocation(vecmat!, x, src, Nblocks, H, FT)
+        tmp_ = _get_allocation(VecMat, x, src, Nblocks, H, FT)
         _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp_, H, FT)
     end
 end

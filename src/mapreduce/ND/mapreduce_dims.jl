@@ -67,12 +67,6 @@ See also: [`KernelForge.mapreduce_dims`](@ref) for the allocating version.
 """
 function mapreduce_dims! end
 
-# ============================================================================
-# Configuration helpers
-# ============================================================================
-
-const DEFAULT_MAPREDUCE_DIMS_CONFIG = (workgroup=256,)
-
 # Compute output size: size 1 along reduced dims, original size elsewhere
 function _output_size(src_size::NTuple{N,Int}, reduce_dims) where {N}
     ntuple(Val(N)) do d
@@ -94,23 +88,23 @@ end
 function _mapreduce_dims_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray,
-    src::AbstractArray,
+    src::AbstractArray{T,Ndims},
     reduce_dims::NTuple{R,Int},
     workgroup::Int,
     backend
-) where {F,O,G,R}
-    nd = ndims(src)
-
-    # Build iteration ranges for reduced dims (as a Val-wrapped tuple of ranges)
+) where {F,O,G,T,Ndims,R}
     iters = _reduce_iters(size(src), reduce_dims)
-
-    # The output iterates over all non-reduced dimensions
     keep_size = _output_size(size(src), reduce_dims)
     ndrange = prod(keep_size)
 
+    dim_map = ntuple(Ndims) do d
+        pos = Base.findfirst(==(d), reduce_dims)
+        pos === nothing ? 0 : pos
+    end
+
     mapreduce_dims_kernel!(backend, workgroup, ndrange)(
         f, op, dst, src, g,
-        Val(reduce_dims), Val(iters), Val(keep_size)
+        Val(reduce_dims), Val(iters), Val(keep_size), Val(dim_map)
     )
 end
 
@@ -123,7 +117,7 @@ function mapreduce_dims(
     src::AbstractArray{T},
     dims;
     g::G=identity,
-    workgroup::Int=DEFAULT_MAPREDUCE_DIMS_CONFIG.workgroup
+    workgroup::Int=DEFAULT_WORKGROUP
 ) where {T,F<:Function,O<:Function,G<:Function}
     nd = ndims(src)
     reduce_dims = _normalize_dims(dims, nd)
@@ -149,7 +143,7 @@ function mapreduce_dims!(
     src::AbstractArray{T},
     dims;
     g::G=identity,
-    workgroup::Int=DEFAULT_MAPREDUCE_DIMS_CONFIG.workgroup
+    workgroup::Int=DEFAULT_WORKGROUP
 ) where {S,T,F<:Function,O<:Function,G<:Function}
     nd = ndims(src)
     reduce_dims = _normalize_dims(dims, nd)

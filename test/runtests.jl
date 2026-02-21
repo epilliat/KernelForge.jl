@@ -11,21 +11,23 @@ const BACKEND_ARRAY_TYPES = Dict{Any,Any}(CPU() => Array)
 include("helpers.jl")
 
 
-try
+# Default to CPU
+backend = CPU()
+AT = Array
+
+if !isnothing(Base.find_package("CUDA"))
     using CUDA
     if CUDA.functional()
-        BACKEND_ARRAY_TYPES[CUDABackend()] = CuArray
-        @info "CUDA backend available, running CUDA tests"
-        AT = CuArray
+        @info "CUDA backend available"
         backend = CUDABackend()
-        @testset "CUDA" begin
-            include("general_routine.jl")
-        end
+        AT = CuArray
+        BACKEND_ARRAY_TYPES[CUDABackend()] = CuArray
     else
-        @warn "CUDA not functional, skipping CUDA tests"
+        @warn "CUDA not functional"
     end
-catch e
-    @warn "CUDA not available, skipping CUDA tests" exception = e
+    @testset "CUDA" begin
+        include("general_routine.jl")
+    end
 end
 
 

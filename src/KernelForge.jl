@@ -2,16 +2,17 @@ module KernelForge
 
 using KernelIntrinsics
 using KernelAbstractions
+using KernelAbstractions: adapt
 using GPUArraysCore
-using Atomix: @atomicreplace
+using Atomix: @atomicreplace, @atomic
 using ArgCheck
 
 
 const BitwiseTypes = Union{UInt8,UInt16,UInt32,UInt64,Int8,Int16,Int32,Int64,Float16,Float32,Float64}
 
-const warpsz = 32 # TODO: This might change from one architecture to another
 
 include("helpers.jl")
+include("algorithms.jl")
 
 include("copy/copy_kernel.jl")
 include("copy/copy.jl")
@@ -36,6 +37,9 @@ include("mapreduce/reductions.jl")
 include("scan/scan_kernel.jl")
 include("scan/scan.jl")
 
+
+include("search/findfirst_kernel.jl")
+include("search/findfirst.jl")
 
 include("search/argmax_kernel.jl")
 include("search/argmax.jl")

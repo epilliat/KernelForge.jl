@@ -14,10 +14,9 @@ GPU parallel map-reduce operation with optional dimension reduction.
 
 # Keyword Arguments
 - `dims=nothing`: Dimensions to reduce over. Options:
-  - `nothing` or `:`: Reduce over all dimensions → scalar (controlled by `to_cpu`)
+  - `nothing` or `:`: Reduce over all dimensions → 1-element GPU array
   - `Int` or `Tuple{Int...}`: Reduce over those dims → GPU array
 - `g=identity`: Post-reduction transformation
-- `to_cpu=true`: Only applies when `dims=nothing`. If true, return scalar; otherwise 1-element GPU array.
 - Additional kwargs passed to underlying implementations
 
 # Fast paths
@@ -32,8 +31,11 @@ GPU parallel map-reduce operation with optional dimension reduction.
 ```julia
 A = CUDA.rand(Float32, 100, 50, 20)
 
-# Full reduction → scalar
+# Full reduction → 1-element GPU array
 total = mapreduce(identity, +, A)
+
+# Transfer to CPU as usual
+scalar = Array(mapreduce(identity, +, A))[]
 
 # Reduce along dim 1: (100, 50, 20) -> (1, 50, 20)
 col_sums = mapreduce(identity, +, A; dims=1)
@@ -52,59 +54,53 @@ function mapreduce(
     src::AbstractArray{T};
     dims=nothing,
     g::G=identity,
-    to_cpu::Bool=true,
     kwargs...
 ) where {T,F<:Function,O<:Function,G<:Function}
 
     dims === Colon() && (dims = nothing)
 
-    # --- Full reduction: to_cpu controls scalar vs 1-element GPU array ---
-    dims === nothing && return mapreduce1d(f, op, src; g, to_cpu, kwargs...)
+    # --- Full reduction → scalar (to_cpu not exposed to user) ---
+    dims === nothing && return mapreduce1d(f, op, src; g, to_cpu=true, kwargs...)
 
     nd = ndims(src)
     dims_tuple = _normalize_dims(dims, nd)
     _validate_dims(dims_tuple, nd)
 
-    # --- All dims explicit: always return GPU array (Base-compatible) ---
-    length(dims_tuple) == nd && return mapreduce1d(f, op, src; g, to_cpu=false, kwargs...)
+    # --- All dims explicit: return GPU array with shape (1,...,1), Base-compatible ---
+    length(dims_tuple) == nd && return mapreduce_dims(f, op, src, dims_tuple; g, kwargs...)
 
     src_size = size(src)
-    leading, trailing = _classify_dims(dims_tuple, nd)
+    lead_end, tail_start = _classify_dims(dims_tuple, nd)
+    leading = lead_end > 0
+    trailing = tail_start <= length(dims_tuple)
 
     # --- Single contiguous block from start ---
     if leading && !trailing
-        k = length(dims_tuple)
-        reduce_size = prod(src_size[1:k])
-        keep_size = src_size[k+1:nd]
+        reduce_size = prod(src_size[1:lead_end])
+        keep_size = src_size[lead_end+1:nd]
         src_2d = reshape(src, reduce_size, prod(keep_size))
         result_flat = mapreduce2d(f, op, src_2d, 1; g, kwargs...)
-        out_shape = ntuple(i -> i <= k ? 1 : src_size[i], nd)
+        out_shape = ntuple(i -> i <= lead_end ? 1 : src_size[i], nd)
         return reshape(result_flat, out_shape)
     end
 
     # --- Single contiguous block from end ---
     if trailing && !leading
-        k = length(dims_tuple)
-        first_kept = dims_tuple[1] - 1
-        keep_size = src_size[1:first_kept]
-        reduce_size = prod(src_size[first_kept+1:nd])
-        src_2d = reshape(src, prod(keep_size), reduce_size)
+        tail_start_dim = dims_tuple[tail_start]
+        keep_size = prod(src_size[1:tail_start_dim-1])
+        reduce_size = prod(src_size[tail_start_dim:nd])
+        src_2d = reshape(src, keep_size, reduce_size)
         result_flat = mapreduce2d(f, op, src_2d, 2; g, kwargs...)
-        out_shape = ntuple(i -> i >= dims_tuple[1] ? 1 : src_size[i], nd)
+        out_shape = ntuple(i -> i >= tail_start_dim ? 1 : src_size[i], nd)
         return reshape(result_flat, out_shape)
     end
 
-    # --- Two contiguous blocks: leading (1..k) and trailing (j..nd) ---
+    # --- Two contiguous blocks: leading (1..lead_end) and trailing (tail_start_dim..nd) ---
     if leading && trailing
-        lead_end = findlast(i -> dims_tuple[i] == i, 1:length(dims_tuple))
-        lead_dims = dims_tuple[1:lead_end]
-        tail_dims = dims_tuple[lead_end+1:end]
-
-        lead_k = length(lead_dims)
-        tail_start = tail_dims[1]
-        lead_size = prod(src_size[1:lead_k])
-        mid_size = prod(src_size[lead_k+1:tail_start-1])
-        tail_size = prod(src_size[tail_start:nd])
+        tail_start_dim = dims_tuple[tail_start]
+        lead_size = prod(src_size[1:lead_end])
+        mid_size = prod(src_size[lead_end+1:tail_start_dim-1])
+        tail_size = prod(src_size[tail_start_dim:nd])
 
         # First pass: reduce trailing block (no g yet)
         src_tmp_2d = reshape(src, lead_size * mid_size, tail_size)
@@ -155,39 +151,35 @@ function mapreduce!(
     dims_tuple = _normalize_dims(dims, nd)
     _validate_dims(dims_tuple, nd)
 
-    length(dims_tuple) == nd && return mapreduce1d!(f, op, dst, src; g, kwargs...)
+    length(dims_tuple) == nd && return mapreduce_dims!(f, op, dst, src, dims_tuple; g, kwargs...)
 
     src_size = size(src)
-    leading, trailing = _classify_dims(dims_tuple, nd)
+    lead_end, tail_start = _classify_dims(dims_tuple, nd)
+    leading = lead_end > 0
+    trailing = tail_start <= length(dims_tuple)
 
     if leading && !trailing
-        k = length(dims_tuple)
-        reduce_size = prod(src_size[1:k])
-        keep_size = prod(src_size[k+1:nd])
+        reduce_size = prod(src_size[1:lead_end])
+        keep_size = prod(src_size[lead_end+1:nd])
         src_2d = reshape(src, reduce_size, keep_size)
         dst_flat = reshape(dst, keep_size)
         return mapreduce2d!(f, op, dst_flat, src_2d, 1; g, kwargs...)
     end
 
     if trailing && !leading
-        first_kept = dims_tuple[1] - 1
-        keep_size = prod(src_size[1:first_kept])
-        reduce_size = prod(src_size[first_kept+1:nd])
+        tail_start_dim = dims_tuple[tail_start]
+        keep_size = prod(src_size[1:tail_start_dim-1])
+        reduce_size = prod(src_size[tail_start_dim:nd])
         src_2d = reshape(src, keep_size, reduce_size)
         dst_flat = reshape(dst, keep_size)
         return mapreduce2d!(f, op, dst_flat, src_2d, 2; g, kwargs...)
     end
 
     if leading && trailing
-        lead_end = findlast(i -> dims_tuple[i] == i, 1:length(dims_tuple))
-        lead_dims = dims_tuple[1:lead_end]
-        tail_dims = dims_tuple[lead_end+1:end]
-
-        lead_k = length(lead_dims)
-        tail_start = tail_dims[1]
-        lead_size = prod(src_size[1:lead_k])
-        mid_size = prod(src_size[lead_k+1:tail_start-1])
-        tail_size = prod(src_size[tail_start:nd])
+        tail_start_dim = dims_tuple[tail_start]
+        lead_size = prod(src_size[1:lead_end])
+        mid_size = prod(src_size[lead_end+1:tail_start_dim-1])
+        tail_size = prod(src_size[tail_start_dim:nd])
 
         backend = get_backend(src)
         H = Base.promote_op(f, T)
@@ -219,13 +211,12 @@ function mapreduce(
     srcs::NTuple{U,AbstractArray{T}};
     dims=nothing,
     g::G=identity,
-    to_cpu::Bool=true,
     kwargs...
 ) where {U,T,F<:Function,O<:Function,G<:Function}
     if dims !== nothing && dims !== Colon()
         throw(ArgumentError("Multi-array mapreduce only supports full reduction (dims=nothing)"))
     end
-    return mapreduce1d(f, op, srcs; g, to_cpu, kwargs...)
+    return mapreduce1d(f, op, srcs; g, to_cpu=true, kwargs...)
 end
 
 # ============================================================================
@@ -247,31 +238,42 @@ function _validate_dims(dims::NTuple{N,Int}, ndim::Int) where {N}
 end
 
 """
-    _classify_dims(dims, nd) -> (leading::Bool, trailing::Bool)
+    _classify_dims(dims, nd) -> (lead_end::Int, tail_start::Int)
 
-Classify whether dims form a contiguous block at the start, end, or both.
-Both can be true only when dims split into two separate contiguous blocks
-(one at the start, one at the end).
+Returns the index (within `dims`) where the leading contiguous block ends,
+and the index where the trailing contiguous block starts.
+
+- `lead_end == 0` means no leading block.
+- `tail_start == length(dims) + 1` means no trailing block.
+
+Both can be active only when dims split into two separate contiguous blocks
+(one at the start, one at the end of the array dimensions).
+Assumes `dims` is sorted.
 """
 function _classify_dims(dims::NTuple{N,Int}, nd::Int) where {N}
     lead_end = 0
     for k in 1:N
         dims[k] == k ? (lead_end = k) : break
     end
-    leading = lead_end > 0 && dims[1] == 1
 
     tail_start = N + 1
     for k in N:-1:1
         dims[k] == nd - (N - k) ? (tail_start = k) : break
     end
-    trailing = tail_start <= N && dims[end] == nd
 
     # Single contiguous block touching both ends → treat as leading only
-    # (full reduction already handled upstream)
-    if leading && trailing
+    if lead_end > 0 && tail_start <= N
         is_one_block = all(i -> dims[i+1] == dims[i] + 1, 1:N-1)
-        is_one_block && return (true, false)
+        is_one_block && return (lead_end, N + 1)
     end
 
-    return (leading, trailing)
+    # Verify the two blocks together cover exactly all dims
+    # If not (e.g. dims=(2,4,5) on 5D), neither block is valid → general fallback
+    n_lead = lead_end
+    n_tail = tail_start <= N ? (N - tail_start + 1) : 0
+    if n_lead + n_tail != N
+        return (0, N + 1)  # force general fallback
+    end
+
+    return (lead_end, tail_start)
 end

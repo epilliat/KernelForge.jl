@@ -1,5 +1,5 @@
 @testset "mapreduce unified API" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
 
     # ----------------------------------------------------------------
     # Full reduction routes to mapreduce1d
@@ -8,13 +8,13 @@
     @testset "full reduction (dims=nothing)" begin
         x_cpu = rand(Float32, 4, 5, 6)
         x = AT(x_cpu)
-        @test KF.mapreduce(identity, +, x; to_cpu=true) ≈ sum(x_cpu)
+        @test KF.mapreduce(identity, +, x) ≈ sum(x_cpu)
     end
 
     @testset "full reduction (dims=:)" begin
         x_cpu = rand(Float32, 4, 5, 6)
         x = AT(x_cpu)
-        @test KF.mapreduce(identity, +, x; dims=:, to_cpu=true) ≈ sum(x_cpu)
+        @test KF.mapreduce(identity, +, x; dims=:) ≈ sum(x_cpu)
     end
 
     @testset "full reduction (all dims explicit)" begin
@@ -110,6 +110,26 @@
         @test Array(KF.mapreduce(identity, +, x; dims=(2, 4))) ≈ ref
     end
 
+    @testset "general fallback – non-contiguous middle dims" begin
+        B = AT(rand(Float32, 3, 4, 5, 6, 7))
+        ref = mapreduce(identity, +, Array(B); dims=(2, 4, 5))
+        @test Array(KF.mapreduce(identity, +, B; dims=(2, 4, 5))) ≈ ref
+        @test size(KF.mapreduce(identity, +, B; dims=(2, 4, 5))) == (3, 1, 5, 1, 1)
+    end
+
+    @testset "general fallback – two non-contiguous single dims" begin
+        B = AT(rand(Float32, 3, 4, 5, 6, 7))
+        ref = mapreduce(identity, +, Array(B); dims=(2, 4))
+        @test Array(KF.mapreduce(identity, +, B; dims=(2, 4))) ≈ ref
+        @test size(KF.mapreduce(identity, +, B; dims=(2, 4))) == (3, 1, 5, 1, 7)
+    end
+
+    @testset "general fallback – leading + non-contiguous" begin
+        B = AT(rand(Float32, 3, 4, 5, 6))
+        ref = mapreduce(identity, +, Array(B); dims=(1, 3))
+        @test Array(KF.mapreduce(identity, +, B; dims=(1, 3))) ≈ ref
+        @test size(KF.mapreduce(identity, +, B; dims=(1, 3))) == (1, 4, 1, 6)
+    end
     # ----------------------------------------------------------------
     # g post-transform propagates correctly through all paths
     # ----------------------------------------------------------------
@@ -118,7 +138,7 @@
         x_cpu = rand(Float32, 100)
         x = AT(x_cpu)
         ref = sqrt(sum(x_cpu))
-        @test KF.mapreduce(identity, +, x; g=sqrt, to_cpu=true) ≈ ref
+        @test KF.mapreduce(identity, +, x; g=sqrt) ≈ ref
     end
 
     @testset "g with leading dims" begin

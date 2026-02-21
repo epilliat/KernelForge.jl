@@ -1,6 +1,5 @@
 @testset "KernelForge.scan! basic tests" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
-
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 100_000
     T = Float32
     src_cpu = rand(T, n)
@@ -22,8 +21,7 @@ end
 
 @testset "KernelForge.scan! with Quaternions (non-commutative)" begin
     using Quaternions
-    AT = BACKEND_ARRAY_TYPES[backend]
-
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 1_000_000
     T = QuaternionF64
     src_cpu = [QuaternionF64((x ./ sqrt(sum(x .^ 2)))...) for x in eachcol(randn(4, n))]
@@ -35,8 +33,7 @@ end
 end
 
 @testset "KernelForge.scan! comprehensive tests" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
-
+    #AT = BACKEND_ARRAY_TYPES[backend]
     test_sizes = [1, 5, 10, 100, 1_000, 10_000, 1_000_000]
     test_types = [Float64, Int32]
     test_ops = [
@@ -69,8 +66,7 @@ end
 end
 
 @testset "UInt8 scan tests" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
-
+    #AT = BACKEND_ARRAY_TYPES[backend]
     test_sizes = [10_001]
     test_ops = [(+, "addition"), (max, "maximum"), (min, "minimum")]
 
@@ -91,8 +87,7 @@ end
 end
 
 @testset "KernelForge.scan! edge sizes (Float64, +)" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
-
+    #AT = BACKEND_ARRAY_TYPES[backend]
     edge_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     for n in edge_sizes

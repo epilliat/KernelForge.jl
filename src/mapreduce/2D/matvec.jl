@@ -55,7 +55,7 @@ matvec!(dst, A, x)
 
 For tall matrices (many rows, few columns), each row is processed by a single block.
 For wide matrices (few rows, many columns), multiple blocks collaborate on each row
-via a number of blocks Nblocks computed from `blocks_row`. `blocks_row` is equal to 
+via a number of blocks Nblocks computed from `blocks_row`. `blocks_row` is equal to
 Nblocks for a large row matrix.
 
 Pre-allocating `tmp` avoids repeated allocation when calling `matvec!` in a loop.
@@ -67,36 +67,30 @@ Output element type is inferred as `promote_op(g, promote_op(f, eltype(src), elt
 function matvec end, function matvec! end
 
 # ============================================================================
-# Configuration helpers
-# ============================================================================
-
-const DEFAULT_MATVEC_WORKGROUP = 256
-const DEFAULT_MATVEC_BLOCKS_ROW = 100 # Order of magnitude of number of blocks when the matrix is row matrix
-
-# ============================================================================
 # Allocation
 # ============================================================================
 
 # Main public entry point for allocation
 function get_allocation(
-    fn::typeof(matvec!),
+    ::Type{MatVec},
+    f, op,
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing};
     Nblocks::Integer,
-    eltype::Union{Type,Nothing}=nothing,
+    out_eltype::Union{Type,Nothing}=nothing,
     FlagType::Type{FT}=UInt8
 ) where {T,FT}
-    H = if !isnothing(eltype)
-        eltype
+    H = if !isnothing(out_eltype)
+        out_eltype
     else
         isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
     end
-    return _get_allocation(fn, src, x, Nblocks, H, FT)
+    return _get_allocation(MatVec, src, x, Nblocks, H, FT)
 end
 
 # Core implementation (positional args)
 function _get_allocation(
-    ::typeof(matvec!),
+    ::Type{MatVec},
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing},
     Nblocks::Integer,
@@ -115,7 +109,7 @@ end
 # ============================================================================
 
 function _resolve_parameters(
-    ::typeof(matvec!),
+    ::Type{MatVec},
     chunksz::Union{Int,Nothing},
     Nblocks::Union{Int,Nothing},
     workgroup::Union{Int,Nothing},
@@ -124,37 +118,31 @@ function _resolve_parameters(
     p::Int
 )
     if isnothing(blocks_row)
-        blocks_row = DEFAULT_MATVEC_BLOCKS_ROW
+        blocks_row = DEFAULT_BLOCKS
     end
     if isnothing(chunksz) && isnothing(Nblocks)
-        # Auto-tune based on problem size
         chunksz = min(cld(nextpow(2, n), 8), 64)
         Nblocks = prevpow(2, cld(blocks_row, cld(n, chunksz)))
     end
     if isnothing(workgroup)
-        workgroup = DEFAULT_MATVEC_WORKGROUP
+        workgroup = DEFAULT_WORKGROUP
         if Nblocks == 1
-            workgroup = 128 # small optimization
+            workgroup = 128
         end
     end
 
-    # edge cases handling
     workgroup = max(
         min(workgroup, prevpow(2, n * p)),
-        warpsz # edge case, n small
+        warpsz
     )
-    # (workgroup / chunksz) * Nblocks must be smaller than p
-    Nblocks = min(Nblocks, prevpow(2, max(fld(p * chunksz, workgroup), 1))) # edge case, p small
+    Nblocks = min(Nblocks, prevpow(2, max(fld(p * chunksz, workgroup), 1)))
     chunksz = max(chunksz, nextpow(2, cld(workgroup * Nblocks, p)))
-    # workgroup / chunksz must also be smaller than Nblocks if Nblocks > 1
     chunksz = max(chunksz, nextpow(2, cld(workgroup * Nblocks, p)))
-
     chunksz = min(chunksz, workgroup)
     if workgroup == warpsz
         chunksz = workgroup
     end
 
-    #@show workgroup, chunksz, Nblocks
     @assert !isnothing(chunksz) && !isnothing(Nblocks) "Must provide both chunksz and Nblocks, or neither"
     @assert cld(workgroup, chunksz) * Nblocks <= p
     @assert ispow2(Nblocks) || chunksz * Nblocks >= workgroup || chunksz * Nblocks <= warpsz
@@ -269,12 +257,10 @@ function _matvec_entry!(
 
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
 
-    # Resolve to get suitable chunksz, Nblocks and workgroup size
     chunksz_, Nblocks_, workgroup_, blocks_row_ = _resolve_parameters(
-        matvec!, chunksz, Nblocks, workgroup, blocks_row, n, p
+        MatVec, chunksz, Nblocks, workgroup, blocks_row, n, p
     )
 
-    # Function barrier: dispatch based on tmp type
     _matvec_dispatch!(f, op, g, dst, src, x, chunksz_, Nblocks_, workgroup_, tmp, H, FT)
 end
 
@@ -318,7 +304,7 @@ function _matvec_dispatch!(
     if Nblocks == 1
         _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, H, FT)
     else
-        tmp_ = _get_allocation(matvec!, src, x, Nblocks, H, FT)
+        tmp_ = _get_allocation(MatVec, src, x, Nblocks, H, FT)
         _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp_, H, FT)
     end
 end

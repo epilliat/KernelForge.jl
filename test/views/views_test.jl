@@ -1,5 +1,5 @@
 @testset "scan! with views" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 33
 
     @testset "Float64" begin
@@ -42,7 +42,7 @@
 end
 
 @testset "mapreduce with views" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 33
 
     @testset "Float64 - 1D" begin
@@ -93,7 +93,7 @@ end
 end
 
 @testset "matvec with views" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 33
 
     @testset "Float64" begin
@@ -130,7 +130,7 @@ end
 end
 
 @testset "vecmat with views" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 33
 
     @testset "Float64" begin
@@ -162,7 +162,7 @@ end
 end
 
 @testset "vcopy with views" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     n = 33
 
     @testset "Float64" begin

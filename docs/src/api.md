@@ -14,12 +14,24 @@ KernelForge.mapreduce2d
 KernelForge.mapreduce2d!
 KernelForge.mapreduce1d
 KernelForge.mapreduce1d!
+KernelForge.mapreduce_dims
+KernelForge.mapreduce_dims!
 ```
 
 ## Scan
 ```@docs
 KernelForge.scan
 KernelForge.scan!
+```
+
+## Search
+```@docs
+KernelForge.findfirst
+KernelForge.findlast
+KernelForge.argmax1d
+KernelForge.argmax1d!
+KernelForge.argmax
+KernelForge.argmin
 ```
 
 ## Matrix-Vector

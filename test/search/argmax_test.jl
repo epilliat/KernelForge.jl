@@ -1,5 +1,5 @@
 @testset "argmax/argmin 1D" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
 
     @testset "argmax basic" begin
         x = AT(Float32[42])

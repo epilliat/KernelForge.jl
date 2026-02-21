@@ -1,5 +1,6 @@
+
 @testset "mapreduce_dims" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
 
     # ----------------------------------------------------------------
     # Basic shapes and dims

@@ -1,5 +1,5 @@
 @testset "mapreduce1d correctness" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
 
     ns = reverse([33, 100, 10_001, 100_000])
     types = [Float32, Float64, Int32]
@@ -9,7 +9,7 @@
             @testset "trial $trial" for trial in 1:5
                 src = AT(T.([i for i in 1:n]))
                 dst = AT([T(0)])
-                tmp = KF.get_allocation(KF.mapreduce1d!, (src,); blocks=400, eltype=T)
+                tmp = KF.get_allocation(KF.MapReduce1D, (src,); blocks=400, out_eltype=T)
 
                 # Warm up
                 KF.mapreduce1d!(identity, +, dst, src; tmp)
@@ -32,7 +32,7 @@ end
 # ============================================================================
 
 @testset "mapreduce1d custom struct" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
 
     struct Input6
         a::Float32
@@ -57,7 +57,7 @@ end
             src = AT([Input6(rand(Float32), rand(Float32), rand(Float32),
                 rand(Float32), rand(Float32), rand(Float32)) for _ in 1:n])
             dst = AT([Output3(0f0, 0f0, 0f0)])
-            tmp = KF.get_allocation(KF.mapreduce1d!, (src,); blocks=400, eltype=Output3)
+            tmp = KF.get_allocation(KF.MapReduce1D, (src,); blocks=400, out_eltype=Output3)
 
             KF.mapreduce1d!(map_func, reduce_func, dst, src; tmp)
             KA.synchronize(backend)
@@ -76,7 +76,7 @@ end
 # ============================================================================
 
 @testset "mapreduce1d tuple inputs (dot product and variants)" begin
-    AT = BACKEND_ARRAY_TYPES[backend]
+    #AT = BACKEND_ARRAY_TYPES[backend]
     T = Float64
 
     @testset "dot product" begin
@@ -131,7 +131,7 @@ end
         n = 50_000
         x, y = AT(rand(T, n)), AT(rand(T, n))
         dst = AT([T(0)])
-        tmp = KF.get_allocation(KF.mapreduce1d!, (x, y); blocks=100, eltype=T)
+        tmp = KF.get_allocation(KF.MapReduce1D, (x, y); blocks=100, out_eltype=T)
 
         @testset "trial $trial" for trial in 1:3
             copyto!(x, rand(T, n))
