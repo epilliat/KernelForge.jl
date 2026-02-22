@@ -3,7 +3,6 @@
 
 GPU parallel findfirst. Returns the index of the first element in `src`
 for which `filtr` returns `true`, or `nothing` if no such element exists.
-
 For multidimensional arrays, returns a `CartesianIndex`.
 
 # Arguments
@@ -19,49 +18,12 @@ For multidimensional arrays, returns a `CartesianIndex`.
 ```julia
 x = adapt(backend, rand(Float32, 10_000))
 findfirst(>(0.99f0), x)       # returns a linear index or nothing
-
 A = adapt(backend, rand(Float32, 100, 100))
 findfirst(>(0.99f0), A)       # returns a CartesianIndex or nothing
 ```
 
 See also: [`KernelForge.findlast`](@ref).
 """
-findfirst(filtr, src::AbstractArray)
-
-"""
-    findlast(filtr, src; kwargs...) -> Int or CartesianIndex or nothing
-
-GPU parallel findlast. Returns the index of the last element in `src`
-for which `filtr` returns `true`, or `nothing` if no such element exists.
-
-Implemented by reversing `src` and delegating to [`KernelForge.findfirst`](@ref),
-so it accepts the same keyword arguments.
-
-For multidimensional arrays, returns a `CartesianIndex`.
-
-# Arguments
-- `filtr`: Predicate function
-- `src`: Input GPU array
-
-# Keyword Arguments
-- `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
-
-# Examples
-```julia
-x = adapt(backend, rand(Float32, 10_000))
-findlast(>(0.99f0), x)        # returns a linear index or nothing
-
-A = adapt(backend, rand(Float32, 100, 100))
-findlast(>(0.99f0), A)        # returns a CartesianIndex or nothing
-```
-
-See also: [`KernelForge.findfirst`](@ref).
-"""
-findlast(filtr, src::AbstractArray)
-
-
 function findfirst(
     filtr::F,
     src::AbstractArray{T};
@@ -87,6 +49,34 @@ function findfirst(
     return result
 end
 
+"""
+    findlast(filtr, src; kwargs...) -> Int or CartesianIndex or nothing
+
+GPU parallel findlast. Returns the index of the last element in `src`
+for which `filtr` returns `true`, or `nothing` if no such element exists.
+Implemented by reversing `src` and delegating to [`KernelForge.findfirst`](@ref),
+so it accepts the same keyword arguments.
+For multidimensional arrays, returns a `CartesianIndex`.
+
+# Arguments
+- `filtr`: Predicate function
+- `src`: Input GPU array
+
+# Keyword Arguments
+- `Nitem=nothing`: Items per thread (auto-selected if nothing)
+- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
+- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
+
+# Examples
+```julia
+x = adapt(backend, rand(Float32, 10_000))
+findlast(>(0.99f0), x)        # returns a linear index or nothing
+A = adapt(backend, rand(Float32, 100, 100))
+findlast(>(0.99f0), A)        # returns a CartesianIndex or nothing
+```
+
+See also: [`KernelForge.findfirst`](@ref).
+"""
 function findlast(
     filtr::F,
     src::AbstractArray{T};
