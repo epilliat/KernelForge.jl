@@ -1,6 +1,6 @@
 name = "KernelForge"
 uuid = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Emmanuel Pilliat <epilliat@gmail.com>"]
 
 [deps]

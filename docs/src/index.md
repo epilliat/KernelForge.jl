@@ -1,5 +1,4 @@
 # KernelForge.jl
-
 High-performance, portable GPU primitives for Julia. A pure Julia implementation delivering performance competitive with optimized CUDA C++ libraries.
 
 !!! warning "Experimental Status"
@@ -11,10 +10,9 @@ High-performance, portable GPU primitives for Julia. A pure Julia implementation
     KernelForge.jl builds on [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl)
     for GPU kernel dispatch. However, certain low-level operations—including warp shuffle
     instructions, vectorized memory access, and memory ordering semantics—are not yet available
-    in KA.jl, so we use [KernelIntrinsics.jl](https://github.com/...) for these primitives.
+    in KA.jl, so we use [KernelIntrinsics.jl](https://github.com/epilliat/KernelIntrinsics.jl) for these primitives.
     As KernelIntrinsics.jl currently supports only CUDA, KernelForge.jl is likewise restricted
     to CUDA.
-
     **The core contribution of this package lies in the GPU kernel implementations themselves**,
     designed to be portable once the underlying intrinsics become available on other backends.
     Extending support to AMD and Intel GPUs would primarily require work in KernelIntrinsics.jl,
@@ -31,14 +29,14 @@ Pkg.add("KernelForge")
 ```
 
 ## Features
-
 - **Map-reduce** with custom functions and operators, supporting arbitrary dimensions and
   multidimensional arrays including non-contiguous dimension reduction via `mapreduce_dims`
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays
 - **Vectorized copy** with configurable load/store widths
-- Views and strided arrays supported throughout
+- Views and strided arrays supported throughout, enabled by KernelIntrinsics.jl's
+  vectorized memory access primitives which correctly handle non-contiguous memory layouts
 - Currently CUDA-only; cross-platform support via KernelAbstractions.jl planned
 - Includes `UnitFloat8`, a custom 8-bit floating-point type with range (-1, 1) for testing
 
@@ -64,13 +62,16 @@ total = KernelForge.mapreduce(abs2, +, src)
 B = CUDA.rand(Float32, 4, 8, 16)
 result = KernelForge.mapreduce(identity, +, B; dims=(1, 3))  # shape: (1, 8, 1)
 
+# Views are supported
+v = view(src, 1:2:10^6)
+total_view = KernelForge.mapreduce(abs2, +, v)
+
 # Search
 i = KernelForge.findfirst(>(0.99f0), src)
 j = KernelForge.argmax(src)
 ```
 
 ## Acknowledgments
-
 This package builds on the foundation provided by
 [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) and
 [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl). The API design draws inspiration from
@@ -78,5 +79,4 @@ several packages in the Julia ecosystem. Development of the API and documentatio
 assisted by [Claude](https://claude.ai) (Anthropic).
 
 ## License
-
 MIT
