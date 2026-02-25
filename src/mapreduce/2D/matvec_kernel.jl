@@ -5,10 +5,9 @@
     x,
     ::Val{chunksz}, ::Val{Nblocks},
     partial::Union{Nothing,AbstractArray{H}},
-    flag::Union{Nothing,AbstractArray{FlagType}},
-    targetflag::Union{Nothing,FlagType},
+    flag::Union{Nothing,AbstractArray{UInt8}},
     ::Type{H}
-) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks,FlagType}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks}
     n, p = size(src)
     I = @index(Global)
     workgroup = @groupsize()[1]
@@ -100,7 +99,7 @@
                     dst[idx] = g(val)
                 else
                     partial[(schid-1)*n+idx] = val
-                    @access flag[(schid-1)*n+idx] = targetflag
+                    @access flag[(schid-1)*n+idx] = 0x01
                 end
             end
         end
@@ -110,7 +109,7 @@
         col = chunk
         if global_row <= n && col <= Nblocks
             while true
-                (@access flag[(col-1)*n+global_row]) == targetflag && break
+                (@access flag[(col-1)*n+global_row]) == 0x01 && break
             end
             val = partial[(col-1)*n+global_row]
         end
@@ -118,7 +117,7 @@
         if global_row <= n
             while col <= Nblocks
                 while true
-                    (@access flag[(col-1)*n+global_row]) == targetflag && break
+                    (@access flag[(col-1)*n+global_row]) == 0x01 && break
                 end
                 @inbounds val = op(val, partial[(col-1)*n+global_row])
                 col += Nchunks

@@ -6,10 +6,9 @@
     ::Val{Nitem},
     ::Val{Nthreads},
     partial::Union{Nothing,AbstractArray{H}},
-    flag::Union{Nothing,AbstractArray{FlagType}},
-    targetflag::FlagType,
+    flag::Union{Nothing,AbstractArray{UInt8}},
     ::Type{H}
-) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads,FlagType}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads}
     n, p = size(src)
     workgroup = Int(@groupsize()[1])
     Nblocks = cld(Nthreads, workgroup)
@@ -120,7 +119,7 @@
         elseif lane == cld(workgroup, warpsz)
             idx = (chid - 1) * Nblocks + local_gid
             partial[idx] = val_acc
-            @access flag[idx] = targetflag
+            @access flag[idx] = 0x01
         end
     end
     Nthreads <= workgroup && Base.@goto done
@@ -130,14 +129,14 @@
     i = lid
     idx = (chid - 1) * Nblocks + i
     while i <= Nblocks
-        (@access flag[idx]) == targetflag && break
+        (@access flag[idx]) == 0x01 && break
     end
     i <= Nblocks && (val = partial[idx])
     i += workgroup
     while i <= Nblocks
         idx = (chid - 1) * Nblocks + i
         while true
-            (@access flag[idx]) == targetflag && break
+            (@access flag[idx]) == 0x01 && break
         end
         val = op(val, partial[idx])
         i += workgroup

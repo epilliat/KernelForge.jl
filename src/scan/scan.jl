@@ -1,10 +1,34 @@
+# ============================================================================
+# Buffer type
+# ============================================================================
+
+"""
+    Scan1DBuffer{A1,A2,A3}
+
+Pre-allocated buffer for `scan!`, holding typed intermediate arrays.
+
+- `A1`: array type for partial aggregates (eltype = output of `f`)
+- `A2`: array type for partial prefixes (eltype = output of `f`)
+- `A3`: array type for synchronization flags (eltype = `UInt8`)
+"""
+struct Scan1DBuffer{A1,A2,A3}
+    partial1::A1
+    partial2::A2
+    flag::A3
+end
+
+# ============================================================================
+# Public API docstrings
+# ============================================================================
+
 """
     scan(f, op, src; kwargs...) -> GPU array
     scan(op, src; kwargs...) -> GPU array
 
 GPU parallel prefix scan (cumulative reduction) using a decoupled lookback algorithm.
 
-Applies `f` to each element, then computes inclusive prefix scan with `op`.
+Applies `f` to each element, computes inclusive prefix scan with `op`, and
+optionally applies `g` to each output element.
 
 # Arguments
 - `f`: Map function applied to each element (defaults to `identity`)
@@ -12,10 +36,10 @@ Applies `f` to each element, then computes inclusive prefix scan with `op`.
 - `src`: Input GPU array
 
 # Keyword Arguments
-- `tmp=nothing`: Pre-allocated temporary buffer
+- `g=identity`: Post-scan transformation applied to each output element
+- `tmp=nothing`: Pre-allocated `Scan1DBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=256`: Workgroup size
-- `FlagType=UInt8`: Synchronization flag type
+- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 
 # Examples
 ```julia
@@ -26,8 +50,11 @@ result = scan(+, x)
 # Cumulative sum of squares
 result = scan(x -> x^2, +, x)
 
-# With pre-allocated temporary for repeated calls
-tmp = KernelForge.get_allocation(Scan1D, similar(x), x)
+# With post-scan transformation
+result = scan(+, x; g = sqrt)
+
+# With pre-allocated buffer for repeated calls
+tmp = KernelForge.get_allocation(Scan1D, identity, +, x)
 result = scan(+, x; tmp)
 ```
 
@@ -41,8 +68,8 @@ function scan end
 
 In-place GPU parallel prefix scan using a decoupled lookback algorithm.
 
-Applies `f` to each element, then computes inclusive prefix scan with `op`,
-writing results to `dst`.
+Applies `f` to each element, computes inclusive prefix scan with `op`, and
+optionally applies `g` to each output element, writing results to `dst`.
 
 # Arguments
 - `f`: Map function applied to each element (defaults to `identity`)
@@ -51,10 +78,10 @@ writing results to `dst`.
 - `src`: Input GPU array
 
 # Keyword Arguments
-- `tmp=nothing`: Pre-allocated temporary buffer
+- `g=identity`: Post-scan transformation applied to each output element
+- `tmp=nothing`: Pre-allocated `Scan1DBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=256`: Workgroup size
-- `FlagType=UInt8`: Synchronization flag type
+- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 
 # Examples
 ```julia
@@ -64,8 +91,8 @@ dst = similar(x)
 # Cumulative sum
 scan!(+, dst, x)
 
-# With pre-allocated temporary for repeated calls
-tmp = KernelForge.get_allocation(Scan1D, dst, x)
+# With pre-allocated buffer for repeated calls
+tmp = KernelForge.get_allocation(Scan1D, identity, +, x)
 for i in 1:100
     scan!(+, dst, x; tmp)
 end
@@ -76,39 +103,29 @@ See also: [`KernelForge.scan`](@ref) for the allocating version.
 function scan! end
 
 # ============================================================================
-# Configuration helpers
-# ============================================================================
-
-@inline function get_scan_config(n::Int, Nitem::Int, workgroup::Int)
-    ndrange = cld(n, Nitem)
-    blocks = cld(ndrange, workgroup)
-    return ndrange, blocks
-end
-
-# ============================================================================
-# Temporary buffer allocation
+# Buffer allocation
 # ============================================================================
 
 """
-    get_allocation(::Type{Scan1D}, dst, src; kwargs...)
+    get_allocation(::Type{Scan1D}, f, op, src[, blocks])
 
-Allocate temporary buffer for `scan!`. Useful for repeated scans.
+Allocate a `Scan1DBuffer` for `scan!`. Useful for repeated scans.
 
 # Arguments
-- `dst`: Output GPU array (used for element type of intermediates)
-- `src`: Input GPU array (used for backend)
+- `f`: Map function (used to infer intermediate eltype)
+- `op`: Reduction operator
+- `src`: Input GPU array (used to determine backend and eltype)
+- `blocks`: Number of blocks (auto-computed using default `Nitem` and `DEFAULT_WORKGROUP` if omitted)
 
-# Keyword Arguments
-- `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=256`: Workgroup size (must match the `workgroup` used in `scan!`)
-- `FlagType=UInt8`: Synchronization flag type
+# Returns
+A `Scan1DBuffer{A1,A2,A3}` holding typed `partial1`, `partial2`, and `flag` arrays.
 
 # Examples
 ```julia
 x = CUDA.rand(Float32, 10_000)
-dst = similar(x)
-tmp = KernelForge.get_allocation(Scan1D, dst, x)
+tmp = KernelForge.get_allocation(Scan1D, identity, +, x)
 
+dst = similar(x)
 for i in 1:100
     scan!(+, dst, x; tmp)
 end
@@ -116,49 +133,63 @@ end
 """
 function get_allocation(
     ::Type{Scan1D},
-    dst::AbstractArray{Outf},
-    src::AbstractArray{T};
-    Nitem::Union{Integer,Nothing}=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    FlagType::Type{FT}=UInt8
-) where {Outf,T,FT}
-    _Nitem = Nitem === nothing ? default_nitem(Scan1D, Outf) : Int(Nitem)
+    f::F,
+    op::O,
+    src::AT,
+    blocks::Int
+) where {F<:Function,O<:Function,AT<:AbstractArray}
+    T = eltype(AT)
+    H = Base.promote_op(f, T)
+    backend = get_backend(src)
+    partial1 = KernelAbstractions.allocate(backend, H, blocks)
+    partial2 = KernelAbstractions.allocate(backend, H, blocks)
+    flag = KernelAbstractions.allocate(backend, UInt8, blocks)
+    return Scan1DBuffer(partial1, partial2, flag)
+end
+
+function get_allocation(
+    ::Type{Scan1D},
+    f::F,
+    op::O,
+    src::AT
+) where {F<:Function,O<:Function,AT<:AbstractArray}
+    T = eltype(AT)
+    H = Base.promote_op(f, T)
+    Nitem = default_nitem(Scan1D, H)
     n = length(src)
-    _, blocks = get_scan_config(n, _Nitem, workgroup)
-    backend = get_backend(dst)
-    sz = sum(get_partition_sizes(blocks, Outf, Outf, FT))
-    return KernelAbstractions.allocate(backend, UInt8, sz)
+    ndrange = cld(n, Nitem)
+    blocks = cld(ndrange, DEFAULT_WORKGROUP)
+    return get_allocation(Scan1D, f, op, src, blocks)
 end
 
 # ============================================================================
 # Allocating API
 # ============================================================================
 
-# Without map function (identity)
+# Without map function: forward to f=identity method
 function scan(
     op::O,
-    src::AbstractArray{T};
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem::Union{Integer,Nothing}=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    FlagType::Type{FT}=UInt8
-) where {T,O<:Function,FT}
-    return scan(identity, op, src; tmp, Nitem, workgroup, FlagType)
+    src::AT;
+    kwargs...
+) where {O<:Function,AT<:AbstractArray}
+    return scan(identity, op, src; kwargs...)
 end
 
-# With map function
+# Main allocating entry point
 function scan(
     f::F, op::O,
-    src::AbstractArray{T};
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem::Union{Integer,Nothing}=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    FlagType::Type{FT}=UInt8
-) where {T,F<:Function,O<:Function,FT}
+    src::AT;
+    g::G=identity,
+    tmp::TMP=nothing,
+    Nitem=nothing,
+    workgroup::Int=DEFAULT_WORKGROUP
+) where {AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{Scan1DBuffer,Nothing}}
+    T = eltype(AT)
     H = Base.promote_op(f, T)
+    S = Base.promote_op(g, H)
     backend = get_backend(src)
-    dst = KernelAbstractions.allocate(backend, H, length(src))
-    scan!(f, op, dst, src; tmp, Nitem, workgroup, FlagType)
+    dst = KernelAbstractions.allocate(backend, S, length(src))
+    scan!(f, op, dst, src; g, tmp, Nitem, workgroup)
     return dst
 end
 
@@ -166,76 +197,80 @@ end
 # In-place API
 # ============================================================================
 
-# Without map function (identity)
+# Without map function: forward to f=identity method
 function scan!(
     op::O,
-    dst::AbstractArray{Outf},
-    src::AbstractArray{T};
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem::Union{Integer,Nothing}=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    FlagType::Type{FT}=UInt8
-) where {Outf,T,O<:Function,FT}
-    return scan!(identity, op, dst, src; tmp, Nitem, workgroup, FlagType)
+    dst::DS,
+    src::AT;
+    kwargs...
+) where {O<:Function,DS<:AbstractArray,AT<:AbstractArray}
+    return scan!(identity, op, dst, src; kwargs...)
 end
 
 # Main in-place entry point
 function scan!(
     f::F, op::O,
-    dst::AbstractArray{Outf},
-    src::AbstractArray{T};
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem::Union{Integer,Nothing}=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    FlagType::Type{FT}=UInt8
-) where {Outf,T,F<:Function,O<:Function,FT}
+    dst::DS,
+    src::AT;
+    g::G=identity,
+    tmp::TMP=nothing,
+    Nitem=nothing,
+    workgroup::Int=DEFAULT_WORKGROUP
+) where {DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{Scan1DBuffer,Nothing}}
     n = length(src)
     n == 0 && return dst
+    T = eltype(AT)
+    H = Base.promote_op(f, T)
     backend = get_backend(src)
-
-    _Nitem = Nitem === nothing ? default_nitem(Scan1D, Outf) : Int(Nitem)
-
-    ndrange, blocks = get_scan_config(n, _Nitem, workgroup)
-
-    _tmp = if tmp === nothing
-        sz = sum(get_partition_sizes(blocks, Outf, Outf, FT))
-        KernelAbstractions.allocate(backend, UInt8, sz)
-    else
-        tmp
-    end
-    _scan_impl!(f, op, dst, src, Val(_Nitem), _tmp, ndrange, blocks, workgroup, Outf, FT, n, backend)
+    Nitem_int = Nitem === nothing ? default_nitem(Scan1D, H) : Int(Nitem)
+    ndrange = cld(n, Nitem_int)
+    blocks = cld(ndrange, workgroup)
+    _scan_impl!(f, op, g, dst, src, Nitem_int, workgroup, ndrange, blocks, tmp, n, backend)
 end
 
 # ============================================================================
 # Core implementation
 # ============================================================================
 
+# Nothing dispatch: allocate buffer then forward to Scan1DBuffer dispatch
 function _scan_impl!(
-    f::F, op::O,
-    dst::AbstractArray{Outf},
-    src::AbstractArray{T},
-    ::Val{Nitem},
-    tmp::AbstractArray{UInt8},
+    f::F, op::O, g::G,
+    dst::DS,
+    src::AT,
+    Nitem::Int,
+    workgroup::Int,
     ndrange::Int,
     blocks::Int,
-    workgroup::Int,
-    ::Type{H},
-    ::Type{FT},
+    ::Nothing,
     n::Int,
     backend
-) where {Outf,T,F,O,Nitem,H,FT}
-    partial1, partial2, flag = partition(tmp, blocks, H, H, FT)
+) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
+    tmp = get_allocation(Scan1D, f, op, src, blocks)
+    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend)
+end
 
-    targetflag = if FT === UInt8
-        fill!(flag, 0x00)
-        0x01
-    else
-        rand(FT)
-    end
-
+# Scan1DBuffer dispatch: run the kernel
+# Scan1DBuffer dispatch: run the kernel
+function _scan_impl!(
+    f::F, op::O, g::G,
+    dst::DS,
+    src::AT,
+    Nitem::Int,
+    workgroup::Int,
+    ndrange::Int,
+    blocks::Int,
+    tmp::Scan1DBuffer,
+    n::Int,
+    backend
+) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
+    fill!(tmp.flag, 0x00)
+    T = eltype(AT)
+    S = eltype(DS)
+    src_align = (Int(pointer(src)) ÷ sizeof(T)) % Nitem + 1
+    dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
+    Alignment = src_align == dst_align ? src_align : -1
     scan_kernel!(backend, workgroup, ndrange)(
-        f, op, dst, src, Val(Nitem), partial1, partial2, flag, targetflag, H
+        f, op, g, dst, src, Val(Nitem), tmp.partial1, tmp.partial2, tmp.flag, Val(Alignment)
     )
-
     return dst
 end

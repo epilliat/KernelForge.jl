@@ -3,26 +3,56 @@
     return :(f($(args...)))
 end
 
-@generated function broadcast_apply_across(f, srcs::NTuple{Nsrc}, idx, ::Val{Nitem}) where {Nsrc,Nitem}
-    loads = [:(vload(srcs[$k], idx, Val($Nitem))) for k in 1:Nsrc]
-
-    # Store them in variables
+@generated function vloads(srcs::NTuple{Nsrc}, idx, ::Val{Nitem}, ::Val{Rebase}, ::Val{Alignment}) where {Nsrc,Nitem,Rebase,Alignment}
+    loads = [:(vload(srcs[$k], idx, Val($Nitem), Val($Rebase), Val($Alignment))) for k in 1:Nsrc]
     load_vars = [Symbol(:load_, k) for k in 1:Nsrc]
     assignments = [:($var = $load) for (var, load) in zip(load_vars, loads)]
-
-    # Generate Nitem function calls
-    calls = []
-    for item in 1:Nitem
-        # f(load_1[item], load_2[item], load_3[item], ...)
-        args = [:($(load_vars[k])[$item]) for k in 1:Nsrc]
-        push!(calls, :(f($(args...))))
-    end
-
     return quote
         $(assignments...)
+        tuple($(load_vars...))
+    end
+end
+
+# Default wrappers
+@inline vloads(srcs::NTuple{Nsrc}, idx, v::Val{Nitem}, r::Val{Rebase}) where {Nsrc,Nitem,Rebase} =
+    vloads(srcs, idx, v, r, Val(-1))
+
+@inline vloads(srcs::NTuple{Nsrc}, idx, v::Val{Nitem}) where {Nsrc,Nitem} =
+    vloads(srcs, idx, v, Val(true), Val(-1))
+
+
+@generated function broadcast_apply(f, loads::NTuple{Nsrc}, ::Val{Nitem}) where {Nsrc,Nitem}
+    load_vars = [:(loads[$k]) for k in 1:Nsrc]
+    calls = [:(f($([:($(load_vars[k])[$item]) for k in 1:Nsrc]...))) for item in 1:Nitem]
+    return quote
         tuple($(calls...))
     end
 end
+
+@inline function broadcast_apply_across(f, srcs::NTuple{Nsrc}, idx, v::Val{Nitem}, r::Val{Rebase}=Val(true), a::Val{Alignment}=Val(-1)) where {Nsrc,Nitem,Rebase,Alignment}
+    loaded = vloads(srcs, idx, v, r, a)
+    return broadcast_apply(f, loaded, v)
+end
+# @generated function broadcast_apply_across(f, srcs::NTuple{Nsrc}, idx, ::Val{Nitem}) where {Nsrc,Nitem}
+#     loads = [:(vload(srcs[$k], idx, Val($Nitem))) for k in 1:Nsrc]
+
+#     # Store them in variables
+#     load_vars = [Symbol(:load_, k) for k in 1:Nsrc]
+#     assignments = [:($var = $load) for (var, load) in zip(load_vars, loads)]
+
+#     # Generate Nitem function calls
+#     calls = []
+#     for item in 1:Nitem
+#         # f(load_1[item], load_2[item], load_3[item], ...)
+#         args = [:($(load_vars[k])[$item]) for k in 1:Nsrc]
+#         push!(calls, :(f($(args...))))
+#     end
+
+#     return quote
+#         $(assignments...)
+#         tuple($(calls...))
+#     end
+# end
 
 @generated function broadcast_apply_across(f, x, A, idx_x, idx_A, ::Val{Nitem}) where {Nitem}
     # Load from x and A
@@ -157,3 +187,8 @@ end
     Tuple(sort!(collect(ntuple(i -> dims[i] > 0 ? dims[i] : nd + dims[i] + 1, Val(N)))))
 @inline _normalize_dims(dims::AbstractVector{<:Integer}, nd::Int) =
     _normalize_dims(Tuple(dims), nd)
+
+
+function asyncfill!(arr::AbstractArray, val)
+    fill!(arr, val)
+end

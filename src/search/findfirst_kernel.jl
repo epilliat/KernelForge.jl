@@ -1,9 +1,16 @@
-@kernel unsafe_indices = true function findfirst_kernel!(dst, src, filtr::F, ::Val{Nitem}) where {F,Nitem}
-    I = @index(Global)
+@kernel inbounds = true unsafe_indices = true function findfirst_kernel!(dst, src, filtr::F, ::Val{Nitem}) where {F,Nitem}
     n = length(src)
     warpsz = @warpsize
-    lane = (I - 1) % warpsz + 1
+    workgroup = Int(@groupsize()[1])
     ndrange = @ndrange()[1]
+
+    lid = Int(@index(Local, Linear))
+    gid = Int(@index(Group, Linear))
+
+    I = (gid - 1) * workgroup + lid
+
+    lane = (I - 1) % warpsz + 1
+
     found = false
     stop = false
     any_found = false
@@ -11,6 +18,7 @@
     i = I
 
     last_i = i + (warpsz - lane)
+
     while last_i * Nitem <= n
         values = vload(src, i, Val(Nitem))
         for j in 1:Nitem
@@ -32,6 +40,7 @@
     if !stop && !found && (i - 1) * Nitem + 1 <= n
         for j in 1:Nitem
             idx = (i - 1) * Nitem + j
+
             if idx <= n && filtr(src[idx])
                 best_id = idx
                 found = true

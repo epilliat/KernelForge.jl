@@ -18,3 +18,6 @@ end
 @testset "argmax" begin
     include("search/argmax_test.jl")
 end
+@testset "findfirst" begin
+    include("search/findfirst_test.jl")
+end

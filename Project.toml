@@ -1,6 +1,6 @@
 name = "KernelForge"
 uuid = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Emmanuel Pilliat <epilliat@gmail.com>"]
 
 [deps]
@@ -15,8 +15,9 @@ ArgCheck = "2.5.0"
 Atomix = "1.1.2"
 GPUArraysCore = "0.2.0"
 KernelAbstractions = "0.9.39"
-KernelIntrinsics = "0.1"
+KernelIntrinsics = "0.1.5"
 julia = "1.10"
+CUDA = "5.4"
 
 [extras]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"

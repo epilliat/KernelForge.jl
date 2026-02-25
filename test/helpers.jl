@@ -12,6 +12,7 @@ struct Vec3
     z::Float32
 end
 
+
 Base.:+(a::Vec3, b::Vec3) = Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
 Base.:*(a::Float32, b::Vec3) = Vec3(a * b.x, a * b.y, a * b.z)
 Base.:*(a::Vec3, b::Float32) = Vec3(a.x * b, a.y * b, a.z * b)

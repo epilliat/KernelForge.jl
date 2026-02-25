@@ -14,8 +14,7 @@ GPU parallel reduction along dimension `dim`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation
-- `tmp=nothing`: Pre-allocated temporary buffer
-- `FlagType=UInt8`: Synchronization flag type
+- `tmp=nothing`: Pre-allocated `VecMatBuffer` (dim=1) or `MatVecBuffer` (dim=2)
 
 For `dim=1` (column-wise):
 - `Nitem=nothing`: Items per thread
@@ -53,14 +52,13 @@ function mapreduce2d(
     src::AbstractMatrix{T},
     dim::Int;
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    FlagType::Type{FT}=UInt8,
+    tmp::Union{VecMatBuffer,MatVecBuffer,Nothing}=nothing,
     kwargs...
-) where {T,F<:Function,O<:Function,G<:Function,FT}
+) where {T,F<:Function,O<:Function,G<:Function}
     if dim == 1
-        return vecmat(f, op, nothing, src; g, tmp, FlagType, kwargs...)
+        return vecmat(f, op, nothing, src; g, tmp, kwargs...)
     elseif dim == 2
-        return matvec(f, op, src, nothing; g, tmp, FlagType, kwargs...)
+        return matvec(f, op, src, nothing; g, tmp, kwargs...)
     else
         throw(ArgumentError("dim must be 1 or 2, got $dim"))
     end
@@ -83,8 +81,7 @@ In-place GPU parallel reduction along dimension `dim`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation
-- `tmp=nothing`: Pre-allocated temporary buffer
-- `FlagType=UInt8`: Synchronization flag type
+- `tmp=nothing`: Pre-allocated `VecMatBuffer` (dim=1) or `MatVecBuffer` (dim=2)
 
 For `dim=1` (column-wise):
 - `Nitem=nothing`: Items per thread
@@ -119,14 +116,13 @@ function mapreduce2d!(
     src::AbstractMatrix{T},
     dim::Int;
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    FlagType::Type{FT}=UInt8,
+    tmp::Union{VecMatBuffer,MatVecBuffer,Nothing}=nothing,
     kwargs...
-) where {S,T,F<:Function,O<:Function,G<:Function,FT}
+) where {S,T,F<:Function,O<:Function,G<:Function}
     if dim == 1
-        return vecmat!(f, op, dst, nothing, src; g, tmp, FlagType, kwargs...)
+        return vecmat!(f, op, dst, nothing, src; g, tmp, kwargs...)
     elseif dim == 2
-        return matvec!(f, op, dst, src, nothing; g, tmp, FlagType, kwargs...)
+        return matvec!(f, op, dst, src, nothing; g, tmp, kwargs...)
     else
         throw(ArgumentError("dim must be 1 or 2, got $dim"))
     end

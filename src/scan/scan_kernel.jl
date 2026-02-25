@@ -7,16 +7,15 @@
 end
 
 @kernel inbounds = true unsafe_indices = true function scan_kernel!(
-    f, op,
+    f, op, g,
     dst::AbstractVector{S},
     src::AbstractVector{T},
     ::Val{Nitem},
     partial1::AbstractVector{H},
     partial2::AbstractVector{H},
-    flag::AbstractVector{FlagType},
-    targetflag::FlagType,
-    ::Type{H}
-) where {Nitem,T,H,S,FlagType<:Integer}
+    flag::AbstractVector{UInt8},
+    ::Val{Alignment}
+) where {Nitem,T,H,S,Alignment}
     N = length(src)
     workgroup = Int(@groupsize()[1])
     lid = Int(@index(Local))
@@ -32,7 +31,7 @@ end
     shared = @localmem H warpsz
 
     if idx_base + Nitem <= N
-        values = f.(vload(src, I, Val(Nitem)))
+        values = f.(vload(src, I, Val(Nitem), Val(true), Val(Alignment)))
         values = tree_scan(op, values)
     else
         values = ntuple(Val(Nitem)) do i
@@ -56,7 +55,7 @@ end
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
             partial1[gid] = val_acc
-            @access flag[gid] = targetflag
+            @access flag[gid] = 0x01
             partial2[gid] = val_acc
         end
     end
@@ -68,9 +67,9 @@ end
         while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1, warpsz)
             idx_lookback = max(gid - lookback - lane, 1)
             @access flg = flag[idx_lookback]
-            has_aggregate = (targetflag <= flg <= targetflag + FlagType(1))
+            has_aggregate = (0x01 <= flg <= 0x02)
             if @vote(All, has_aggregate)
-                has_prefix = (flg == targetflag + FlagType(1))
+                has_prefix = (flg == 0x02)
                 if has_prefix
                     val = partial2[idx_lookback]
                 else
@@ -106,7 +105,7 @@ end
 
     if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
         partial2[gid] = op(prefix, partial2[gid])
-        @access flag[gid] = targetflag + FlagType(1)
+        @access flag[gid] = 0x02
     end
 
     if gid >= 2
@@ -143,18 +142,18 @@ end
         if (gid >= 2 || lane >= 2 || warp_id >= 2)
             values = prefix_apply(op, global_prefix, values)
         end
-        vstore!(dst, I, values)
+        vstore!(dst, I, g.(values), Val(true), Val(Alignment))
     elseif idx_base < N
         if N > Nitem
             val = op(global_prefix, f(src[idx_base+1]))
         else
             val = f(src[idx_base+1])
         end
-        dst[idx_base+1] = val
+        dst[idx_base+1] = g(val)
         for i in (2:Nitem)
             if idx_base + i <= N
                 val = op(val, f(src[idx_base+i]))
-                dst[idx_base+i] = val
+                dst[idx_base+i] = g(val)
             end
         end
     end

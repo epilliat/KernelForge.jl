@@ -2,16 +2,15 @@
 T -> f -> H -> op -> H -> g -> S
 """
 
-@kernel function mapreduce1d_kernel!(
-    f, op,
+@kernel inbounds = true function mapreduce1d_kernel!(
+    f, op, g,
     dst::AbstractArray{S},
     srcs::NTuple{U,AbstractArray{T}},
-    g,
     ::Val{Nitem},
     partial::AbstractArray{H},
     flag::AbstractArray{FlagType},
-    targetflag::FlagType
-) where {U,T,H,S,FlagType<:Integer,Nitem}
+    ::Val{Alignment}
+) where {U,T,H,S,FlagType<:Integer,Nitem,Alignment}
 
     N = length(srcs[1])
     workgroup = Int(@groupsize()[1])
@@ -32,12 +31,11 @@ T -> f -> H -> op -> H -> g -> S
     i = I
 
     begin
-        values = broadcast_apply_across(f, srcs, i, Val(Nitem))
+        values = broadcast_apply_across(f, srcs, i, Val(Nitem), Val(true), Val(Alignment))
         val = tree_reduce(op, values)
-        srcs
         i += ndrange
         while i * Nitem <= N
-            values = broadcast_apply_across(f, srcs, i, Val(Nitem))
+            values = broadcast_apply_across(f, srcs, i, Val(Nitem), Val(true), Val(Alignment))
             val = op(val, tree_reduce(op, values))
 
             i += ndrange
@@ -61,20 +59,20 @@ T -> f -> H -> op -> H -> g -> S
         @warpreduce(val_acc, lane, op)
         if lane == min(cld(workgroup, warpsz), cld(N, warpsz))
             partial[gid] = val_acc
-            @access flag[gid] = targetflag
+            @access flag[gid] = 0x01
         end
     end
     if gid == 1
         i = lid
         while i <= blocks
-            (@access flag[i]) == targetflag && break
+            ((@access flag[i]) == 0x01) && break
         end
         i <= blocks && (val = partial[i])
         i += workgroup
 
         while i <= blocks
             while true
-                (@access flag[i]) == targetflag && break
+                ((@access flag[i]) == 0x01) && break
             end
             val = op(val, partial[i])
             i += workgroup

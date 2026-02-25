@@ -1,3 +1,25 @@
+# ============================================================================
+# Buffer type
+# ============================================================================
+
+"""
+    MapReduceBuffer{A1,A2}
+
+Pre-allocated buffer for `mapreduce1d!`, holding typed intermediate arrays
+instead of a raw `UInt8` byte buffer.
+
+- `A1`: array type for partial reduction values (eltype = output of `f`)
+- `A2`: array type for synchronization flags (eltype = `UInt8`)
+"""
+struct MapReduceBuffer{A1,A2}
+    partial::A1
+    flag::A2
+end
+
+# ============================================================================
+# Public API docstrings
+# ============================================================================
+
 """
     mapreduce1d(f, op, src; kwargs...) -> scalar or GPU array
     mapreduce1d(f, op, srcs::NTuple; kwargs...) -> scalar or GPU array
@@ -13,11 +35,10 @@ Applies `f` to each element, reduces with `op`, and optionally applies `g` to th
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to final result
-- `tmp=nothing`: Pre-allocated temporary buffer
+- `tmp=nothing`: Pre-allocated `MapReduceBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 - `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
-- `FlagType=UInt8`: Synchronization flag type
 - `to_cpu=true`: If true, return scalar; otherwise return 1-element GPU array
 
 # Examples
@@ -52,11 +73,10 @@ In-place GPU parallel map-reduce, writing result to `dst[1]`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to final result
-- `tmp=nothing`: Pre-allocated temporary buffer
+- `tmp=nothing`: Pre-allocated `MapReduceBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 - `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
-- `FlagType=UInt8`: Synchronization flag type
 
 # Examples
 ```julia
@@ -66,10 +86,10 @@ dst = CUDA.zeros(Float32, 1)
 # Sum
 mapreduce1d!(identity, +, dst, x)
 
-# With pre-allocated temporary for repeated calls
-tmp = KernelForge.get_allocation(MapReduce1D, x; out_eltype=Float32)
+# With pre-allocated buffer for repeated calls
+tmp = KernelForge.get_allocation(MapReduce1D, x -> x^2, +, x)
 for i in 1:100
-    mapreduce1d!(identity, +, dst, x; tmp)
+    mapreduce1d!(x -> x^2, +, dst, x; tmp)
 end
 ```
 
@@ -78,102 +98,89 @@ See also: [`KernelForge.mapreduce1d`](@ref) for the allocating version.
 function mapreduce1d! end
 
 # ============================================================================
-# Temporary buffer allocation
+# Buffer allocation
 # ============================================================================
 
 """
-    get_allocation(::Type{MapReduce1D}, src; blocks=DEFAULT_BLOCKS, out_eltype, FlagType=UInt8)
-    get_allocation(::Type{MapReduce1D}, srcs::NTuple; blocks=DEFAULT_BLOCKS, out_eltype, FlagType=UInt8)
+    get_allocation(::Type{MapReduce1D}, f, op, src_or_srcs, blocks=DEFAULT_BLOCKS)
 
-Allocate temporary buffer for `mapreduce1d!`. Useful for repeated reductions.
+Allocate a `MapReduceBuffer` for `mapreduce1d!`. Useful for repeated reductions.
 
 # Arguments
-- `src` or `srcs`: Input GPU array(s) (used for backend)
+- `f`: Map function (used to infer intermediate eltype)
+- `op`: Reduction operator
+- `src_or_srcs`: Input GPU array or NTuple of arrays (used to determine backend and eltype)
+- `blocks`: Number of blocks (must match `blocks` used in `mapreduce1d!`)
 
-# Keyword Arguments
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks (must match the `blocks` used in `mapreduce1d!`)
-- `out_eltype`: Element type for intermediate values. Pass `promote_op(f, T, ...)` for correct inference.
-- `FlagType=UInt8`: Synchronization flag type
+# Returns
+A `MapReduceBuffer{A1,A2}` holding typed partial and flag arrays (flags are `UInt8`).
 
 # Examples
 ```julia
 x = CUDA.rand(Float32, 10_000)
-tmp = KernelForge.get_allocation(MapReduce1D, x; out_eltype=Float32)
+tmp = KernelForge.get_allocation(MapReduce1D, x -> x^2, +, x)
 dst = CUDA.zeros(Float32, 1)
 
 for i in 1:100
-    mapreduce1d!(identity, +, dst, x; tmp)
+    mapreduce1d!(x -> x^2, +, dst, x; tmp)
 end
 ```
 """
 function get_allocation(
     ::Type{MapReduce1D},
-    src::AbstractArray{T};
-    blocks::Integer=DEFAULT_BLOCKS,
-    out_eltype::Type,
-    FlagType::Type{FT}=UInt8
-) where {T,FT}
-    return get_allocation(MapReduce1D, (src,); blocks, out_eltype, FlagType)
+    f::F,
+    op::O,
+    src::AT,
+    blocks::Integer=DEFAULT_BLOCKS
+) where {F<:Function,O<:Function,AT<:AbstractArray}
+    return get_allocation(MapReduce1D, f, op, (src,), blocks)
 end
 
 function get_allocation(
     ::Type{MapReduce1D},
-    srcs::NTuple{U,AbstractArray{T}};
-    blocks::Integer=DEFAULT_BLOCKS,
-    out_eltype::Type,
-    FlagType::Type{FT}=UInt8
-) where {U,T,FT}
-    H = out_eltype
+    f::F,
+    op::O,
+    srcs::NTuple{U,AT},
+    blocks::Integer=DEFAULT_BLOCKS
+) where {U,F<:Function,O<:Function,AT<:AbstractArray}
+    T = eltype(AT)
+    H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     backend = get_backend(srcs[1])
-    sz = sum(get_partition_sizes(blocks, H, FT))
-    return KernelAbstractions.allocate(backend, UInt8, sz)
+    partial = KernelAbstractions.allocate(backend, H, blocks)
+    flag = KernelAbstractions.allocate(backend, UInt8, blocks)
+    return MapReduceBuffer(partial, flag)
 end
 
 # ============================================================================
 # Allocating API
 # ============================================================================
 
-# Single array
-function mapreduce1d(
-    f, op,
-    src::AbstractArray{T};
-    g=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
-    FlagType::Type{FT}=UInt8,
-    to_cpu::Bool=true
-) where {T,FT}
-    H = Base.promote_op(f, T)
-    S = Base.promote_op(g, H)
-    backend = get_backend(src)
-    dst = KernelAbstractions.allocate(backend, S, 1)
-    _Nitem = something(Nitem, default_nitem(MapReduce1D, T))
-    _tmp = something(tmp, get_allocation(MapReduce1D, (src,); blocks, out_eltype=H, FlagType))
-    _mapreduce1d_impl!(f, op, g, dst, (src,), _Nitem, workgroup, blocks, _tmp, H, FT, length(src), backend)
-    return to_cpu ? Array(dst)[1] : dst
-end
-
-# Tuple of arrays
+# Single array: forward to tuple method
 function mapreduce1d(
     f::F, op::O,
-    srcs::NTuple{U,AbstractArray{T}};
+    src::AT;
+    kwargs...
+) where {F<:Function,O<:Function,AT<:AbstractArray}
+    return mapreduce1d(f, op, (src,); kwargs...)
+end
+
+# Tuple of arrays: allocate dst then delegate to mapreduce1d!
+function mapreduce1d(
+    f::F, op::O,
+    srcs::NTuple{U,AT};
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_WORKGROUP,
     blocks::Int=DEFAULT_BLOCKS,
-    FlagType::Type{FT}=UInt8,
     to_cpu::Bool=true
-) where {U,T,F<:Function,O<:Function,G<:Function,FT}
+) where {U,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{MapReduceBuffer,Nothing}}
+    T = eltype(AT)
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     S = Base.promote_op(g, H)
     backend = get_backend(srcs[1])
     dst = KernelAbstractions.allocate(backend, S, 1)
-    _Nitem = something(Nitem, default_nitem(MapReduce1D, T))
-    _tmp = something(tmp, get_allocation(MapReduce1D, srcs; blocks, out_eltype=H, FlagType))
-    _mapreduce1d_impl!(f, op, g, dst, srcs, _Nitem, workgroup, blocks, _tmp, H, FT, length(srcs[1]), backend)
+    mapreduce1d!(f, op, dst, srcs; g, tmp, Nitem, workgroup, blocks)
     return to_cpu ? Array(dst)[1] : dst
 end
 
@@ -181,72 +188,86 @@ end
 # In-place API
 # ============================================================================
 
-# Single array convenience wrapper
+# Single array: forward to tuple method
 function mapreduce1d!(
-    f, op,
-    dst::AbstractArray{S},
-    src::AbstractArray{T};
-    g=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
-    Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
-    FlagType::Type{FT}=UInt8
-) where {S,T,FT}
-    return mapreduce1d!(f, op, dst, (src,); g, tmp, Nitem, workgroup, blocks, FlagType)
+    f::F, op::O,
+    dst::DS,
+    src::AT;
+    kwargs...
+) where {F<:Function,O<:Function,DS<:AbstractArray,AT<:AbstractArray}
+    return mapreduce1d!(f, op, dst, (src,); kwargs...)
 end
 
 # Main in-place entry point
 function mapreduce1d!(
     f::F, op::O,
-    dst::AbstractArray{S},
-    srcs::NTuple{U,AbstractArray{T}};
+    dst::DS,
+    srcs::NTuple{U,AT};
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
-    FlagType::Type{FT}=UInt8
-) where {U,S,T,F<:Function,O<:Function,G<:Function,FT}
+    blocks::Int=DEFAULT_BLOCKS
+) where {U,DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{MapReduceBuffer,Nothing}}
+    T = eltype(AT)
     n = length(srcs[1])
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     _Nitem = something(Nitem, default_nitem(MapReduce1D, T))
-    _tmp = something(tmp, get_allocation(MapReduce1D, srcs; blocks, out_eltype=H, FlagType))
-    _mapreduce1d_impl!(f, op, g, dst, srcs, _Nitem, workgroup, blocks, _tmp, H, FT, n, backend)
+    _mapreduce1d_impl!(f, op, g, dst, srcs, _Nitem, workgroup, blocks, tmp, H, n, backend)
 end
 
 # ============================================================================
 # Core implementation
 # ============================================================================
 
+# Nothing dispatch: allocate buffer then forward to MapReduceBuffer method.
+# Avoids passing a Union{MapReduceBuffer,Nothing} into the impl, which
+# would cause type instability and spurious allocations.
 function _mapreduce1d_impl!(
     f::F, op::O, g::G,
-    dst::AbstractArray{S},
-    srcs::NTuple{U,AbstractArray{T}},
+    dst::DS,
+    srcs::NTuple{U,AT},
     Nitem::Int,
     workgroup::Int,
     blocks::Int,
-    tmp::AbstractArray{UInt8},
+    ::Nothing,
     ::Type{H},
-    ::Type{FT},
     n::Int,
     backend
-) where {U,S,T,F,O,G,H,FT}
+) where {U,DS<:AbstractArray,AT<:AbstractArray,F,O,G,H}
+    tmp = get_allocation(MapReduce1D, f, op, srcs, blocks)
+    _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend)
+end
+
+function _mapreduce1d_impl!(
+    f::F, op::O, g::G,
+    dst::DS,
+    srcs::NTuple{U,AT},
+    Nitem::Int,
+    workgroup::Int,
+    blocks::Int,
+    tmp::MapReduceBuffer,
+    ::Type{H},
+    n::Int,
+    backend
+) where {U,DS<:AbstractArray,AT<:AbstractArray,F,O,G,H}
+    flag = tmp.flag
+    fill!(flag, 0x00)
+    partial = tmp.partial
+
     workgroup = min(workgroup, n)
     ndrange = min(blocks * workgroup, max(fld(n, workgroup) * workgroup, 1))
     Nitem = min(Nitem, prevpow(2, max(fld(n, ndrange), 1)))
 
-    partial, flag = partition(tmp, blocks, H, FT)
-
-    if FT === UInt8
-        fill!(flag, 0x00)
-        targetflag = 0x01
+    T = eltype(AT)
+    Alignment = if U == 1
+        (Int(pointer(srcs[1])) ÷ sizeof(T)) % Nitem + 1
     else
-        targetflag = rand(FT)
+        aligns = ntuple(i -> (Int(pointer(srcs[i])) ÷ sizeof(T)) % Nitem, Val(U))
+        allequal(aligns) ? aligns[1] + 1 : -1
     end
-
-    mapreduce1d_kernel!(backend, workgroup, ndrange)(
-        f, op, dst, srcs, g, Val(Nitem), partial, flag, targetflag
+    mapreduce1d_kernel!(backend, workgroup)(
+        f, op, g, dst, srcs, Val(Nitem), partial, flag, Val(Alignment); ndrange
     )
 end

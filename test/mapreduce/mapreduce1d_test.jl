@@ -1,6 +1,4 @@
 @testset "mapreduce1d correctness" begin
-    #AT = BACKEND_ARRAY_TYPES[backend]
-
     ns = reverse([33, 100, 10_001, 100_000])
     types = [Float32, Float64, Int32]
 
@@ -9,19 +7,41 @@
             @testset "trial $trial" for trial in 1:5
                 src = AT(T.([i for i in 1:n]))
                 dst = AT([T(0)])
-                tmp = KF.get_allocation(KF.MapReduce1D, (src,); blocks=400, out_eltype=T)
 
                 # Warm up
-                KF.mapreduce1d!(identity, +, dst, src; tmp)
+                KF.mapreduce1d!(identity, +, dst, src)
                 KA.synchronize(backend)
 
-                result = KF.mapreduce1d(identity, +, src; tmp, to_cpu=true)
+                result = KF.mapreduce1d(identity, +, src; to_cpu=true)
                 KA.synchronize(backend)
                 ref = mapreduce(identity, +, Array(src))
 
                 if T <: AbstractFloat
                     @test isapprox(result, ref; rtol=1e-4, atol=1e-5)
                 else
+                    @test result == ref
+                end
+            end
+
+            # Test with pre-allocated tmp, reused across trials (verifies flag reset)
+            @testset "preallocated tmp, trial $trial" for trial in 1:5
+                src = AT(T.([i for i in 1:n]))
+                dst = AT([T(0)])
+                tmp = KF.get_allocation(KF.MapReduce1D, identity, +, src)
+
+                KF.mapreduce1d!(identity, +, dst, src; tmp)
+                KA.synchronize(backend)
+                result_inplace = Array(dst)[1]
+
+                result = KF.mapreduce1d(identity, +, src; tmp, to_cpu=true)
+                KA.synchronize(backend)
+                ref = mapreduce(identity, +, Array(src))
+
+                if T <: AbstractFloat
+                    @test isapprox(result_inplace, ref; rtol=1e-4, atol=1e-5)
+                    @test isapprox(result, ref; rtol=1e-4, atol=1e-5)
+                else
+                    @test result_inplace == ref
                     @test result == ref
                 end
             end
@@ -32,8 +52,6 @@ end
 # ============================================================================
 
 @testset "mapreduce1d custom struct" begin
-    #AT = BACKEND_ARRAY_TYPES[backend]
-
     struct Input6
         a::Float32
         b::Float32
@@ -57,15 +75,19 @@ end
             src = AT([Input6(rand(Float32), rand(Float32), rand(Float32),
                 rand(Float32), rand(Float32), rand(Float32)) for _ in 1:n])
             dst = AT([Output3(0f0, 0f0, 0f0)])
-            tmp = KF.get_allocation(KF.MapReduce1D, (src,); blocks=400, out_eltype=Output3)
+            tmp = KF.get_allocation(KF.MapReduce1D, map_func, reduce_func, src, 1000)
 
             KF.mapreduce1d!(map_func, reduce_func, dst, src; tmp)
             KA.synchronize(backend)
+            result_inplace = Array(dst)[1]
 
             result = KF.mapreduce1d(map_func, reduce_func, src; tmp, to_cpu=true)
             KA.synchronize(backend)
             ref = mapreduce(map_func, reduce_func, Array(src))
 
+            @test isapprox(result_inplace.x, ref.x)
+            @test isapprox(result_inplace.y, ref.y)
+            @test isapprox(result_inplace.z, ref.z)
             @test isapprox(result.x, ref.x)
             @test isapprox(result.y, ref.y)
             @test isapprox(result.z, ref.z)
@@ -76,7 +98,6 @@ end
 # ============================================================================
 
 @testset "mapreduce1d tuple inputs (dot product and variants)" begin
-    #AT = BACKEND_ARRAY_TYPES[backend]
     T = Float64
 
     @testset "dot product" begin
@@ -127,19 +148,26 @@ end
         @test isapprox(result, sum(Array(x) .* Array(y)) / n)
     end
 
-    @testset "in-place with pre-allocated tmp" begin
+    @testset "in-place with pre-allocated tmp, reused across trials" begin
         n = 50_000
         x, y = AT(rand(T, n)), AT(rand(T, n))
         dst = AT([T(0)])
-        tmp = KF.get_allocation(KF.MapReduce1D, (x, y); blocks=100, out_eltype=T)
+        tmp = KF.get_allocation(KF.MapReduce1D, (a, b) -> a * b, +, (x, y), 1000)
 
-        @testset "trial $trial" for trial in 1:3
+        @testset "trial $trial" for trial in 1:5
             copyto!(x, rand(T, n))
             copyto!(y, rand(T, n))
+
             KF.mapreduce1d!((a, b) -> a * b, +, dst, (x, y); tmp)
             KA.synchronize(backend)
-            result = Array(dst)[1]
-            @test isapprox(result, sum(Array(x) .* Array(y)))
+            result_inplace = Array(dst)[1]
+
+            result = KF.mapreduce1d((a, b) -> a * b, +, (x, y); tmp, to_cpu=true)
+            KA.synchronize(backend)
+            ref = sum(Array(x) .* Array(y))
+
+            @test isapprox(result_inplace, ref)
+            @test isapprox(result, ref)
         end
     end
 
@@ -157,5 +185,14 @@ end
         result = KF.mapreduce1d((ai, bi, ci) -> ai * bi * ci, +, (a, b, c); g=cbrt, to_cpu=true)
         KA.synchronize(backend)
         @test isapprox(result, cbrt(sum(Array(a) .* Array(b) .* Array(c))))
+    end
+
+    # Verify tmp blocks mismatch is caught
+    @testset "tmp blocks mismatch warning" begin
+        n = 1_000
+        x, y = AT(rand(T, n)), AT(rand(T, n))
+        dst = AT([T(0)])
+        tmp_small = KF.get_allocation(KF.MapReduce1D, (a, b) -> a * b, +, (x, y), 1)
+        @test_throws Exception KF.mapreduce1d!((a, b) -> a * b, +, dst, (x, y); tmp=tmp_small, blocks=DEFAULT_BLOCKS)
     end
 end

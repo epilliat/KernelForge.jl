@@ -161,18 +161,10 @@
         @test isnothing(idx)
     end
 
-    # ── Nitem override ───────────────────────────────────────────────────
-
-    @testset "Nitem limits search range, match beyond Nitem not found" begin
-        src = CUDA.CuArray(Int32[0, 0, 1, 1])
+    @testset "Nitem" begin
+        src = CUDA.CuArray(Int32[0, 0, 1])
         idx = KF.findfirst(x -> x == 1, src; Nitem=2)
-        @test isnothing(idx)
-    end
-
-    @testset "Nitem limits search range, match within Nitem found" begin
-        src = CUDA.CuArray(Int32[0, 1, 1, 1])
-        idx = KF.findfirst(x -> x == 1, src; Nitem=2)
-        @test idx == 2
+        @test idx == 3
     end
 
 end

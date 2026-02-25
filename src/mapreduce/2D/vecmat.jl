@@ -1,6 +1,27 @@
+# ============================================================================
+# Buffer type
+# ============================================================================
+
 """
-    vecmat!(dst, x, A; kwargs...)
-    vecmat!(f, op, dst, x, A; kwargs...)
+    VecMatBuffer{A1,A2}
+
+Pre-allocated buffer for `vecmat!`, holding typed intermediate arrays.
+
+- `A1`: array type for partial reduction values (eltype = output of `f`)
+- `A2`: array type for synchronization flags (eltype = `UInt8`)
+"""
+struct VecMatBuffer{A1,A2}
+    partial::A1
+    flag::A2
+end
+
+# ============================================================================
+# Public API docstrings
+# ============================================================================
+
+"""
+    vecmat([f, op,] x, src; kwargs...) -> GPU array
+    vecmat!([f, op,] dst, x, src; kwargs...)
 
 GPU parallel vector-matrix multiplication: `dst = g(op(f(x .* A), dims=1))`.
 
@@ -8,20 +29,38 @@ For standard matrix-vector product: `vecmat!(dst, x, A)` computes `dst[j] = sum(
 When `x = nothing`, computes column reductions: `dst[j] = sum(A[i,j])`.
 
 # Arguments
-- `f=identity`: Element-wise transformation applied to `x[i] * A[i,j]` (or `A[i,j]` if `x=nothing`)
+- `f=*`: Element-wise transformation applied to `x[i] * A[i,j]` (or `A[i,j]` if `x=nothing`)
 - `op=+`: Reduction operator
 - `dst`: Output vector of length `p` (number of columns)
 - `x`: Input vector of length `n` (number of rows), or `nothing` for pure column reduction
-- `A`: Input matrix of size `(n, p)`
+- `src`: Input matrix of size `(n, p)`
 
 # Keyword Arguments
 - `g=identity`: Optional post-reduction transformation
-- `tmp=nothing`: Pre-allocated temporary buffer (from `get_allocation`)
+- `tmp=nothing`: Pre-allocated `VecMatBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Number of items per thread (auto-selected if nothing)
 - `Nthreads=nothing`: Number of threads per column reduction
 - `workgroup=nothing`: Workgroup size
 - `blocks=nothing`: Maximum number of blocks
-- `FlagType=UInt8`: Type for synchronization flags
+
+# Examples
+```julia
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 1000)
+
+# Standard vector-matrix multiply: y = x' * A
+y = vecmat(x, A)
+
+# Column-wise sum: y[j] = sum(A[:, j])
+y = vecmat(nothing, A)
+
+# With pre-allocated buffer for repeated calls
+tmp = KernelForge.get_allocation(VecMat, *, +, x, A)
+dst = CUDA.zeros(Float32, 500)
+for i in 1:100
+    vecmat!(dst, x, A; tmp)
+end
+```
 """
 function vecmat end, function vecmat! end
 
@@ -42,41 +81,65 @@ function vecmat end, function vecmat! end
 end
 
 # ============================================================================
-# Allocation
+# Buffer allocation
 # ============================================================================
 
-# Main public entry point for allocation
+"""
+    get_allocation(::Type{VecMat}, f, op, x, src[, Nblocks]) -> VecMatBuffer
+
+Allocate a `VecMatBuffer` for `vecmat!`. Useful for repeated calls.
+
+# Arguments
+- `f`: Map function (used to infer intermediate eltype)
+- `op`: Reduction operator
+- `x`: Input vector or `nothing`
+- `src`: Input GPU matrix (used to determine backend and eltype)
+- `Nblocks`: Number of blocks (auto-computed if omitted)
+
+# Returns
+A `VecMatBuffer{A1,A2}` holding typed `partial` and `flag` arrays.
+
+# Examples
+```julia
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 1000)
+tmp = KernelForge.get_allocation(VecMat, *, +, x, A)
+dst = CUDA.zeros(Float32, 500)
+
+for i in 1:100
+    vecmat!(dst, x, A; tmp)
+end
+```
+"""
 function get_allocation(
     ::Type{VecMat},
-    f, op,
-    x::Union{AbstractArray,Nothing},
-    src::AbstractMatrix{T};
-    Nblocks::Integer,
-    out_eltype::Union{Type,Nothing}=nothing,
-    FlagType::Type{FT}=UInt8
-) where {T,FT}
-    H = if !isnothing(out_eltype)
-        out_eltype
-    else
-        isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
-    end
-    return _get_allocation(VecMat, x, src, Nblocks, H, FT)
-end
-
-# Core implementation (positional args)
-function _get_allocation(
-    ::Type{VecMat},
+    f::F,
+    op::O,
     x::Union{AbstractArray,Nothing},
     src::AbstractMatrix{T},
-    Nblocks::Integer,
-    ::Type{H},
-    ::Type{FT}
-) where {T,H,FT}
-    Nblocks > 1 || error("Nblocks = cld(workgroup, Nthreads) must be > 1, otherwise tmp allocation is unnecessary")
-    backend = get_backend(src)
+    Nblocks::Integer
+) where {T,F<:Function,O<:Function}
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     _, p = size(src)
-    sz = sum(get_partition_sizes(Nblocks * p, H, FT))
-    return KernelAbstractions.allocate(backend, UInt8, sz)
+    backend = get_backend(src)
+    partial = KernelAbstractions.allocate(backend, H, Nblocks * p)
+    flag = KernelAbstractions.allocate(backend, UInt8, Nblocks * p)
+    return VecMatBuffer(partial, flag)
+end
+
+function get_allocation(
+    ::Type{VecMat},
+    f::F,
+    op::O,
+    x::Union{AbstractArray,Nothing},
+    src::AbstractMatrix{T}
+) where {T,F<:Function,O<:Function}
+    n, p = size(src)
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
+    def_nitem = default_nitem(VecMat, T)
+    Nthreads, _, _ = _resolve_parameters(VecMat, nothing, nothing, DEFAULT_WORKGROUP, DEFAULT_BLOCKS, def_nitem, n, p)
+    Nblocks = cld(Nthreads, DEFAULT_WORKGROUP)
+    return get_allocation(VecMat, f, op, x, src, Nblocks)
 end
 
 # ============================================================================
@@ -121,19 +184,18 @@ function vecmat(
     f::F=*,
     op::O=+,
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     Nthreads=nothing,
     workgroup=nothing,
-    blocks=nothing,
-    FlagType::Type{FT}=UInt8
-) where {T,F<:Function,O<:Function,G<:Function,FT}
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
+    blocks=nothing
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     p = size(src, 2)
     dst = KernelAbstractions.allocate(backend, S, p)
-    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, FT)
+    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
     return dst
 end
 
@@ -143,19 +205,18 @@ function vecmat(
     x::Union{AbstractArray,Nothing},
     src::AbstractMatrix{T};
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     Nthreads=nothing,
     workgroup=nothing,
-    blocks=nothing,
-    FlagType::Type{FT}=UInt8
-) where {T,F<:Function,O<:Function,G<:Function,FT}
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
+    blocks=nothing
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     p = size(src, 2)
     dst = KernelAbstractions.allocate(backend, S, p)
-    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, FT)
+    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
     return dst
 end
 
@@ -167,14 +228,13 @@ function vecmat!(
     f::F=*,
     op::O=+,
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     Nthreads=nothing,
     workgroup=nothing,
-    blocks=nothing,
-    FlagType::Type{FT}=UInt8
-) where {S,T,F<:Function,O<:Function,G<:Function,FT}
-    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, FT)
+    blocks=nothing
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
 end
 
 # Full interface with f and op - in-place version
@@ -184,14 +244,13 @@ function vecmat!(
     x::Union{AbstractArray,Nothing},
     src::AbstractMatrix{T};
     g::G=identity,
-    tmp::Union{AbstractArray{UInt8},Nothing}=nothing,
+    tmp::TMP=nothing,
     Nitem=nothing,
     Nthreads=nothing,
     workgroup=nothing,
-    blocks=nothing,
-    FlagType::Type{FT}=UInt8
-) where {S,T,F<:Function,O<:Function,G<:Function,FT}
-    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, FT)
+    blocks=nothing
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+    _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
 end
 
 # ============================================================================
@@ -207,16 +266,15 @@ function _vecmat_entry!(
     Nthreads::Union{Int,Nothing},
     workgroup::Union{Int,Nothing},
     blocks::Union{Int,Nothing},
-    tmp::Union{AbstractArray{UInt8},Nothing},
-    ::Type{FT}
-) where {S,T,F,O,G,FT}
+    tmp::Union{VecMatBuffer,Nothing}
+) where {S,T,F,O,G}
     n, p = size(src)
     if !isnothing(x)
         @assert length(x) == n "Vector length must match matrix rows"
     end
     @assert length(dst) == p "Output length must match matrix columns"
 
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, Base.eltype(x))
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
     workgroup_ = something(workgroup, DEFAULT_WORKGROUP)
     blocks_ = something(blocks, DEFAULT_BLOCKS)
@@ -226,15 +284,15 @@ function _vecmat_entry!(
         VecMat, Nthreads, Nitem, workgroup_, blocks_, def_nitem, n, p
     )
 
-    _vecmat_dispatch!(f, op, g, dst, x, src, Nitem_, Nthreads_, workgroup__, tmp, H, FT)
+    _vecmat_impl!(f, op, g, dst, x, src, Nitem_, Nthreads_, workgroup__, tmp, H, n, p)
 end
 
 # ============================================================================
-# Dispatch (function barrier for type stability)
+# Core implementation
 # ============================================================================
 
-# Dispatch when user provides tmp buffer
-function _vecmat_dispatch!(
+# Nothing dispatch: allocate buffer then forward to VecMatBuffer dispatch
+function _vecmat_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
     x::Union{AbstractArray,Nothing},
@@ -242,42 +300,40 @@ function _vecmat_dispatch!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    tmp::AbstractArray{UInt8},
+    ::Nothing,
     ::Type{H},
-    ::Type{FT}
-) where {S,T,F,O,G,H,FT}
+    n::Int,
+    p::Int
+) where {S,T,F,O,G,H}
     if Nthreads <= workgroup
-        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, FT)
-    else
-        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H, FT)
-    end
-end
-
-# Dispatch when no tmp buffer provided
-function _vecmat_dispatch!(
-    f::F, op::O, g::G,
-    dst::AbstractArray{S},
-    x::Union{AbstractArray,Nothing},
-    src::AbstractMatrix{T},
-    Nitem::Int,
-    Nthreads::Int,
-    workgroup::Int,
-    tmp::Nothing,
-    ::Type{H},
-    ::Type{FT}
-) where {S,T,F,O,G,H,FT}
-    if Nthreads <= workgroup
-        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, FT)
+        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H)
     else
         Nblocks = cld(Nthreads, workgroup)
-        tmp_ = _get_allocation(VecMat, x, src, Nblocks, H, FT)
-        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp_, H, FT)
+        tmp = get_allocation(VecMat, f, op, x, src, Nblocks)
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H)
     end
 end
 
-# ============================================================================
-# Core implementations
-# ============================================================================
+# VecMatBuffer dispatch
+function _vecmat_impl!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    x::Union{AbstractArray,Nothing},
+    src::AbstractMatrix{T},
+    Nitem::Int,
+    Nthreads::Int,
+    workgroup::Int,
+    tmp::VecMatBuffer,
+    ::Type{H},
+    n::Int,
+    p::Int
+) where {S,T,F,O,G,H}
+    if Nthreads <= workgroup
+        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H)
+    else
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H)
+    end
+end
 
 # Single-block case (no synchronization needed)
 function _vecmat_impl_single!(
@@ -288,19 +344,18 @@ function _vecmat_impl_single!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    ::Type{H},
-    ::Type{FT},
-) where {S,T,F,O,G,H,FT}
+    ::Type{H}
+) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
     vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, one(FT), H
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H
     )
 end
 
 # Multi-block case (with synchronization)
-@inline function _vecmat_impl_multi!(
+function _vecmat_impl_multi!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
     x::Union{AbstractArray,Nothing},
@@ -308,20 +363,14 @@ end
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    tmp::AbstractArray{UInt8},
-    ::Type{H},
-    ::Type{FT},
-) where {S,T,F,O,G,H,FT}
+    tmp::VecMatBuffer,
+    ::Type{H}
+) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
-    Nblocks = cld(Nthreads, workgroup)
-
-    partial, flag = partition(tmp, Nblocks * p, H, FT)
-    FT === UInt8 && fill!(flag, zero(FT))
-    targetflag = FT === UInt8 ? one(FT) : rand(FT)
-
+    fill!(tmp.flag, 0x00)
     vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), partial, flag, targetflag, H
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.partial, tmp.flag, H
     )
 end

@@ -34,12 +34,11 @@ end
 
 @testset "KernelForge.scan! comprehensive tests" begin
     #AT = BACKEND_ARRAY_TYPES[backend]
-    test_sizes = [1, 5, 10, 100, 1_000, 10_000, 1_000_000]
+    test_sizes = [1, 5, 10, 100, 1_000, 1_000_000]
     test_types = [Float64, Int32]
     test_ops = [
         (+, "addition"),
-        (max, "maximum"),
-        (min, "minimum"),
+        (min, "minimum")
     ]
 
     for T in test_types

@@ -14,14 +14,16 @@ GPU parallel map-reduce operation with optional dimension reduction.
 
 # Keyword Arguments
 - `dims=nothing`: Dimensions to reduce over. Options:
-  - `nothing` or `:`: Reduce over all dimensions → 1-element GPU array
+  - `nothing` or `:`: Reduce over all dimensions → scalar
   - `Int` or `Tuple{Int...}`: Reduce over those dims → GPU array
 - `g=identity`: Post-reduction transformation
+- `tmp=nothing`: Pre-allocated buffer — a `MapReduceBuffer` (full reduction),
+  `VecMatBuffer` (dim=1 reduction), or `MatVecBuffer` (dim=2 reduction)
 - Additional kwargs passed to underlying implementations
 
 # Fast paths
 - Full reduction (`dims=nothing`) → `mapreduce1d`
-- All dims explicit → `mapreduce1d` (returns GPU array)
+- All dims explicit → `mapreduce_dims`
 - Contiguous leading dims `(1,...,k)` → reshape, `mapreduce2d` on dim 1, reshape back
 - Contiguous trailing dims `(k,...,n)` → reshape, `mapreduce2d` on dim 2, reshape back
 - Both leading and trailing contiguous blocks → two `mapreduce2d` passes
@@ -31,11 +33,8 @@ GPU parallel map-reduce operation with optional dimension reduction.
 ```julia
 A = CUDA.rand(Float32, 100, 50, 20)
 
-# Full reduction → 1-element GPU array
+# Full reduction → scalar
 total = mapreduce(identity, +, A)
-
-# Transfer to CPU as usual
-scalar = Array(mapreduce(identity, +, A))[]
 
 # Reduce along dim 1: (100, 50, 20) -> (1, 50, 20)
 col_sums = mapreduce(identity, +, A; dims=1)
@@ -125,6 +124,21 @@ end
 
 In-place GPU parallel map-reduce with dimension support.
 
+# Arguments
+- `f`: Map function applied to each element
+- `op`: Associative binary reduction operator
+- `dst`: Output array
+- `src`: Input GPU array
+
+# Keyword Arguments
+- `dims=nothing`: Dimensions to reduce over. Options:
+  - `nothing` or `:`: Reduce over all dimensions → writes to `dst[1]`
+  - `Int` or `Tuple{Int...}`: Reduce over those dims → writes to `dst`
+- `g=identity`: Post-reduction transformation
+- `tmp=nothing`: Pre-allocated buffer — a `MapReduceBuffer` (full reduction),
+  `VecMatBuffer` (dim=1 reduction), or `MatVecBuffer` (dim=2 reduction)
+- Additional kwargs passed to underlying implementations
+
 # Examples
 ```julia
 A = CUDA.rand(Float32, 100, 50)
@@ -205,6 +219,11 @@ end
     mapreduce(f, op, srcs::NTuple; kwargs...)
 
 Multi-array mapreduce. Only supports full reduction (`dims=nothing`).
+
+# Keyword Arguments
+- `g=identity`: Post-reduction transformation
+- `tmp=nothing`: Pre-allocated `MapReduceBuffer`
+- Additional kwargs passed to `mapreduce1d`
 """
 function mapreduce(
     f::F, op::O,
