@@ -1,4 +1,4 @@
-@kernel function mapreduce_dims_kernel!(
+@kernel function mapreducedims_kernel!(
     f, op, dst, src::AbstractArray{T,Ndims}, g,
     ::Val{reduce_dims}, ::Val{iters}, ::Val{keep_size}, ::Val{dim_map}
 ) where {T,Ndims,reduce_dims,iters,keep_size,dim_map}

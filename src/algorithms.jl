@@ -3,37 +3,38 @@ const DEFAULT_BLOCKS = 100
 const warpsz = 32 # TODO: This might change from one architecture to another
 
 
-struct MapReduce1D end
-struct MatVec end
-struct VecMat end
-struct Scan1D end
-struct FindFirst1D end
-struct Argmax1D end
+abstract type ForgeAlgorithm end
 
-@inline function default_nitem(::Type{MapReduce1D}, ::Type{T}) where {T}
-    if sizeof(T) == 1
-        return 8
-    elseif sizeof(T) == 2
-        return 4
-    else
-        return 1
+const _FORGE_ALGORITHM_TYPES = DataType[]
+
+macro forge_algorithm(name)
+    quote
+        struct $(esc(name)) <: ForgeAlgorithm end
+        push!(_FORGE_ALGORITHM_TYPES, $(esc(name)))
     end
 end
 
-@inline function default_nitem(::Type{Scan1D}, ::Type{T}) where {T}
-    sz = sizeof(T)
-    if sz == 1
-        return 16
-    elseif sz == 2
-        return 16
-    elseif sz == 4
-        return 8
-    elseif sz == 8
-        return 8
-    else
-        return 4
-    end
+@forge_algorithm MapReduce
+@forge_algorithm MapReduce1D
+@forge_algorithm MapReduce2D
+@forge_algorithm MapReduceDims
+@forge_algorithm MatVec
+@forge_algorithm VecMat
+@forge_algorithm Scan
+@forge_algorithm Scan1D
+@forge_algorithm FindFirst
+@forge_algorithm FindFirst1D
+@forge_algorithm Argmax
+@forge_algorithm Argmax1D
+
+function _type_to_symbol(T::DataType)
+    return Symbol(lowercase(string(nameof(T))))
 end
 
-@inline default_nitem(::Type{Argmax1D}, ::Type{T}) where T = default_nitem(MapReduce1D, T)
-@inline default_nitem(::Type{FindFirst1D}, ::Type{T}) where T = default_nitem(MapReduce1D, T)
+const KERNEL_TAGS = Dict{Symbol,DataType}(
+    sym => T
+    for T in _FORGE_ALGORITHM_TYPES
+    for sym in (_type_to_symbol(T), Symbol(_type_to_symbol(T), :!))
+)
+
+

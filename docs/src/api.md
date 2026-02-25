@@ -14,8 +14,8 @@ KernelForge.mapreduce2d
 KernelForge.mapreduce2d!
 KernelForge.mapreduce1d
 KernelForge.mapreduce1d!
-KernelForge.mapreduce_dims
-KernelForge.mapreduce_dims!
+KernelForge.mapreducedims
+KernelForge.mapreducedims!
 ```
 
 ## Scan

@@ -30,7 +30,7 @@ Pkg.add("KernelForge")
 
 ## Features
 - **Map-reduce** with custom functions and operators, supporting arbitrary dimensions and
-  multidimensional arrays including non-contiguous dimension reduction via `mapreduce_dims`
+  multidimensional arrays including non-contiguous dimension reduction via `mapreducedims`
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays

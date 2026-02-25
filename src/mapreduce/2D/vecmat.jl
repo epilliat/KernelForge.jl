@@ -1,21 +1,4 @@
 # ============================================================================
-# Buffer type
-# ============================================================================
-
-"""
-    VecMatBuffer{A1,A2}
-
-Pre-allocated buffer for `vecmat!`, holding typed intermediate arrays.
-
-- `A1`: array type for partial reduction values (eltype = output of `f`)
-- `A2`: array type for synchronization flags (eltype = `UInt8`)
-"""
-struct VecMatBuffer{A1,A2}
-    partial::A1
-    flag::A2
-end
-
-# ============================================================================
 # Public API docstrings
 # ============================================================================
 
@@ -37,7 +20,7 @@ When `x = nothing`, computes column reductions: `dst[j] = sum(A[i,j])`.
 
 # Keyword Arguments
 - `g=identity`: Optional post-reduction transformation
-- `tmp=nothing`: Pre-allocated `VecMatBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Number of items per thread (auto-selected if nothing)
 - `Nthreads=nothing`: Number of threads per column reduction
 - `workgroup=nothing`: Workgroup size
@@ -85,9 +68,9 @@ end
 # ============================================================================
 
 """
-    get_allocation(::Type{VecMat}, f, op, x, src[, Nblocks]) -> VecMatBuffer
+    get_allocation(::Type{VecMat}, f, op, x, src[, Nblocks]) -> KernelBuffer
 
-Allocate a `VecMatBuffer` for `vecmat!`. Useful for repeated calls.
+Allocate a `KernelBuffer` for `vecmat!`. Useful for repeated calls.
 
 # Arguments
 - `f`: Map function (used to infer intermediate eltype)
@@ -97,7 +80,7 @@ Allocate a `VecMatBuffer` for `vecmat!`. Useful for repeated calls.
 - `Nblocks`: Number of blocks (auto-computed if omitted)
 
 # Returns
-A `VecMatBuffer{A1,A2}` holding typed `partial` and `flag` arrays.
+A `KernelBuffer` with named fields `partial` and `flag`.
 
 # Examples
 ```julia
@@ -124,7 +107,7 @@ function get_allocation(
     backend = get_backend(src)
     partial = KernelAbstractions.allocate(backend, H, Nblocks * p)
     flag = KernelAbstractions.allocate(backend, UInt8, Nblocks * p)
-    return VecMatBuffer(partial, flag)
+    return KernelBuffer((; partial, flag))
 end
 
 function get_allocation(
@@ -135,7 +118,6 @@ function get_allocation(
     src::AbstractMatrix{T}
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     def_nitem = default_nitem(VecMat, T)
     Nthreads, _, _ = _resolve_parameters(VecMat, nothing, nothing, DEFAULT_WORKGROUP, DEFAULT_BLOCKS, def_nitem, n, p)
     Nblocks = cld(Nthreads, DEFAULT_WORKGROUP)
@@ -189,7 +171,7 @@ function vecmat(
     Nthreads=nothing,
     workgroup=nothing,
     blocks=nothing
-) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
@@ -210,7 +192,7 @@ function vecmat(
     Nthreads=nothing,
     workgroup=nothing,
     blocks=nothing
-) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
@@ -233,7 +215,7 @@ function vecmat!(
     Nthreads=nothing,
     workgroup=nothing,
     blocks=nothing
-) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
 end
 
@@ -249,7 +231,7 @@ function vecmat!(
     Nthreads=nothing,
     workgroup=nothing,
     blocks=nothing
-) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{VecMatBuffer,Nothing}}
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     _vecmat_entry!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp)
 end
 
@@ -266,7 +248,7 @@ function _vecmat_entry!(
     Nthreads::Union{Int,Nothing},
     workgroup::Union{Int,Nothing},
     blocks::Union{Int,Nothing},
-    tmp::Union{VecMatBuffer,Nothing}
+    tmp::Union{KernelBuffer,Nothing}
 ) where {S,T,F,O,G}
     n, p = size(src)
     if !isnothing(x)
@@ -291,7 +273,7 @@ end
 # Core implementation
 # ============================================================================
 
-# Nothing dispatch: allocate buffer then forward to VecMatBuffer dispatch
+# Nothing dispatch: allocate buffer then forward to KernelBuffer dispatch
 function _vecmat_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
@@ -314,7 +296,7 @@ function _vecmat_impl!(
     end
 end
 
-# VecMatBuffer dispatch
+# KernelBuffer dispatch
 function _vecmat_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
@@ -323,7 +305,7 @@ function _vecmat_impl!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    tmp::VecMatBuffer,
+    tmp::KernelBuffer,
     ::Type{H},
     n::Int,
     p::Int
@@ -363,14 +345,14 @@ function _vecmat_impl_multi!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    tmp::VecMatBuffer,
+    tmp::KernelBuffer,
     ::Type{H}
 ) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
-    fill!(tmp.flag, 0x00)
+    fill!(tmp.arrays.flag, 0x00)
     vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.partial, tmp.flag, H
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H
     )
 end

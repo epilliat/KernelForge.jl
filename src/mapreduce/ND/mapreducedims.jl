@@ -1,5 +1,5 @@
 """
-    mapreduce_dims(f, op, src, dims; kwargs...) -> GPU array
+    mapreducedims(f, op, src, dims; kwargs...) -> GPU array
 
 GPU parallel map-reduce over specified dimensions.
 
@@ -20,22 +20,22 @@ applies `g` to each final element.
 ```julia
 # Sum along rows (reduce dim 1)
 x = CUDA.rand(Float32, 128, 64)
-result = mapreduce_dims(identity, +, x, 1)   # shape: (1, 64)
+result = mapreducedims(identity, +, x, 1)   # shape: (1, 64)
 
 # Sum of squares along columns (reduce dim 2)
-result = mapreduce_dims(x -> x^2, +, x, 2)  # shape: (128, 1)
+result = mapreducedims(x -> x^2, +, x, 2)  # shape: (128, 1)
 
 # Reduce multiple dimensions
 x = CUDA.rand(Float32, 4, 8, 16)
-result = mapreduce_dims(identity, +, x, (1, 3))  # shape: (1, 8, 1)
+result = mapreducedims(identity, +, x, (1, 3))  # shape: (1, 8, 1)
 ```
 
-See also: [`KernelForge.mapreduce_dims!`](@ref) for the in-place version.
+See also: [`KernelForge.mapreducedims!`](@ref) for the in-place version.
 """
-function mapreduce_dims end
+function mapreducedims end
 
 """
-    mapreduce_dims!(f, op, dst, src, dims; kwargs...)
+    mapreducedims!(f, op, dst, src, dims; kwargs...)
 
 In-place GPU parallel map-reduce over specified dimensions, writing result to `dst`.
 
@@ -56,16 +56,16 @@ x = CUDA.rand(Float32, 128, 64)
 dst = CUDA.zeros(Float32, 1, 64)
 
 # Sum along dim 1
-mapreduce_dims!(identity, +, dst, x, 1)
+mapreducedims!(identity, +, dst, x, 1)
 
 # Sum of squares along dim 2 with pre-allocated dst
 dst2 = CUDA.zeros(Float32, 128, 1)
-mapreduce_dims!(x -> x^2, +, dst2, x, 2)
+mapreducedims!(x -> x^2, +, dst2, x, 2)
 ```
 
-See also: [`KernelForge.mapreduce_dims`](@ref) for the allocating version.
+See also: [`KernelForge.mapreducedims`](@ref) for the allocating version.
 """
-function mapreduce_dims! end
+function mapreducedims! end
 
 # Compute output size: size 1 along reduced dims, original size elsewhere
 function _output_size(src_size::NTuple{N,Int}, reduce_dims) where {N}
@@ -85,7 +85,7 @@ end
 # Core implementation
 # ============================================================================
 
-function _mapreduce_dims_impl!(
+function _mapreducedims_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray,
     src::AbstractArray{T,Ndims},
@@ -102,7 +102,7 @@ function _mapreduce_dims_impl!(
         pos === nothing ? 0 : pos
     end
 
-    mapreduce_dims_kernel!(backend, workgroup, ndrange)(
+    mapreducedims_kernel!(backend, workgroup, ndrange)(
         f, op, dst, src, g,
         Val(reduce_dims), Val(iters), Val(keep_size), Val(dim_map)
     )
@@ -112,7 +112,7 @@ end
 # Allocating API
 # ============================================================================
 
-function mapreduce_dims(
+function mapreducedims(
     f::F, op::O,
     src::AbstractArray{T},
     dims;
@@ -129,7 +129,7 @@ function mapreduce_dims(
     out_size = _output_size(size(src), reduce_dims)
     dst = KernelAbstractions.allocate(backend, S, out_size)
 
-    _mapreduce_dims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
+    _mapreducedims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
     return dst
 end
 
@@ -137,7 +137,7 @@ end
 # In-place API
 # ============================================================================
 
-function mapreduce_dims!(
+function mapreducedims!(
     f::F, op::O,
     dst::AbstractArray{S},
     src::AbstractArray{T},
@@ -148,6 +148,6 @@ function mapreduce_dims!(
     nd = ndims(src)
     reduce_dims = _normalize_dims(dims, nd)
     backend = get_backend(src)
-    _mapreduce_dims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
+    _mapreducedims_impl!(f, op, g, dst, src, reduce_dims, workgroup, backend)
     return dst
 end

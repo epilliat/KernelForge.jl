@@ -93,7 +93,7 @@
     end
 
     # ----------------------------------------------------------------
-    # General fallback routes to mapreduce_dims
+    # General fallback routes to mapreducedims
     # ----------------------------------------------------------------
 
     @testset "general fallback (4D, dims=(2,3))" begin

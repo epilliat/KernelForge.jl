@@ -2,7 +2,6 @@
     mapreduce2d(f, op, src, dim; kwargs...) -> Vector
 
 GPU parallel reduction along dimension `dim`.
-
 - `dim=1`: Column-wise reduction (vertical), output length = number of columns
 - `dim=2`: Row-wise reduction (horizontal), output length = number of rows
 
@@ -14,7 +13,7 @@ GPU parallel reduction along dimension `dim`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation
-- `tmp=nothing`: Pre-allocated `VecMatBuffer` (dim=1) or `MatVecBuffer` (dim=2)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 
 For `dim=1` (column-wise):
 - `Nitem=nothing`: Items per thread
@@ -52,9 +51,9 @@ function mapreduce2d(
     src::AbstractMatrix{T},
     dim::Int;
     g::G=identity,
-    tmp::Union{VecMatBuffer,MatVecBuffer,Nothing}=nothing,
+    tmp::TMP=nothing,
     kwargs...
-) where {T,F<:Function,O<:Function,G<:Function}
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     if dim == 1
         return vecmat(f, op, nothing, src; g, tmp, kwargs...)
     elseif dim == 2
@@ -68,7 +67,6 @@ end
     mapreduce2d!(f, op, dst, src, dim; kwargs...)
 
 In-place GPU parallel reduction along dimension `dim`.
-
 - `dim=1`: Column-wise reduction (vertical), `dst` length = number of columns
 - `dim=2`: Row-wise reduction (horizontal), `dst` length = number of rows
 
@@ -81,7 +79,7 @@ In-place GPU parallel reduction along dimension `dim`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation
-- `tmp=nothing`: Pre-allocated `VecMatBuffer` (dim=1) or `MatVecBuffer` (dim=2)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 
 For `dim=1` (column-wise):
 - `Nitem=nothing`: Items per thread
@@ -116,9 +114,9 @@ function mapreduce2d!(
     src::AbstractMatrix{T},
     dim::Int;
     g::G=identity,
-    tmp::Union{VecMatBuffer,MatVecBuffer,Nothing}=nothing,
+    tmp::TMP=nothing,
     kwargs...
-) where {S,T,F<:Function,O<:Function,G<:Function}
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     if dim == 1
         return vecmat!(f, op, dst, nothing, src; g, tmp, kwargs...)
     elseif dim == 2

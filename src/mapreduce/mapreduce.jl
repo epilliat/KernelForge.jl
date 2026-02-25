@@ -23,11 +23,11 @@ GPU parallel map-reduce operation with optional dimension reduction.
 
 # Fast paths
 - Full reduction (`dims=nothing`) → `mapreduce1d`
-- All dims explicit → `mapreduce_dims`
+- All dims explicit → `mapreducedims`
 - Contiguous leading dims `(1,...,k)` → reshape, `mapreduce2d` on dim 1, reshape back
 - Contiguous trailing dims `(k,...,n)` → reshape, `mapreduce2d` on dim 2, reshape back
 - Both leading and trailing contiguous blocks → two `mapreduce2d` passes
-- General dims → `mapreduce_dims` fallback
+- General dims → `mapreducedims` fallback
 
 # Examples
 ```julia
@@ -46,7 +46,7 @@ plane_sums = mapreduce(identity, +, A; dims=(1,2))
 depth_sums = mapreduce(identity, +, A; dims=3)
 ```
 
-See also: [`KernelForge.mapreduce!`](@ref), [`mapreduce1d`](@ref), [`mapreduce2d`](@ref), [`mapreduce_dims`](@ref)
+See also: [`KernelForge.mapreduce!`](@ref), [`mapreduce1d`](@ref), [`mapreduce2d`](@ref), [`mapreducedims`](@ref)
 """
 function mapreduce(
     f::F, op::O,
@@ -66,7 +66,7 @@ function mapreduce(
     _validate_dims(dims_tuple, nd)
 
     # --- All dims explicit: return GPU array with shape (1,...,1), Base-compatible ---
-    length(dims_tuple) == nd && return mapreduce_dims(f, op, src, dims_tuple; g, kwargs...)
+    length(dims_tuple) == nd && return mapreducedims(f, op, src, dims_tuple; g, kwargs...)
 
     src_size = size(src)
     lead_end, tail_start = _classify_dims(dims_tuple, nd)
@@ -116,7 +116,7 @@ function mapreduce(
     end
 
     # --- General fallback ---
-    return mapreduce_dims(f, op, src, dims_tuple; g, kwargs...)
+    return mapreducedims(f, op, src, dims_tuple; g, kwargs...)
 end
 
 """
@@ -165,7 +165,7 @@ function mapreduce!(
     dims_tuple = _normalize_dims(dims, nd)
     _validate_dims(dims_tuple, nd)
 
-    length(dims_tuple) == nd && return mapreduce_dims!(f, op, dst, src, dims_tuple; g, kwargs...)
+    length(dims_tuple) == nd && return mapreducedims!(f, op, dst, src, dims_tuple; g, kwargs...)
 
     src_size = size(src)
     lead_end, tail_start = _classify_dims(dims_tuple, nd)
@@ -208,7 +208,7 @@ function mapreduce!(
         return dst
     end
 
-    return mapreduce_dims!(f, op, dst, src, dims_tuple; g, kwargs...)
+    return mapreducedims!(f, op, dst, src, dims_tuple; g, kwargs...)
 end
 
 # ============================================================================

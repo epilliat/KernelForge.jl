@@ -1,20 +1,16 @@
-# ============================================================================
-# Buffer type
-# ============================================================================
-
-"""
-    Scan1DBuffer{A1,A2,A3}
-
-Pre-allocated buffer for `scan!`, holding typed intermediate arrays.
-
-- `A1`: array type for partial aggregates (eltype = output of `f`)
-- `A2`: array type for partial prefixes (eltype = output of `f`)
-- `A3`: array type for synchronization flags (eltype = `UInt8`)
-"""
-struct Scan1DBuffer{A1,A2,A3}
-    partial1::A1
-    partial2::A2
-    flag::A3
+@inline function default_nitem(::Type{Scan1D}, ::Type{T}) where {T}
+    sz = sizeof(T)
+    if sz == 1
+        return 16
+    elseif sz == 2
+        return 16
+    elseif sz == 4
+        return 8
+    elseif sz == 8
+        return 8
+    else
+        return 4
+    end
 end
 
 # ============================================================================
@@ -37,7 +33,7 @@ optionally applies `g` to each output element.
 
 # Keyword Arguments
 - `g=identity`: Post-scan transformation applied to each output element
-- `tmp=nothing`: Pre-allocated `Scan1DBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 
@@ -79,7 +75,7 @@ optionally applies `g` to each output element, writing results to `dst`.
 
 # Keyword Arguments
 - `g=identity`: Post-scan transformation applied to each output element
-- `tmp=nothing`: Pre-allocated `Scan1DBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 
@@ -109,7 +105,7 @@ function scan! end
 """
     get_allocation(::Type{Scan1D}, f, op, src[, blocks])
 
-Allocate a `Scan1DBuffer` for `scan!`. Useful for repeated scans.
+Allocate a `KernelBuffer` for `scan!`. Useful for repeated scans.
 
 # Arguments
 - `f`: Map function (used to infer intermediate eltype)
@@ -118,7 +114,7 @@ Allocate a `Scan1DBuffer` for `scan!`. Useful for repeated scans.
 - `blocks`: Number of blocks (auto-computed using default `Nitem` and `DEFAULT_WORKGROUP` if omitted)
 
 # Returns
-A `Scan1DBuffer{A1,A2,A3}` holding typed `partial1`, `partial2`, and `flag` arrays.
+A `KernelBuffer` with named fields `partial1`, `partial2`, and `flag` (flags are `UInt8`).
 
 # Examples
 ```julia
@@ -144,7 +140,7 @@ function get_allocation(
     partial1 = KernelAbstractions.allocate(backend, H, blocks)
     partial2 = KernelAbstractions.allocate(backend, H, blocks)
     flag = KernelAbstractions.allocate(backend, UInt8, blocks)
-    return Scan1DBuffer(partial1, partial2, flag)
+    return KernelBuffer((; partial1, partial2, flag))
 end
 
 function get_allocation(
@@ -183,7 +179,7 @@ function scan(
     tmp::TMP=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_WORKGROUP
-) where {AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{Scan1DBuffer,Nothing}}
+) where {AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     H = Base.promote_op(f, T)
     S = Base.promote_op(g, H)
@@ -216,7 +212,7 @@ function scan!(
     tmp::TMP=nothing,
     Nitem=nothing,
     workgroup::Int=DEFAULT_WORKGROUP
-) where {DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{Scan1DBuffer,Nothing}}
+) where {DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     n = length(src)
     n == 0 && return dst
     T = eltype(AT)
@@ -232,7 +228,7 @@ end
 # Core implementation
 # ============================================================================
 
-# Nothing dispatch: allocate buffer then forward to Scan1DBuffer dispatch
+# Nothing dispatch: allocate buffer then forward to KernelBuffer dispatch
 function _scan_impl!(
     f::F, op::O, g::G,
     dst::DS,
@@ -249,8 +245,7 @@ function _scan_impl!(
     _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend)
 end
 
-# Scan1DBuffer dispatch: run the kernel
-# Scan1DBuffer dispatch: run the kernel
+# KernelBuffer dispatch: run the kernel
 function _scan_impl!(
     f::F, op::O, g::G,
     dst::DS,
@@ -259,18 +254,20 @@ function _scan_impl!(
     workgroup::Int,
     ndrange::Int,
     blocks::Int,
-    tmp::Scan1DBuffer,
+    tmp::KernelBuffer,
     n::Int,
     backend
 ) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
-    fill!(tmp.flag, 0x00)
+    fill!(tmp.arrays.flag, 0x00)
     T = eltype(AT)
     S = eltype(DS)
     src_align = (Int(pointer(src)) ÷ sizeof(T)) % Nitem + 1
     dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
     Alignment = src_align == dst_align ? src_align : -1
     scan_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, Val(Nitem), tmp.partial1, tmp.partial2, tmp.flag, Val(Alignment)
+        f, op, g, dst, src, Val(Nitem),
+        tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
+        Val(Alignment)
     )
     return dst
 end

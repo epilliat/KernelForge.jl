@@ -1,3 +1,5 @@
+@inline default_nitem(::Type{FindFirst1D}, ::Type{T}) where T = default_nitem(MapReduce1D, T)
+
 """
     findfirst(filtr, src; kwargs...) -> Int or CartesianIndex or nothing
 

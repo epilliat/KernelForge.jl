@@ -13,6 +13,7 @@ const BitwiseTypes = Union{UInt8,UInt16,UInt32,UInt64,Int8,Int16,Int32,Int64,Flo
 
 include("helpers.jl")
 include("algorithms.jl")
+include("allocations.jl")
 
 include("copy/copy_kernel.jl")
 include("copy/copy.jl")
@@ -28,8 +29,8 @@ include("mapreduce/2D/matvec.jl")
 
 include("mapreduce/2D/mapreduce2d.jl")
 
-include("mapreduce/ND/mapreduce_dims_kernel.jl")
-include("mapreduce/ND/mapreduce_dims.jl")
+include("mapreduce/ND/mapreducedims_kernel.jl")
+include("mapreduce/ND/mapreducedims.jl")
 
 include("mapreduce/mapreduce.jl")
 include("mapreduce/reductions.jl")

@@ -1,20 +1,14 @@
-# ============================================================================
-# Buffer type
-# ============================================================================
 
-"""
-    MapReduceBuffer{A1,A2}
-
-Pre-allocated buffer for `mapreduce1d!`, holding typed intermediate arrays
-instead of a raw `UInt8` byte buffer.
-
-- `A1`: array type for partial reduction values (eltype = output of `f`)
-- `A2`: array type for synchronization flags (eltype = `UInt8`)
-"""
-struct MapReduceBuffer{A1,A2}
-    partial::A1
-    flag::A2
+@inline function default_nitem(::Type{MapReduce1D}, ::Type{T}) where {T}
+    if sizeof(T) == 1
+        return 8
+    elseif sizeof(T) == 2
+        return 4
+    else
+        return 1
+    end
 end
+
 
 # ============================================================================
 # Public API docstrings
@@ -35,7 +29,7 @@ Applies `f` to each element, reduces with `op`, and optionally applies `g` to th
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to final result
-- `tmp=nothing`: Pre-allocated `MapReduceBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 - `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
@@ -73,7 +67,7 @@ In-place GPU parallel map-reduce, writing result to `dst[1]`.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to final result
-- `tmp=nothing`: Pre-allocated `MapReduceBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
 - `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
@@ -104,7 +98,7 @@ function mapreduce1d! end
 """
     get_allocation(::Type{MapReduce1D}, f, op, src_or_srcs, blocks=DEFAULT_BLOCKS)
 
-Allocate a `MapReduceBuffer` for `mapreduce1d!`. Useful for repeated reductions.
+Allocate a `KernelBuffer` for `mapreduce1d!`. Useful for repeated reductions.
 
 # Arguments
 - `f`: Map function (used to infer intermediate eltype)
@@ -113,7 +107,7 @@ Allocate a `MapReduceBuffer` for `mapreduce1d!`. Useful for repeated reductions.
 - `blocks`: Number of blocks (must match `blocks` used in `mapreduce1d!`)
 
 # Returns
-A `MapReduceBuffer{A1,A2}` holding typed partial and flag arrays (flags are `UInt8`).
+A `KernelBuffer` with named fields `partial` and `flag` (flags are `UInt8`).
 
 # Examples
 ```julia
@@ -148,7 +142,7 @@ function get_allocation(
     backend = get_backend(srcs[1])
     partial = KernelAbstractions.allocate(backend, H, blocks)
     flag = KernelAbstractions.allocate(backend, UInt8, blocks)
-    return MapReduceBuffer(partial, flag)
+    return KernelBuffer((; partial, flag))
 end
 
 # ============================================================================
@@ -174,7 +168,7 @@ function mapreduce1d(
     workgroup::Int=DEFAULT_WORKGROUP,
     blocks::Int=DEFAULT_BLOCKS,
     to_cpu::Bool=true
-) where {U,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{MapReduceBuffer,Nothing}}
+) where {U,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     S = Base.promote_op(g, H)
@@ -208,7 +202,7 @@ function mapreduce1d!(
     Nitem=nothing,
     workgroup::Int=DEFAULT_WORKGROUP,
     blocks::Int=DEFAULT_BLOCKS
-) where {U,DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{MapReduceBuffer,Nothing}}
+) where {U,DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     n = length(srcs[1])
     backend = get_backend(srcs[1])
@@ -221,8 +215,8 @@ end
 # Core implementation
 # ============================================================================
 
-# Nothing dispatch: allocate buffer then forward to MapReduceBuffer method.
-# Avoids passing a Union{MapReduceBuffer,Nothing} into the impl, which
+# Nothing dispatch: allocate buffer then forward to KernelBuffer method.
+# Avoids passing a Union{KernelBuffer,Nothing} into the impl, which
 # would cause type instability and spurious allocations.
 function _mapreduce1d_impl!(
     f::F, op::O, g::G,
@@ -247,14 +241,14 @@ function _mapreduce1d_impl!(
     Nitem::Int,
     workgroup::Int,
     blocks::Int,
-    tmp::MapReduceBuffer,
+    tmp::KernelBuffer,
     ::Type{H},
     n::Int,
     backend
 ) where {U,DS<:AbstractArray,AT<:AbstractArray,F,O,G,H}
-    flag = tmp.flag
+    flag = tmp.arrays.flag
     fill!(flag, 0x00)
-    partial = tmp.partial
+    partial = tmp.arrays.partial
 
     workgroup = min(workgroup, n)
     ndrange = min(blocks * workgroup, max(fld(n, workgroup) * workgroup, 1))

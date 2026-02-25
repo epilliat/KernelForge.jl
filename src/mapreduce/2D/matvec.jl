@@ -1,21 +1,4 @@
 # ============================================================================
-# Buffer type
-# ============================================================================
-
-"""
-    MatVecBuffer{A1,A2}
-
-Pre-allocated buffer for `matvec!`, holding typed intermediate arrays.
-
-- `A1`: array type for partial reduction values (eltype = output of `f`)
-- `A2`: array type for synchronization flags (eltype = `UInt8`)
-"""
-struct MatVecBuffer{A1,A2}
-    partial::A1
-    flag::A2
-end
-
-# ============================================================================
 # Public API docstrings
 # ============================================================================
 
@@ -41,7 +24,7 @@ The in-place version `matvec!` writes to `dst`.
 
 # Keyword Arguments
 - `g=identity`: Unary transformation applied to each reduced row
-- `tmp=nothing`: Pre-allocated `MatVecBuffer` (or `nothing` to allocate automatically)
+- `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `chunksz=nothing`: Elements per thread (auto-tuned if `nothing`)
 - `Nblocks=nothing`: Number of thread blocks (auto-tuned if `nothing`)
 - `workgroup=nothing`: Threads per block (auto-tuned if `nothing`)
@@ -84,9 +67,9 @@ function matvec end, function matvec! end
 # ============================================================================
 
 """
-    get_allocation(::Type{MatVec}, f, op, src, x[, Nblocks]) -> MatVecBuffer
+    get_allocation(::Type{MatVec}, f, op, src, x[, Nblocks]) -> KernelBuffer
 
-Allocate a `MatVecBuffer` for `matvec!`. Useful for repeated calls.
+Allocate a `KernelBuffer` for `matvec!`. Useful for repeated calls.
 
 # Arguments
 - `f`: Map function (used to infer intermediate eltype)
@@ -96,7 +79,7 @@ Allocate a `MatVecBuffer` for `matvec!`. Useful for repeated calls.
 - `Nblocks`: Number of blocks (auto-computed if omitted)
 
 # Returns
-A `MatVecBuffer{A1,A2}` holding typed `partial` and `flag` arrays.
+A `KernelBuffer` with named fields `partial` and `flag`.
 
 # Examples
 ```julia
@@ -123,7 +106,7 @@ function get_allocation(
     backend = get_backend(src)
     partial = KernelAbstractions.allocate(backend, H, n * Nblocks)
     flag = KernelAbstractions.allocate(backend, UInt8, n * Nblocks)
-    return MatVecBuffer(partial, flag)
+    return KernelBuffer((; partial, flag))
 end
 
 function get_allocation(
@@ -134,7 +117,6 @@ function get_allocation(
     x::Union{AbstractArray,Nothing}
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     chunksz, Nblocks, _, _ = _resolve_parameters(MatVec, nothing, nothing, nothing, nothing, n, p)
     return get_allocation(MatVec, f, op, src, x, Nblocks)
 end
@@ -200,7 +182,7 @@ function matvec(
     Nblocks=nothing,
     workgroup=nothing,
     blocks_row=nothing
-) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{MatVecBuffer,Nothing}}
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
@@ -221,7 +203,7 @@ function matvec(
     Nblocks=nothing,
     workgroup=nothing,
     blocks_row=nothing
-) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{MatVecBuffer,Nothing}}
+) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
@@ -244,7 +226,7 @@ function matvec!(
     Nblocks=nothing,
     workgroup=nothing,
     blocks_row=nothing
-) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{MatVecBuffer,Nothing}}
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
 end
 
@@ -260,7 +242,7 @@ function matvec!(
     Nblocks=nothing,
     workgroup=nothing,
     blocks_row=nothing
-) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{MatVecBuffer,Nothing}}
+) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
 end
 
@@ -277,7 +259,7 @@ function _matvec_entry!(
     Nblocks::Union{Int,Nothing},
     workgroup::Union{Int,Nothing},
     blocks_row::Union{Int,Nothing},
-    tmp::Union{MatVecBuffer,Nothing}
+    tmp::Union{KernelBuffer,Nothing}
 ) where {S,T,F,O,G}
     n, p = size(src)
     if !isnothing(x)
@@ -298,7 +280,7 @@ end
 # Core implementation
 # ============================================================================
 
-# Nothing dispatch: allocate buffer then forward to MatVecBuffer dispatch
+# Nothing dispatch: allocate buffer then forward to KernelBuffer dispatch
 function _matvec_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
@@ -320,7 +302,7 @@ function _matvec_impl!(
     end
 end
 
-# MatVecBuffer dispatch
+# KernelBuffer dispatch
 function _matvec_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
@@ -329,7 +311,7 @@ function _matvec_impl!(
     chunksz::Int,
     Nblocks::Int,
     workgroup::Int,
-    tmp::MatVecBuffer,
+    tmp::KernelBuffer,
     ::Type{H},
     n::Int,
     p::Int
@@ -368,14 +350,14 @@ function _matvec_impl_multi!(
     chunksz::Int,
     Nblocks::Int,
     workgroup::Int,
-    tmp::MatVecBuffer,
+    tmp::KernelBuffer,
     ::Type{H}
 ) where {S,T,F,O,G,H}
     n, p = size(src)
     backend = get_backend(src)
     ndrange = cld(n, chunksz) * Nblocks * workgroup
-    fill!(tmp.flag, 0x00)
+    fill!(tmp.arrays.flag, 0x00)
     matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.partial, tmp.flag, H
+        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.arrays.partial, tmp.arrays.flag, H
     )
 end

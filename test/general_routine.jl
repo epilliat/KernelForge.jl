@@ -1,7 +1,7 @@
 @testset "mapreduce" begin
     include("mapreduce/mapreduce1d_test.jl")
     include("mapreduce/mapreduce2d_test.jl")
-    include("mapreduce/mapreduce_dims_test.jl")
+    include("mapreduce/mapreducedims_test.jl")
     include("mapreduce/mapreduce_test.jl")
     include("mapreduce/vecmat_test.jl")
     include("mapreduce/matvec_test.jl")
