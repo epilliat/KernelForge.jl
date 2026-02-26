@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Examples · KernelForge.jl</title><meta name="title" content="Examples · KernelForge.jl"/><meta property="og:title" content="Examples · KernelForge.jl"/><meta property="twitter:title" content="Examples · KernelForge.jl"/><meta name="description" content="Documentation for KernelForge.jl."/><meta property="og:description" content="Documentation for KernelForge.jl."/><meta property="twitter:description" content="Documentation for KernelForge.jl."/><meta property="og:url" content="https://epilliat.github.io/KernelForge.jl/stable/examples/"/><meta property="twitter:url" content="https://epilliat.github.io/KernelForge.jl/stable/examples/"/><link rel="canonical" href="https://epilliat.github.io/KernelForge.jl/stable/examples/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">KernelForge.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../performances/">Performance</a></li><li class="is-active"><a class="tocitem" href>Examples</a><ul class="internal"><li><a class="tocitem" href="#Vectorized-Copy"><span>Vectorized Copy</span></a></li><li><a class="tocitem" href="#Map-Reduce"><span>Map-Reduce</span></a></li><li><a class="tocitem" href="#Prefix-Scan"><span>Prefix Scan</span></a></li><li><a class="tocitem" href="#Matrix-Vector-Operations"><span>Matrix-Vector Operations</span></a></li><li><a class="tocitem" href="#Vector-Matrix-Operations"><span>Vector-Matrix Operations</span></a></li><li><a class="tocitem" href="#Search"><span>Search</span></a></li><li><a class="tocitem" href="#argmax-/-argmin"><span>argmax / argmin</span></a></li><li><a class="tocitem" href="#Pre-allocating-Temporary-Buffers"><span>Pre-allocating Temporary Buffers</span></a></li><li><a class="tocitem" href="#Complete-Example:-Online-Statistics"><span>Complete Example: Online Statistics</span></a></li></ul></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Examples</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Examples</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/epilliat/KernelForge.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/epilliat/KernelForge.jl/blob/main/docs/src/examples.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Examples"><a class="docs-heading-anchor" href="#Examples">Examples</a><a id="Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Examples" title="Permalink"></a></h1><p>This page provides practical examples demonstrating KernelForge.jl&#39;s capabilities.</p><h2 id="Vectorized-Copy"><a class="docs-heading-anchor" href="#Vectorized-Copy">Vectorized Copy</a><a id="Vectorized-Copy-1"></a><a class="docs-heading-anchor-permalink" href="#Vectorized-Copy" title="Permalink"></a></h2><p>Perform memory copies with vectorized loads and stores for improved bandwidth utilization:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+src = CUDA.rand(Float32, 10^6)
+dst = similar(src)
+
+# Copy with vectorized loads and stores
+KernelForge.vcopy!(dst, src; Nitem=4)
+
+@assert dst ≈ src</code></pre><h3 id="Custom-Types"><a class="docs-heading-anchor" href="#Custom-Types">Custom Types</a><a id="Custom-Types-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Types" title="Permalink"></a></h3><p>KernelForge supports copying custom struct types:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct Point3D
+    x::Float32
+    y::Float32
+    z::Float32
+end
+
+n = 100_000
+src = CuArray([Point3D(rand(), rand(), rand()) for _ in 1:n])
+dst = similar(src)
+
+KernelForge.vcopy!(dst, src; Nitem=2)
+
+@assert all(dst .== src)</code></pre><h3 id="Set-Values"><a class="docs-heading-anchor" href="#Set-Values">Set Values</a><a id="Set-Values-1"></a><a class="docs-heading-anchor-permalink" href="#Set-Values" title="Permalink"></a></h3><p>Fill an array with a constant value:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+dst = CUDA.ones(UInt8, 100_000)
+KernelForge.setvalue!(dst, 0x00; Nitem=4)
+
+@assert all(dst .== 0x00)</code></pre><h2 id="Map-Reduce"><a class="docs-heading-anchor" href="#Map-Reduce">Map-Reduce</a><a id="Map-Reduce-1"></a><a class="docs-heading-anchor-permalink" href="#Map-Reduce" title="Permalink"></a></h2><h3 id="Basic-Reductions"><a class="docs-heading-anchor" href="#Basic-Reductions">Basic Reductions</a><a id="Basic-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 10^6)
+
+# Sum
+total = KernelForge.mapreduce(identity, +, x)
+
+# Sum of squares
+sum_sq = KernelForge.mapreduce(abs2, +, x)
+
+# Maximum
+max_val = KernelForge.mapreduce(identity, max, x)
+
+# Minimum
+min_val = KernelForge.mapreduce(identity, min, x)</code></pre><h3 id="Post-Reduction-Transformation,-Example-with-KernelForge.UnitFloat8"><a class="docs-heading-anchor" href="#Post-Reduction-Transformation,-Example-with-KernelForge.UnitFloat8">Post-Reduction Transformation, Example with KernelForge.UnitFloat8</a><a id="Post-Reduction-Transformation,-Example-with-KernelForge.UnitFloat8-1"></a><a class="docs-heading-anchor-permalink" href="#Post-Reduction-Transformation,-Example-with-KernelForge.UnitFloat8" title="Permalink"></a></h3><p>Apply a function after reduction using the <code>g</code> parameter:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+import KernelForge: UnitFloat8
+x = CuArray{UnitFloat8}([rand(UnitFloat8) for _ in 1:10^6])
+
+# convert to float 32 for reduction to avoid overflow
+to_f32(x) = Float32(x)
+# then back to unitfloat8
+to_uif8(x) = UnitFloat8(x)
+sum_uif8 = KernelForge.mapreduce(to_f32, +, x; g=to_uif8)
+
+# compare the sign only :
+@assert sign(Float32(sum_uif8)) == sign(sum(Float32.(x)))
+
+# We can store only 8 bit, keep rather good precision (because of intermediate Float32 conversion) and get 
+# same performance as for UInt8 addition !!!</code></pre><h3 id="Dot-Product-and-Distance"><a class="docs-heading-anchor" href="#Dot-Product-and-Distance">Dot Product and Distance</a><a id="Dot-Product-and-Distance-1"></a><a class="docs-heading-anchor-permalink" href="#Dot-Product-and-Distance" title="Permalink"></a></h3><p>Reduce multiple arrays simultaneously:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+n = 100_000
+a = CUDA.rand(Float32, n)
+b = CUDA.rand(Float32, n)
+
+# Dot product: sum(a .* b)
+dot_prod = KernelForge.mapreduce1d((x, y) -&gt; x * y, +, (a, b))
+
+# Euclidean distance: sqrt(sum((a - b)^2))
+distance = KernelForge.mapreduce1d((x, y) -&gt; (x - y)^2, +, (a, b); g=sqrt)
+
+# Weighted sum: sum(w .* x)
+w = CUDA.rand(Float32, n)
+x = CUDA.rand(Float32, n)
+weighted_sum = KernelForge.mapreduce1d((wi, xi) -&gt; wi * xi, +, (w, x))</code></pre><h3 id="2D-Reductions"><a class="docs-heading-anchor" href="#2D-Reductions">2D Reductions</a><a id="2D-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#2D-Reductions" title="Permalink"></a></h3><p>Reduce along rows or columns:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Column sums (reduce along dim=1)
+col_sums = KernelForge.mapreduce(identity, +, A; dims=1)
+@assert size(col_sums) == (500,)
+
+# Row sums (reduce along dim=2)
+row_sums = KernelForge.mapreduce(identity, +, A; dims=2)
+@assert size(row_sums) == (1000,)
+
+# Column means
+let u = size(A, 1) # Note that the let block is necessary for compilation of the kernel
+    g(x)::Float32 = x / u
+    col_means = KernelForge.mapreduce(identity, +, A; dims=1, g=g)
+end
+# Row-wise sum of squares
+row_ss = KernelForge.mapreduce(abs2, +, A; dims=2)
+
+# Row maximums
+row_max = KernelForge.mapreduce(identity, max, A; dims=2)</code></pre><h3 id="Higher-Dimensional-Reductions"><a class="docs-heading-anchor" href="#Higher-Dimensional-Reductions">Higher-Dimensional Reductions</a><a id="Higher-Dimensional-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Higher-Dimensional-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 20, 30, 40)
+
+# Reduce first dimension: (20, 30, 40) → (1, 30, 40)
+result = KernelForge.mapreduce(identity, +, A; dims=1)
+@assert size(result) == (1, 30, 40)
+
+# Reduce first two dimensions: (20, 30, 40) → (1, 1, 40)
+result = KernelForge.mapreduce(identity, +, A; dims=(1, 2))
+@assert size(result) == (1, 1, 40)
+
+# Reduce last dimension: (20, 30, 40) → (20, 30, 1)
+result = KernelForge.mapreduce(identity, +, A; dims=3)
+@assert size(result) == (20, 30, 1)
+
+# Reduce last two dimensions: (20, 30, 40) → (20, 1, 1)
+result = KernelForge.mapreduce(identity, +, A; dims=(2, 3))
+@assert size(result) == (20, 1, 1)
+
+# General reduction on non-contiguous dims: (3, 4, 5, 6, 7) → (3, 1, 5, 1, 1)
+B = CUDA.rand(Float32, 3, 4, 5, 6, 7)
+result = KernelForge.mapreduce(identity, +, B; dims=(2, 4, 5))
+@assert size(result) == (3, 1, 5, 1, 1)</code></pre><h3 id="Custom-Structs"><a class="docs-heading-anchor" href="#Custom-Structs">Custom Structs</a><a id="Custom-Structs-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Structs" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct Stats
+    sum::Float32
+    sum_sq::Float32
+    count::Float32
+end
+
+# Map: convert each value to Stats
+f(x) = Stats(x, x^2, 1f0)
+
+# Reduce: combine Stats
+op(a::Stats, b::Stats) = Stats(a.sum + b.sum, a.sum_sq + b.sum_sq, a.count + b.count)
+
+x = CUDA.rand(Float32, 100_000)
+result = KernelForge.mapreduce(f, op, x)
+
+mean = result.sum / result.count
+variance = result.sum_sq / result.count - mean^2</code></pre><h3 id="Operations-on-Views"><a class="docs-heading-anchor" href="#Operations-on-Views">Operations on Views</a><a id="Operations-on-Views-1"></a><a class="docs-heading-anchor-permalink" href="#Operations-on-Views" title="Permalink"></a></h3><p>All KernelForge functions work transparently on GPU array views, with no copies:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 100, 200)
+
+# Reduce over a column slice
+col_slice = view(A, :, 50:150)
+result = KernelForge.mapreduce(identity, +, col_slice; dims=1)
+@assert size(result) == (1, 101)
+
+# Full reduction on a row slice
+row_slice = view(A, 10:90, :)
+total = KernelForge.mapreduce(identity, +, row_slice)
+@assert total ≈ sum(Array(A)[10:90, :])</code></pre><h2 id="Prefix-Scan"><a class="docs-heading-anchor" href="#Prefix-Scan">Prefix Scan</a><a id="Prefix-Scan-1"></a><a class="docs-heading-anchor-permalink" href="#Prefix-Scan" title="Permalink"></a></h2><h3 id="Basic-Scans"><a class="docs-heading-anchor" href="#Basic-Scans">Basic Scans</a><a id="Basic-Scans-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Scans" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 10^6)
+dst = similar(x)
+
+# Cumulative sum
+KernelForge.scan!(+, dst, x)
+@assert dst ≈ CuArray(accumulate(+, Array(x)))
+
+# Cumulative product
+KernelForge.scan!(*, dst, x)
+@assert dst ≈ CuArray(accumulate(*, Array(x)))
+
+# Cumulative maximum
+KernelForge.scan!(max, dst, x)
+@assert dst ≈ CuArray(accumulate(max, Array(x)))</code></pre><h3 id="Scan-with-Map-Function"><a class="docs-heading-anchor" href="#Scan-with-Map-Function">Scan with Map Function</a><a id="Scan-with-Map-Function-1"></a><a class="docs-heading-anchor-permalink" href="#Scan-with-Map-Function" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 10_000)
+
+# Cumulative sum of squares
+result = KernelForge.scan(abs2, +, x)
+@assert result ≈ CuArray(accumulate(+, Array(x).^2))
+
+# Cumulative sum of absolute values
+result = KernelForge.scan(abs, +, x)</code></pre><h3 id="Scan-on-Views"><a class="docs-heading-anchor" href="#Scan-on-Views">Scan on Views</a><a id="Scan-on-Views-1"></a><a class="docs-heading-anchor-permalink" href="#Scan-on-Views" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 1_000)
+dst = CUDA.zeros(Float32, 1_000)
+
+# Scan over a subrange, writing into a subrange of dst
+KernelForge.scan!(+, view(dst, 3:800), view(x, 3:800))
+
+@assert Array(dst)[3:800] ≈ accumulate(+, Array(x)[3:800])
+# Elements outside the view are untouched
+@assert all(Array(dst)[1:2] .== 0f0)</code></pre><h3 id="Non-Commutative-Operations:-Quaternions"><a class="docs-heading-anchor" href="#Non-Commutative-Operations:-Quaternions">Non-Commutative Operations: Quaternions</a><a id="Non-Commutative-Operations:-Quaternions-1"></a><a class="docs-heading-anchor-permalink" href="#Non-Commutative-Operations:-Quaternions" title="Permalink"></a></h3><p>KernelForge scan function (not mapreduce) correctly handles non-commutative operations:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+using Quaternions
+
+n = 100_000
+
+# Generate random unit quaternions
+src_cpu = [QuaternionF64((x ./ sqrt(sum(x.^2)))...) for x in eachcol(randn(4, n))]
+src = CuArray(src_cpu)
+dst = similar(src)
+
+# Quaternion multiplication is non-commutative: q1 * q2 ≠ q2 * q1
+KernelForge.scan!(*, dst, src)
+
+@assert dst ≈ CuArray(accumulate(*, src_cpu))</code></pre><h2 id="Matrix-Vector-Operations"><a class="docs-heading-anchor" href="#Matrix-Vector-Operations">Matrix-Vector Operations</a><a id="Matrix-Vector-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Matrix-Vector-Operations" title="Permalink"></a></h2><h3 id="Standard-Matrix-Vector-Multiply"><a class="docs-heading-anchor" href="#Standard-Matrix-Vector-Multiply">Standard Matrix-Vector Multiply</a><a id="Standard-Matrix-Vector-Multiply-1"></a><a class="docs-heading-anchor-permalink" href="#Standard-Matrix-Vector-Multiply" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 500)
+
+# y = A * x
+y = KernelForge.matvec(A, x)
+@assert y ≈ A * x
+
+# In-place version
+dst = CUDA.zeros(Float32, 1000)
+KernelForge.matvec!(dst, A, x)
+@assert dst ≈ A * x</code></pre><h3 id="Row-wise-Reductions"><a class="docs-heading-anchor" href="#Row-wise-Reductions">Row-wise Reductions</a><a id="Row-wise-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Row-wise-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Row sums: y[i] = sum(A[i, :])
+row_sums = KernelForge.matvec(A, nothing)
+@assert row_sums ≈ vec(sum(A; dims=2))
+
+# Row maximums: y[i] = max_j(A[i, j])
+row_max = KernelForge.matvec(identity, max, A, nothing)
+@assert row_max ≈ vec(maximum(A; dims=2))
+
+# Row minimums
+row_min = KernelForge.matvec(identity, min, A, nothing)
+@assert row_min ≈ vec(minimum(A; dims=2))</code></pre><h3 id="Custom-Operations"><a class="docs-heading-anchor" href="#Custom-Operations">Custom Operations</a><a id="Custom-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Operations" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 500)
+
+# Softmax numerator: y[i] = sum_j(exp(A[i,j] - x[j]))
+y = KernelForge.matvec((a, b) -&gt; exp(a - b), +, A, x)
+
+# Row-wise dot product with scaling: y[i] = sqrt(sum_j(A[i,j]^2 * x[j]^2))
+y = KernelForge.matvec((a, b) -&gt; a^2 * b^2, +, A, x; g=sqrt)</code></pre><h3 id="Custom-Struct-Output"><a class="docs-heading-anchor" href="#Custom-Struct-Output">Custom Struct Output</a><a id="Custom-Struct-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Struct-Output" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct Vec3
+    x::Float32
+    y::Float32
+    z::Float32
+end
+
+# Map: combine matrix and vector elements
+f(a, b) = Vec3(a * b, a + b, a - b)
+
+# Reduce: component-wise sum
+op(v1::Vec3, v2::Vec3) = Vec3(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z)
+
+A = CUDA.rand(Float32, 200, 500)
+x = CUDA.rand(Float32, 500)
+dst = CuArray{Vec3}(undef, 200)
+
+KernelForge.matvec!(f, op, dst, A, x)</code></pre><h3 id="Matvec-on-Views"><a class="docs-heading-anchor" href="#Matvec-on-Views">Matvec on Views</a><a id="Matvec-on-Views-1"></a><a class="docs-heading-anchor-permalink" href="#Matvec-on-Views" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 100, 200)
+x = CUDA.rand(Float32, 200)
+
+# Multiply using only a submatrix and a subvector
+result = KernelForge.matvec(view(A, 10:90, 50:150), view(x, 50:150))
+@assert Array(result) ≈ Array(A)[10:90, 50:150] * Array(x)[50:150]</code></pre><h2 id="Vector-Matrix-Operations"><a class="docs-heading-anchor" href="#Vector-Matrix-Operations">Vector-Matrix Operations</a><a id="Vector-Matrix-Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Vector-Matrix-Operations" title="Permalink"></a></h2><h3 id="Standard-Vector-Matrix-Multiply"><a class="docs-heading-anchor" href="#Standard-Vector-Matrix-Multiply">Standard Vector-Matrix Multiply</a><a id="Standard-Vector-Matrix-Multiply-1"></a><a class="docs-heading-anchor-permalink" href="#Standard-Vector-Matrix-Multiply" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 1000)
+
+# y = x&#39; * A (column-wise weighted sum)
+dst = CUDA.zeros(Float32, 500)
+KernelForge.vecmat!(dst, x, A)
+@assert dst ≈ vec(x&#39; * A)</code></pre><h3 id="Column-wise-Reductions"><a class="docs-heading-anchor" href="#Column-wise-Reductions">Column-wise Reductions</a><a id="Column-wise-Reductions-1"></a><a class="docs-heading-anchor-permalink" href="#Column-wise-Reductions" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 1000, 500)
+
+# Column sums: y[j] = sum(A[:, j])
+dst = CUDA.zeros(Float32, 500)
+KernelForge.vecmat!(dst, nothing, A)
+@assert dst ≈ vec(sum(A; dims=1))</code></pre><h2 id="Search"><a class="docs-heading-anchor" href="#Search">Search</a><a id="Search-1"></a><a class="docs-heading-anchor-permalink" href="#Search" title="Permalink"></a></h2><h3 id="findfirst"><a class="docs-heading-anchor" href="#findfirst">findfirst</a><a id="findfirst-1"></a><a class="docs-heading-anchor-permalink" href="#findfirst" title="Permalink"></a></h3><p>Find the index of the first element satisfying a predicate:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+
+# First element above threshold
+i = KernelForge.findfirst(&gt;(0.999f0), x)
+# i is either an Int index or nothing
+
+# First exact match
+CUDA.@allowscalar x[42] = -1f0
+i = KernelForge.findfirst(==(-1f0), x)
+@assert i == 42</code></pre><h3 id="findlast"><a class="docs-heading-anchor" href="#findlast">findlast</a><a id="findlast-1"></a><a class="docs-heading-anchor-permalink" href="#findlast" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+CUDA.@allowscalar x[99_000] = -1f0
+i = KernelForge.findlast(==(-1f0), x)
+@assert i == 99_000</code></pre><h3 id="findfirst-on-a-2D-array"><a class="docs-heading-anchor" href="#findfirst-on-a-2D-array">findfirst on a 2D array</a><a id="findfirst-on-a-2D-array-1"></a><a class="docs-heading-anchor-permalink" href="#findfirst-on-a-2D-array" title="Permalink"></a></h3><p>For multidimensional arrays, a <code>CartesianIndex</code> is returned:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+A = CUDA.rand(Float32, 100, 200)
+CUDA.@allowscalar A[37, 82] = -1f0
+
+idx = KernelForge.findfirst(==(-1f0), A)
+@assert idx == CartesianIndex(37, 82)</code></pre><h3 id="findfirst-on-custom-structs"><a class="docs-heading-anchor" href="#findfirst-on-custom-structs">findfirst on custom structs</a><a id="findfirst-on-custom-structs-1"></a><a class="docs-heading-anchor-permalink" href="#findfirst-on-custom-structs" title="Permalink"></a></h3><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct Particle
+    mass::Float32
+    charge::Float32
+end
+
+particles = CuArray([Particle(rand(), rand() - 0.5f0) for _ in 1:10_000])
+
+# First negatively charged particle
+i = KernelForge.findfirst(p -&gt; p.charge &lt; 0f0, particles)</code></pre><h2 id="argmax-/-argmin"><a class="docs-heading-anchor" href="#argmax-/-argmin">argmax / argmin</a><a id="argmax-/-argmin-1"></a><a class="docs-heading-anchor-permalink" href="#argmax-/-argmin" title="Permalink"></a></h2><h3 id="Basic-usage"><a class="docs-heading-anchor" href="#Basic-usage">Basic usage</a><a id="Basic-usage-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-usage" title="Permalink"></a></h3><p><code>argmax</code> and <code>argmin</code> return the <strong>index</strong> of the extremal element:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+
+i = KernelForge.argmax(x)   # index of maximum
+j = KernelForge.argmin(x)   # index of minimum
+
+@assert Array(x)[i] == maximum(Array(x))
+@assert Array(x)[j] == minimum(Array(x))</code></pre><h3 id="Custom-relation"><a class="docs-heading-anchor" href="#Custom-relation">Custom relation</a><a id="Custom-relation-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-relation" title="Permalink"></a></h3><p>Pass any binary relation to find the extremum under a custom ordering:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+
+# Equivalent to argmax
+i = KernelForge.argmax(&gt;, x)
+
+# Equivalent to argmin
+j = KernelForge.argmax(&lt;, x)</code></pre><h3 id="argmax-with-custom-structs"><a class="docs-heading-anchor" href="#argmax-with-custom-structs">argmax with custom structs</a><a id="argmax-with-custom-structs-1"></a><a class="docs-heading-anchor-permalink" href="#argmax-with-custom-structs" title="Permalink"></a></h3><p>Use <code>argmax1d</code> directly with a map function <code>f</code> and a relation <code>rel</code> for full control:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct PriorityItem
+    priority::Int32
+    cost::Float32
+end
+
+# &quot;better&quot; means higher priority; ties broken by lower cost
+better(a::PriorityItem, b::PriorityItem) =
+    a.priority &gt; b.priority || (a.priority == b.priority &amp;&amp; a.cost &lt; b.cost)
+
+items = CuArray([PriorityItem(rand(Int32(1):Int32(5)), rand(Float32)) for _ in 1:10_000])
+
+# Index of the best item
+i = KernelForge.argmax(better, items)</code></pre><h3 id="Tie-breaking"><a class="docs-heading-anchor" href="#Tie-breaking">Tie-breaking</a><a id="Tie-breaking-1"></a><a class="docs-heading-anchor-permalink" href="#Tie-breaking" title="Permalink"></a></h3><p>When multiple elements share the extremal value, the <strong>first</strong> index is always returned:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CuArray(Float32[5, 5, 5, 5, 5])
+@assert KernelForge.argmax(x) == 1
+@assert KernelForge.argmin(x) == 1</code></pre><h2 id="Pre-allocating-Temporary-Buffers"><a class="docs-heading-anchor" href="#Pre-allocating-Temporary-Buffers">Pre-allocating Temporary Buffers</a><a id="Pre-allocating-Temporary-Buffers-1"></a><a class="docs-heading-anchor-permalink" href="#Pre-allocating-Temporary-Buffers" title="Permalink"></a></h2><p>For repeated operations, pre-allocate temporary buffers to avoid allocation overhead:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+x = CUDA.rand(Float32, 100_000)
+dst = similar(x)
+
+# Pre-allocate for scan
+tmp = KernelForge.get_allocation(KernelForge.scan!, dst, x)
+
+# Reuse in a loop
+for i in 1:100
+    CUDA.rand!(x)  # new random data
+    KernelForge.scan!(+, dst, x; tmp=tmp)
+end</code></pre><h2 id="Complete-Example:-Online-Statistics"><a class="docs-heading-anchor" href="#Complete-Example:-Online-Statistics">Complete Example: Online Statistics</a><a id="Complete-Example:-Online-Statistics-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Example:-Online-Statistics" title="Permalink"></a></h2><p>Compute running mean and variance in a single pass:</p><pre><code class="language-julia hljs">using KernelForge
+using CUDA
+
+struct RunningStats
+    n::Float32
+    mean::Float32
+    m2::Float32  # sum of squared deviations
+end
+
+# Welford&#39;s online algorithm for combining statistics
+function combine(a::RunningStats, b::RunningStats)
+    n = a.n + b.n
+    delta = b.mean - a.mean
+    mean = a.mean + delta * b.n / n
+    m2 = a.m2 + b.m2 + delta^2 * a.n * b.n / n
+    return RunningStats(n, mean, m2)
+end
+
+# Initialize each element as a single observation
+init(x) = RunningStats(1f0, x, 0f0)
+
+x = CUDA.rand(Float32, 1_000_000)
+dst = CuArray{RunningStats}(undef, length(x))
+
+KernelForge.scan!(init, combine, dst, x)
+
+# Final statistics
+final_stats = Array(dst)[end]
+mean = final_stats.mean
+variance = final_stats.m2 / final_stats.n
+std = sqrt(variance)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../performances/">« Performance</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Thursday 26 February 2026 12:29">Thursday 26 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

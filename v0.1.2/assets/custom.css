@@ -1,0 +1,25 @@
+/* Increase content width */
+.docs-main {
+    max-width: 900px;
+}
+
+/* Or use full width */
+article.content {
+    max-width: 100%;
+    width: 100%;
+}
+
+/* Adjust the main container */
+.documenter-dark .docs-main,
+.docs-main {
+    flex-grow: 1;
+    max-width: 1200px;
+}
+
+/* Center images */
+article img {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 80%;
+}
