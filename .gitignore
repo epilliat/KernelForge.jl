@@ -2,10 +2,11 @@
 **/local
 test/local/
 
+perfs/_barplot_scripts_old/
 **/build
 **/bin
-*.csv
+*.png
 *dev.jl
-/perfs/cuda/figures
+/perfs/figures
 Manifest.toml
 docs/Manifest.toml
