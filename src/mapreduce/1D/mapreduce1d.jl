@@ -1,12 +1,11 @@
+@inline function default_nitem(::AbstractArch, ::Type{MapReduce1D}, ::Type{T}) where {T}
+    cld(16, sizeof(T))
+end
 
-@inline function default_nitem(::Type{MapReduce1D}, ::Type{T}) where {T}
-    if sizeof(T) == 1
-        return 8
-    elseif sizeof(T) == 2
-        return 4
-    else
-        return 1
-    end
+@inline function default_nitem(::RTX1000, ::Type{MapReduce1D}, ::Type{T}) where {T}
+    sizeof(T) == 1 && return 8
+    sizeof(T) == 2 && return 4
+    return 1
 end
 
 
@@ -31,8 +30,9 @@ Applies `f` to each element, reduces with `op`, and optionally applies `g` to th
 - `g=identity`: Post-reduction transformation applied to final result
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 - `to_cpu=true`: If true, return scalar; otherwise return 1-element GPU array
 
 # Examples
@@ -69,8 +69,9 @@ In-place GPU parallel map-reduce, writing result to `dst[1]`.
 - `g=identity`: Post-reduction transformation applied to final result
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -96,7 +97,7 @@ function mapreduce1d! end
 # ============================================================================
 
 """
-    get_allocation(::Type{MapReduce1D}, f, op, src_or_srcs, blocks=DEFAULT_BLOCKS)
+    get_allocation(::Type{MapReduce1D}, f, op, src_or_srcs, workgroup=nothing, blocks=nothing, arch=nothing)
 
 Allocate a `KernelBuffer` for `mapreduce1d!`. Useful for repeated reductions.
 
@@ -104,7 +105,9 @@ Allocate a `KernelBuffer` for `mapreduce1d!`. Useful for repeated reductions.
 - `f`: Map function (used to infer intermediate eltype)
 - `op`: Reduction operator
 - `src_or_srcs`: Input GPU array or NTuple of arrays (used to determine backend and eltype)
-- `blocks`: Number of blocks (must match `blocks` used in `mapreduce1d!`)
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (must match `blocks` used in `mapreduce1d!`; auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Returns
 A `KernelBuffer` with named fields `partial` and `flag` (flags are `UInt8`).
@@ -125,9 +128,11 @@ function get_allocation(
     f::F,
     op::O,
     src::AT,
-    blocks::Integer=DEFAULT_BLOCKS
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {F<:Function,O<:Function,AT<:AbstractArray}
-    return get_allocation(MapReduce1D, f, op, (src,), blocks)
+    return get_allocation(MapReduce1D, f, op, (src,), workgroup, blocks, arch)
 end
 
 function get_allocation(
@@ -135,8 +140,13 @@ function get_allocation(
     f::F,
     op::O,
     srcs::NTuple{U,AT},
-    blocks::Integer=DEFAULT_BLOCKS
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {U,F<:Function,O<:Function,AT<:AbstractArray}
+    arch = something(arch, detect_arch(srcs[1]))
+    workgroup = something(workgroup, default_workgroup(arch))
+    blocks = something(blocks, default_blocks(arch))
     T = eltype(AT)
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     backend = get_backend(srcs[1])
@@ -165,8 +175,9 @@ function mapreduce1d(
     g::G=identity,
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing,
     to_cpu::Bool=true
 ) where {U,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
@@ -174,7 +185,7 @@ function mapreduce1d(
     S = Base.promote_op(g, H)
     backend = get_backend(srcs[1])
     dst = KernelAbstractions.allocate(backend, S, 1)
-    mapreduce1d!(f, op, dst, srcs; g, tmp, Nitem, workgroup, blocks)
+    mapreduce1d!(f, op, dst, srcs; g, tmp, Nitem, workgroup, blocks, arch)
     return to_cpu ? Array(dst)[1] : dst
 end
 
@@ -200,15 +211,19 @@ function mapreduce1d!(
     g::G=identity,
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {U,DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     n = length(srcs[1])
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
-    _Nitem = something(Nitem, default_nitem(MapReduce1D, T))
-    _mapreduce1d_impl!(f, op, g, dst, srcs, _Nitem, workgroup, blocks, tmp, H, n, backend)
+    arch = something(arch, detect_arch(srcs[1]))
+    workgroup = something(workgroup, default_workgroup(arch))
+    Nitem = something(Nitem, default_nitem(arch, MapReduce1D, T))
+    blocks = something(blocks, default_blocks(arch))
+    _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end
 
 # ============================================================================
@@ -228,10 +243,11 @@ function _mapreduce1d_impl!(
     ::Nothing,
     ::Type{H},
     n::Int,
-    backend
+    backend,
+    arch
 ) where {U,DS<:AbstractArray,AT<:AbstractArray,F,O,G,H}
-    tmp = get_allocation(MapReduce1D, f, op, srcs, blocks)
-    _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend)
+    tmp = get_allocation(MapReduce1D, f, op, srcs, workgroup, blocks, arch)
+    _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end
 
 function _mapreduce1d_impl!(
@@ -244,7 +260,8 @@ function _mapreduce1d_impl!(
     tmp::KernelBuffer,
     ::Type{H},
     n::Int,
-    backend
+    backend,
+    arch
 ) where {U,DS<:AbstractArray,AT<:AbstractArray,F,O,G,H}
     flag = tmp.arrays.flag
     fill!(flag, 0x00)

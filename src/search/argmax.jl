@@ -1,4 +1,9 @@
-@inline default_nitem(::Type{Argmax1D}, ::Type{T}) where T = default_nitem(MapReduce1D, T)
+
+# ===========================================================================
+# argmax1d
+# ============================================================================
+
+@inline default_nitem(arch::AbstractArch, ::Type{Argmax1D}, ::Type{T}) where T = default_nitem(arch, MapReduce1D, T)
 
 """
     argmax1d(f, rel, src; kwargs...) -> Int or GPU array
@@ -17,8 +22,9 @@ the index of the first extremal element. Ties are broken by smallest index.
 # Keyword Arguments
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if `nothing`)
-- `workgroup=256`: Workgroup size
-- `blocks=100`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 - `to_cpu=true`: If `true`, return scalar `Int`; otherwise return 1-element GPU array
 
 # Examples
@@ -56,8 +62,9 @@ Ties are broken by smallest index.
 # Keyword Arguments
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if `nothing`)
-- `workgroup=256`: Workgroup size
-- `blocks=100`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -83,8 +90,8 @@ function argmax1d! end
 # ============================================================================
 
 """
-    get_allocation(::Type{Argmax1D}, f, src; blocks=DEFAULT_BLOCKS)
-    get_allocation(::Type{Argmax1D}, f, srcs::NTuple; blocks=DEFAULT_BLOCKS)
+    get_allocation(::Type{Argmax1D}, f, src, blocks=nothing, arch=nothing)
+    get_allocation(::Type{Argmax1D}, f, srcs::NTuple, blocks=nothing, arch=nothing)
 
 Allocate a `KernelBuffer` for `argmax1d!`. Useful for repeated reductions.
 
@@ -94,9 +101,8 @@ tracking both value and index.
 # Arguments
 - `f`: Map function (used to infer intermediate eltype)
 - `src` or `srcs`: Input GPU array(s) (used for backend and element type)
-
-# Keyword Arguments
-- `blocks=DEFAULT_BLOCKS`: Number of blocks (must match `blocks` used in `argmax1d!`)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -112,18 +118,22 @@ end
 function get_allocation(
     ::Type{Argmax1D},
     f::F,
-    src::AT;
-    blocks::Integer=DEFAULT_BLOCKS,
+    src::AT,
+    blocks=nothing,
+    arch=nothing
 ) where {F<:Function,AT<:AbstractArray}
-    return get_allocation(Argmax1D, f, (src,); blocks)
+    return get_allocation(Argmax1D, f, (src,), blocks, arch)
 end
 
 function get_allocation(
     ::Type{Argmax1D},
     f::F,
-    srcs::NTuple{U,AT};
-    blocks::Integer=DEFAULT_BLOCKS,
+    srcs::NTuple{U,AT},
+    blocks=nothing,
+    arch=nothing
 ) where {F<:Function,U,AT<:AbstractArray}
+    arch = something(arch, detect_arch(srcs[1]))
+    blocks = something(blocks, default_blocks(arch))
     T = eltype(AT)
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     backend = get_backend(srcs[1])
@@ -132,8 +142,8 @@ function get_allocation(
     return KernelBuffer((; partial, flag))
 end
 
-get_allocation(::Type{Argmax}, f::F, src_or_srcs; kwargs...) where {F<:Function} =
-    get_allocation(Argmax1D, f, src_or_srcs; kwargs...)
+get_allocation(::Type{Argmax}, f::F, src_or_srcs, blocks=nothing, arch=nothing) where {F<:Function} =
+    get_allocation(Argmax1D, f, src_or_srcs, blocks, arch)
 
 # ============================================================================
 # Allocating API
@@ -145,11 +155,12 @@ function argmax1d(
     src::AT;
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing,
     to_cpu::Bool=true,
 ) where {AT<:AbstractArray,F<:Function,R<:Function,TMP<:Union{KernelBuffer,Nothing}}
-    return argmax1d(f, rel, (src,); tmp, Nitem, workgroup, blocks, to_cpu)
+    return argmax1d(f, rel, (src,); tmp, Nitem, workgroup, blocks, arch, to_cpu)
 end
 
 # Tuple of arrays
@@ -158,16 +169,20 @@ function argmax1d(
     srcs::NTuple{U,AT};
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing,
     to_cpu::Bool=true,
 ) where {U,AT<:AbstractArray,F<:Function,R<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     backend = get_backend(srcs[1])
     dst = KernelAbstractions.allocate(backend, Int, 1)
-    _Nitem = something(Nitem, default_nitem(Argmax1D, T))
-    _argmax1d_impl!(f, rel, dst, srcs, _Nitem, workgroup, blocks, tmp, H, length(srcs[1]), backend)
+    arch = something(arch, detect_arch(srcs[1]))
+    Nitem = something(Nitem, default_nitem(arch, Argmax1D, T))
+    workgroup = something(workgroup, default_workgroup(arch))
+    blocks = something(blocks, default_blocks(arch))
+    _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, length(srcs[1]), backend, arch)
     return to_cpu ? (@allowscalar dst[1]) : dst
 end
 
@@ -180,12 +195,9 @@ function argmax1d!(
     f::F, rel::R,
     dst::DS,
     src::AT;
-    tmp::TMP=nothing,
-    Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
-) where {AT<:AbstractArray,DS<:AbstractArray,F<:Function,R<:Function,TMP<:Union{KernelBuffer,Nothing}}
-    return argmax1d!(f, rel, dst, (src,); tmp, Nitem, workgroup, blocks)
+    kwargs...
+) where {AT<:AbstractArray,DS<:AbstractArray,F<:Function,R<:Function}
+    return argmax1d!(f, rel, dst, (src,); kwargs...)
 end
 
 # Main in-place entry point
@@ -195,15 +207,19 @@ function argmax1d!(
     srcs::NTuple{U,AT};
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS,
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing,
 ) where {U,AT<:AbstractArray,DS<:AbstractArray,F<:Function,R<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     n = length(srcs[1])
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
-    _Nitem = something(Nitem, default_nitem(Argmax1D, T))
-    _argmax1d_impl!(f, rel, dst, srcs, _Nitem, workgroup, blocks, tmp, H, n, backend)
+    arch = something(arch, detect_arch(srcs[1]))
+    Nitem = something(Nitem, default_nitem(arch, Argmax1D, T))
+    workgroup = something(workgroup, default_workgroup(arch))
+    blocks = something(blocks, default_blocks(arch))
+    _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end
 
 # ============================================================================
@@ -222,9 +238,10 @@ function _argmax1d_impl!(
     ::Type{H},
     n::Int,
     backend,
+    arch
 ) where {U,AT<:AbstractArray,DS<:AbstractArray,F,R,H}
-    tmp = get_allocation(Argmax1D, f, srcs; blocks)
-    _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend)
+    tmp = get_allocation(Argmax1D, f, srcs, blocks, arch)
+    _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end
 
 # KernelBuffer dispatch: run the kernel
@@ -239,6 +256,7 @@ function _argmax1d_impl!(
     ::Type{H},
     n::Int,
     backend,
+    arch
 ) where {U,AT<:AbstractArray,DS<:AbstractArray,F,R,H}
     workgroup = min(workgroup, n)
     ndrange = min(blocks * workgroup, max(fld(n, workgroup) * workgroup, 1))

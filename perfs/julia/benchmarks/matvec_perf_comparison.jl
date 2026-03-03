@@ -57,13 +57,19 @@ function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
 end
 
 # Simple profiling example (without warmup here which gives slower results.)
+n = 1000000
+src = CUDA.ones(Float32, n, 1)
+x = CUDA.ones(Float32, 1)
 
-src = CUDA.ones(Float32, 1000, 1000)
-x = CUDA.ones(Float32, 1000)
 
 CUDA.@profile src * x
 CUDA.@profile KernelForge.matvec(*, +, src, x)
+CUDA.@profile KernelForge.matvec(*, +, src, x; Nitem=4, workgroup=128, chunksz=256)
 
+
+@btime CUDA.@sync src * x
+@btime CUDA.@sync KernelForge.matvec(*, +, src, x)
+#%%
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------

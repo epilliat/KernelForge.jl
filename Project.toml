@@ -10,6 +10,12 @@ GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"
 
+[weakdeps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+
+[extensions]
+KernelForgeCUDAExt = "CUDA"
+
 [compat]
 ArgCheck = "2.5.0"
 Atomix = "1.1.2"

@@ -63,7 +63,7 @@ CUDA.@profile CUDA.mapreduce(identity, +, src)
 CUDA.@profile AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
 CUDA.@profile KernelForge.mapreduce(identity, +, src)
 
-
+@code_warntype KernelForge.mapreduce(identity, +, src)
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------

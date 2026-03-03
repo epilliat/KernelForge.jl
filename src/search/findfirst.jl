@@ -1,4 +1,4 @@
-@inline default_nitem(::Type{FindFirst1D}, ::Type{T}) where T = default_nitem(MapReduce1D, T)
+@inline default_nitem(arch::AbstractArch, ::Type{FindFirst1D}, ::Type{T}) where T = default_nitem(arch, MapReduce1D, T)
 
 """
     findfirst(filtr, src; kwargs...) -> Int or CartesianIndex or nothing
@@ -13,13 +13,15 @@ For multidimensional arrays, returns a `CartesianIndex`.
 
 # Keyword Arguments
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
 x = adapt(backend, rand(Float32, 10_000))
 findfirst(>(0.99f0), x)       # returns a linear index or nothing
+
 A = adapt(backend, rand(Float32, 100, 100))
 findfirst(>(0.99f0), A)       # returns a CartesianIndex or nothing
 ```
@@ -30,19 +32,23 @@ function findfirst(
     filtr::F,
     src::AbstractArray{T};
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {F,T}
+    arch = something(arch, detect_arch(src))::AbstractArch
+    Nitem = something(Nitem, default_nitem(arch, FindFirst1D, T))
+    workgroup = something(workgroup, default_workgroup(arch))
+    blocks = something(blocks, default_blocks(arch))
     n = length(src)
     backend = get_backend(src)
-    _Nitem = something(Nitem, default_nitem(FindFirst1D, T))
     ndrange = blocks * workgroup
-    nd = min(ndrange, cld(n, _Nitem))
+    nd = min(ndrange, cld(n, Nitem))
     gs = max(32, min(workgroup, nd))
     gs = cld(gs, 32) * 32
     dst = KernelAbstractions.allocate(backend, Int, 1)
     fill!(dst, n + 1)
-    findfirst_kernel!(backend, gs, nd)(dst, src, filtr, Val(_Nitem))
+    findfirst_kernel!(backend, gs, nd)(dst, src, filtr, Val(Nitem))
     result = Array(dst)[1]
     result > n && return nothing
     if ndims(src) != 1
@@ -66,13 +72,15 @@ For multidimensional arrays, returns a `CartesianIndex`.
 
 # Keyword Arguments
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
-- `blocks=$(DEFAULT_BLOCKS)`: Number of blocks
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
 x = adapt(backend, rand(Float32, 10_000))
 findlast(>(0.99f0), x)        # returns a linear index or nothing
+
 A = adapt(backend, rand(Float32, 100, 100))
 findlast(>(0.99f0), A)        # returns a CartesianIndex or nothing
 ```
@@ -83,12 +91,13 @@ function findlast(
     filtr::F,
     src::AbstractArray{T};
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP,
-    blocks::Int=DEFAULT_BLOCKS
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {F,T}
     n = length(src)
     rev = @view src[end:-1:1]
-    result = findfirst(filtr, rev; Nitem, workgroup, blocks)
+    result = findfirst(filtr, rev; Nitem, workgroup, blocks, arch)
     result === nothing && return nothing
     if ndims(src) != 1
         linear_idx = n + 1 - LinearIndices(src)[result]

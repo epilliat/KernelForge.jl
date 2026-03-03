@@ -1,20 +1,20 @@
 module KernelForgeCUDAExt
 
 using KernelForge
-import KernelAbstractions as KA
+using KernelAbstractions
 using CUDA
 
-import KernelForge: asyncfill!
 
+import KernelForge: detect_arch
+import KernelIntrinsics: list_devices
 
-function asyncfill!(arr::CuArray{UInt8}, val::UInt8)
-    CUDA.memset(pointer(arr), val, length(arr))
+function __init__()
+    if CUDA.functional()
+        for dev in list_devices(CUDABackend())
+            detect_arch(Val(dev))
+        end
+    end
 end
 
 
-
-
-
-
-
-end #end module
+end # module KernelForgeCUDAExt

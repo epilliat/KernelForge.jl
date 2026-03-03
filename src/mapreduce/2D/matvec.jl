@@ -31,6 +31,9 @@ The in-place version `matvec!` writes to `dst`.
 - `blocks_row=nothing`: Number of blocks used to process a single row; relevant only
   for wide matrices (many columns, few rows) where parallelizing across columns is
   beneficial. Auto-tuned if `nothing`.
+- `Nitem=nothing`: Number of rows loaded per thread via vectorised loads. Defaults to 1.
+  When `Nitem > 1`, `Nblocks` must be 1 and `chunksz` is set to `workgroup`.
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -67,7 +70,7 @@ function matvec end, function matvec! end
 # ============================================================================
 
 """
-    get_allocation(::Type{MatVec}, f, op, src, x[, Nblocks]) -> KernelBuffer
+    get_allocation(::Type{MatVec}, f, op, src, x, Nblocks=nothing, arch=nothing) -> KernelBuffer
 
 Allocate a `KernelBuffer` for `matvec!`. Useful for repeated calls.
 
@@ -76,7 +79,8 @@ Allocate a `KernelBuffer` for `matvec!`. Useful for repeated calls.
 - `op`: Reduction operator
 - `src`: Input GPU matrix (used to determine backend and eltype)
 - `x`: Input vector or `nothing`
-- `Nblocks`: Number of blocks (auto-computed if omitted)
+- `Nblocks=nothing`: Number of blocks (auto-computed if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Returns
 A `KernelBuffer` with named fields `partial` and `flag`.
@@ -114,56 +118,55 @@ function get_allocation(
     f::F,
     op::O,
     src::AbstractMatrix{T},
-    x::Union{AbstractArray,Nothing}
+    x::Union{AbstractArray,Nothing},
+    Nblocks=nothing,
+    arch=nothing
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
-    chunksz, Nblocks, _, _ = _resolve_parameters(MatVec, nothing, nothing, nothing, nothing, n, p)
-    return get_allocation(MatVec, f, op, src, x, Nblocks)
+    arch = something(arch, detect_arch(src))
+    _, Nblocks_resolved, _, _, _ = resolve_parameters(arch, MatVec, n, p, nothing, Nblocks)
+    return get_allocation(MatVec, f, op, src, x, Nblocks_resolved)
 end
 
 # ============================================================================
 # Parameter resolution
 # ============================================================================
 
-function _resolve_parameters(
+function resolve_parameters(
+    arch::AbstractArch,
     ::Type{MatVec},
-    chunksz::Union{Int,Nothing},
-    Nblocks::Union{Int,Nothing},
-    workgroup::Union{Int,Nothing},
-    blocks_row::Union{Int,Nothing},
     n::Int,
-    p::Int
+    p::Int,
+    chunksz=nothing,
+    Nblocks=nothing,
+    workgroup=nothing,
+    blocks_row=nothing,
+    Nitem=nothing
 )
-    if isnothing(blocks_row)
-        blocks_row = DEFAULT_BLOCKS
-    end
-    if isnothing(chunksz) && isnothing(Nblocks)
-        chunksz = min(cld(nextpow(2, n), 8), 64)
-        Nblocks = prevpow(2, cld(blocks_row, cld(n, chunksz)))
-    end
-    if isnothing(workgroup)
-        workgroup = DEFAULT_WORKGROUP
-        if Nblocks == 1
-            workgroup = 128
-        end
+    blocks_row = something(blocks_row, default_blocks(arch))
+    chunksz = something(chunksz, min(cld(nextpow(2, n), 8), 64))
+    Nblocks = something(Nblocks, prevpow(2, cld(blocks_row, cld(n, chunksz))))
+    workgroup = something(workgroup, Nblocks == 1 ? 128 : default_workgroup(arch))
+    Nitem = something(Nitem, 1)
+
+    workgroup = max(min(workgroup, prevpow(2, n * p)), warpsz)
+    Nitem = min(Nitem, prevpow(2, max(fld(n, workgroup), 1)))
+    if Nitem > 1
+        @assert Nitem * workgroup <= n
+        return workgroup, 1, workgroup, blocks_row, Nitem
     end
 
-    workgroup = max(
-        min(workgroup, prevpow(2, n * p)),
-        warpsz
-    )
-    Nblocks = min(Nblocks, prevpow(2, max(fld(p * chunksz, workgroup), 1)))
-    chunksz = max(chunksz, nextpow(2, cld(workgroup * Nblocks, p)))
-    chunksz = max(chunksz, nextpow(2, cld(workgroup * Nblocks, p)))
-    chunksz = min(chunksz, workgroup)
+    Nblocks = min(Nblocks, prevpow(2, max(fld(p, cld(workgroup, chunksz)), 1)))
+    chunksz = min(max(chunksz, nextpow(2, cld(workgroup * Nblocks, p))), workgroup)
+
     if workgroup == warpsz
         chunksz = workgroup
     end
 
-    @assert !isnothing(chunksz) && !isnothing(Nblocks) "Must provide both chunksz and Nblocks, or neither"
+
     @assert cld(workgroup, chunksz) * Nblocks <= p
     @assert ispow2(Nblocks) || chunksz * Nblocks >= workgroup || chunksz * Nblocks <= warpsz
-    return chunksz, Nblocks, workgroup, blocks_row
+    return chunksz, Nblocks, workgroup, blocks_row, Nitem
 end
 
 # ============================================================================
@@ -181,14 +184,16 @@ function matvec(
     chunksz=nothing,
     Nblocks=nothing,
     workgroup=nothing,
-    blocks_row=nothing
+    blocks_row=nothing,
+    Nitem=nothing,
+    arch=nothing
 ) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     n = size(src, 1)
     dst = KernelAbstractions.allocate(backend, S, n)
-    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
+    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, Nitem, tmp, arch)
     return dst
 end
 
@@ -202,14 +207,16 @@ function matvec(
     chunksz=nothing,
     Nblocks=nothing,
     workgroup=nothing,
-    blocks_row=nothing
+    blocks_row=nothing,
+    Nitem=nothing,
+    arch=nothing
 ) where {T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     n = size(src, 1)
     dst = KernelAbstractions.allocate(backend, S, n)
-    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
+    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, Nitem, tmp, arch)
     return dst
 end
 
@@ -225,9 +232,11 @@ function matvec!(
     chunksz=nothing,
     Nblocks=nothing,
     workgroup=nothing,
-    blocks_row=nothing
+    blocks_row=nothing,
+    Nitem=nothing,
+    arch=nothing
 ) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
-    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
+    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, Nitem, tmp, arch)
 end
 
 # Full interface with f and op - in-place version
@@ -241,9 +250,11 @@ function matvec!(
     chunksz=nothing,
     Nblocks=nothing,
     workgroup=nothing,
-    blocks_row=nothing
+    blocks_row=nothing,
+    Nitem=nothing,
+    arch=nothing
 ) where {S,T,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
-    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, tmp)
+    _matvec_entry!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, blocks_row, Nitem, tmp, arch)
 end
 
 # ============================================================================
@@ -259,7 +270,9 @@ function _matvec_entry!(
     Nblocks::Union{Int,Nothing},
     workgroup::Union{Int,Nothing},
     blocks_row::Union{Int,Nothing},
-    tmp::Union{KernelBuffer,Nothing}
+    Nitem::Union{Int,Nothing},
+    tmp::Union{KernelBuffer,Nothing},
+    arch
 ) where {S,T,F,O,G}
     n, p = size(src)
     if !isnothing(x)
@@ -269,11 +282,12 @@ function _matvec_entry!(
 
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
-    chunksz_, Nblocks_, workgroup_, _ = _resolve_parameters(
-        MatVec, chunksz, Nblocks, workgroup, blocks_row, n, p
+    arch = something(arch, detect_arch(src))::AbstractArch
+    chunksz_, Nblocks_, workgroup_, _, Nitem_ = resolve_parameters(
+        arch, MatVec, n, p, chunksz, Nblocks, workgroup, blocks_row, Nitem
     )
 
-    _matvec_impl!(f, op, g, dst, src, x, chunksz_, Nblocks_, workgroup_, tmp, H, n, p)
+    _matvec_impl!(f, op, g, dst, src, x, chunksz_, Nblocks_, workgroup_, Nitem_, tmp, H, n, p, arch)
 end
 
 # ============================================================================
@@ -289,15 +303,17 @@ function _matvec_impl!(
     chunksz::Int,
     Nblocks::Int,
     workgroup::Int,
+    Nitem::Int,
     ::Nothing,
     ::Type{H},
     n::Int,
-    p::Int
+    p::Int,
+    arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nblocks == 1
-        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, H)
+        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H)
     else
-        tmp = get_allocation(MatVec, f, op, src, x, Nblocks)
+        tmp = get_allocation(MatVec, f, op, src, x, Nblocks, arch)
         _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H)
     end
 end
@@ -311,19 +327,21 @@ function _matvec_impl!(
     chunksz::Int,
     Nblocks::Int,
     workgroup::Int,
+    Nitem::Int,
     tmp::KernelBuffer,
     ::Type{H},
     n::Int,
-    p::Int
+    p::Int,
+    arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nblocks == 1
-        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, H)
+        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H)
     else
         _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H)
     end
 end
 
-# Single-block case (no synchronization needed)
+# Single-block case: dispatch to scalar or vectorised kernel
 function _matvec_impl_single!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
@@ -331,14 +349,23 @@ function _matvec_impl_single!(
     x::Union{AbstractArray,Nothing},
     chunksz::Int,
     workgroup::Int,
+    Nitem::Int,
     ::Type{H}
 ) where {S,T,F,O,G,H}
     n, p = size(src)
     backend = get_backend(src)
-    ndrange = cld(n, chunksz) * workgroup
-    matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(1), nothing, nothing, H
-    )
+    if Nitem == 1
+        ndrange = cld(n, chunksz) * workgroup
+        matvec_kernel!(backend, workgroup, ndrange)(
+            f, op, g, dst, src, x, Val(chunksz), Val(1), nothing, nothing, H
+        )
+    else
+        ndrange = cld(n, Nitem)
+        @show ndrange, workgroup
+        matvec_vload_kernel!(backend, workgroup, ndrange)(
+            f, op, g, dst, src, x, Val(Nitem), H
+        )
+    end
 end
 
 # Multi-block case (with synchronization)

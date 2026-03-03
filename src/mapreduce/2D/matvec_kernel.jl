@@ -9,7 +9,6 @@
     ::Type{H}
 ) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks}
     n, p = size(src)
-    I = @index(Global)
     workgroup = @groupsize()[1]
     Nchunks = cld(workgroup, chunksz)
 
@@ -175,4 +174,61 @@
         end
     end
     Base.@label done
+end
+
+@kernel unsafe_indices = true inbounds = true function matvec_vload_kernel!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    src::AbstractMatrix{T},
+    x,
+    ::Val{Nitem},
+    ::Type{H}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem}
+    n, p = size(src)
+    workgroup = Int(@groupsize()[1])
+    lid = Int(@index(Local, Linear))
+    gid = Int(@index(Group, Linear))
+    I = (gid - 1) * workgroup + lid
+    row_base = (I - 1) * Nitem + 1
+
+    col_base_idx = row_base
+    x_idx = 1
+
+    # col = 1
+    if col_base_idx + Nitem - 1 <= n * p
+        vals = vload(src, col_base_idx, Val(Nitem), Val(false))
+    else
+        vals = ntuple(i -> src[n*p], Val(Nitem))
+    end
+    vals = isnothing(x) ? f.(vals) : f.(vals, x[x_idx])
+
+    col_base_idx += n
+    x_idx += 1
+
+    # full columns
+    while col_base_idx + Nitem - 1 <= n * p
+        new_vals = vload(src, col_base_idx, Val(Nitem), Val(false))
+        new_vals = isnothing(x) ? f.(new_vals) : f.(new_vals, x[x_idx])
+        vals = op.(vals, new_vals)
+        col_base_idx += n
+        x_idx += 1
+    end
+
+    # last partial column
+    if col_base_idx <= n * p
+        clamped = n * p
+        new_vals = ntuple(i -> src[clamped], Val(Nitem))
+        new_vals = isnothing(x) ? f.(new_vals) : f.(new_vals, x[x_idx])
+        vals = op.(vals, new_vals)
+    end
+
+    # write output
+    if row_base + Nitem - 1 <= n
+        vstore!(dst, row_base, g.(vals), Val(false))
+    else
+        for i in 1:Nitem
+            row = row_base + i - 1
+            row <= n && (dst[row] = g(vals[i]))
+        end
+    end
 end

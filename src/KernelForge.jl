@@ -1,6 +1,8 @@
 module KernelForge
 
 using KernelIntrinsics
+import KernelIntrinsics as KI
+
 using KernelAbstractions
 using KernelAbstractions: adapt
 using GPUArraysCore
@@ -11,6 +13,7 @@ using ArgCheck
 const BitwiseTypes = Union{UInt8,UInt16,UInt32,UInt64,Int8,Int16,Int32,Int64,Float16,Float32,Float64}
 
 
+include("architectures.jl")
 include("helpers.jl")
 include("algorithms.jl")
 include("allocations.jl")

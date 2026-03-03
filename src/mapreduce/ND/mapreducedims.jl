@@ -14,7 +14,8 @@ applies `g` to each final element.
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to each result element
-- `workgroup=256`: Workgroup size
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -48,7 +49,8 @@ In-place GPU parallel map-reduce over specified dimensions, writing result to `d
 
 # Keyword Arguments
 - `g=identity`: Post-reduction transformation applied to each result element
-- `workgroup=256`: Workgroup size
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -117,8 +119,12 @@ function mapreducedims(
     src::AbstractArray{T},
     dims;
     g::G=identity,
-    workgroup::Int=DEFAULT_WORKGROUP
+    workgroup=nothing,
+    arch=nothing
 ) where {T,F<:Function,O<:Function,G<:Function}
+    arch = something(arch, detect_arch(src))::AbstractArch
+    workgroup = something(workgroup, default_workgroup(arch))
+
     nd = ndims(src)
     reduce_dims = _normalize_dims(dims, nd)
 
@@ -143,8 +149,12 @@ function mapreducedims!(
     src::AbstractArray{T},
     dims;
     g::G=identity,
-    workgroup::Int=DEFAULT_WORKGROUP
+    workgroup=nothing,
+    arch=nothing
 ) where {S,T,F<:Function,O<:Function,G<:Function}
+    arch = something(arch, detect_arch(src))::AbstractArch
+    workgroup = something(workgroup, default_workgroup(arch))
+
     nd = ndims(src)
     reduce_dims = _normalize_dims(dims, nd)
     backend = get_backend(src)

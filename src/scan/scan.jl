@@ -1,16 +1,20 @@
-@inline function default_nitem(::Type{Scan1D}, ::Type{T}) where {T}
+@inline function default_nitem(::AbstractArch, ::Type{Scan1D}, ::Type{T}) where {T}
+    return cld(16, sizeof(T))
+end
+
+@inline function default_nitem(::Ampere, ::Type{Scan1D}, ::Type{T}) where {T}
+    return min(16, cld(64, sizeof(T)))
+end
+
+@inline function default_nitem(::Ada, ::Type{Scan1D}, ::Type{T}) where {T}
     sz = sizeof(T)
-    if sz == 1
-        return 16
-    elseif sz == 2
-        return 16
-    elseif sz == 4
-        return 8
-    elseif sz == 8
-        return 8
-    else
-        return 4
-    end
+    sz == 1 && return 16
+    sz == 2 && return 16
+    sz == 4 && return 8
+    sz == 8 && return 8
+    sz == 16 && return 4
+    sz == 32 && return 4
+    return 1
 end
 
 # ============================================================================
@@ -35,7 +39,8 @@ optionally applies `g` to each output element.
 - `g=identity`: Post-scan transformation applied to each output element
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -77,7 +82,8 @@ optionally applies `g` to each output element, writing results to `dst`.
 - `g=identity`: Post-scan transformation applied to each output element
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
-- `workgroup=$(DEFAULT_WORKGROUP)`: Workgroup size
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
 ```julia
@@ -103,7 +109,7 @@ function scan! end
 # ============================================================================
 
 """
-    get_allocation(::Type{Scan1D}, f, op, src[, blocks])
+    get_allocation(::Type{Scan1D}, f, op, src, workgroup=nothing, blocks=nothing, arch=nothing)
 
 Allocate a `KernelBuffer` for `scan!`. Useful for repeated scans.
 
@@ -111,7 +117,9 @@ Allocate a `KernelBuffer` for `scan!`. Useful for repeated scans.
 - `f`: Map function (used to infer intermediate eltype)
 - `op`: Reduction operator
 - `src`: Input GPU array (used to determine backend and eltype)
-- `blocks`: Number of blocks (auto-computed using default `Nitem` and `DEFAULT_WORKGROUP` if omitted)
+- `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `blocks=nothing`: Number of blocks (must match `blocks` used in `scan!`; auto-computed if nothing)
+- `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Returns
 A `KernelBuffer` with named fields `partial1`, `partial2`, and `flag` (flags are `UInt8`).
@@ -147,14 +155,19 @@ function get_allocation(
     ::Type{Scan1D},
     f::F,
     op::O,
-    src::AT
+    src::AT,
+    workgroup=nothing,
+    blocks=nothing,
+    arch=nothing
 ) where {F<:Function,O<:Function,AT<:AbstractArray}
     T = eltype(AT)
     H = Base.promote_op(f, T)
-    Nitem = default_nitem(Scan1D, H)
+    arch = something(arch, detect_arch(src))
+    Nitem = default_nitem(arch, Scan1D, H)
+    workgroup = something(workgroup, default_workgroup(arch))
     n = length(src)
     ndrange = cld(n, Nitem)
-    blocks = cld(ndrange, DEFAULT_WORKGROUP)
+    blocks = something(blocks, cld(ndrange, workgroup))
     return get_allocation(Scan1D, f, op, src, blocks)
 end
 
@@ -178,14 +191,15 @@ function scan(
     g::G=identity,
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP
+    workgroup=nothing,
+    arch=nothing
 ) where {AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     H = Base.promote_op(f, T)
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     dst = KernelAbstractions.allocate(backend, S, length(src))
-    scan!(f, op, dst, src; g, tmp, Nitem, workgroup)
+    scan!(f, op, dst, src; g, tmp, Nitem, workgroup, arch)
     return dst
 end
 
@@ -211,17 +225,20 @@ function scan!(
     g::G=identity,
     tmp::TMP=nothing,
     Nitem=nothing,
-    workgroup::Int=DEFAULT_WORKGROUP
+    workgroup=nothing,
+    arch=nothing
 ) where {DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     n = length(src)
     n == 0 && return dst
     T = eltype(AT)
     H = Base.promote_op(f, T)
     backend = get_backend(src)
-    Nitem_int = Nitem === nothing ? default_nitem(Scan1D, H) : Int(Nitem)
-    ndrange = cld(n, Nitem_int)
+    arch = something(arch, detect_arch(src))
+    Nitem = something(Nitem, default_nitem(arch, Scan1D, H))
+    workgroup = something(workgroup, default_workgroup(arch))
+    ndrange = cld(n, Nitem)
     blocks = cld(ndrange, workgroup)
-    _scan_impl!(f, op, g, dst, src, Nitem_int, workgroup, ndrange, blocks, tmp, n, backend)
+    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend, arch)
 end
 
 # ============================================================================
@@ -239,10 +256,11 @@ function _scan_impl!(
     blocks::Int,
     ::Nothing,
     n::Int,
-    backend
+    backend,
+    arch
 ) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
-    tmp = get_allocation(Scan1D, f, op, src, blocks)
-    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend)
+    tmp = get_allocation(Scan1D, f, op, src, workgroup, blocks, arch)
+    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend, arch)
 end
 
 # KernelBuffer dispatch: run the kernel
@@ -256,7 +274,8 @@ function _scan_impl!(
     blocks::Int,
     tmp::KernelBuffer,
     n::Int,
-    backend
+    backend,
+    arch
 ) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
     fill!(tmp.arrays.flag, 0x00)
     T = eltype(AT)

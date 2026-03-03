@@ -1,5 +1,7 @@
-const DEFAULT_WORKGROUP = 256
-const DEFAULT_BLOCKS = 100
+default_workgroup(::AbstractArch) = 256
+
+default_blocks(::AbstractArch) = 100
+
 const warpsz = 32 # TODO: This might change from one architecture to another
 
 
