@@ -1,5 +1,5 @@
 #KF.detect_arch(Val(device()))
-
+include("helpers.jl")
 @testset "mapreduce" begin
     include("mapreduce/mapreduce1d_test.jl")
     include("mapreduce/mapreduce2d_test.jl")

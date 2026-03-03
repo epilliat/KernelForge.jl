@@ -99,7 +99,6 @@ end
 function detect_arch(::Val{dev}) where dev
     tag = arch_tag(dev)
     T = getproperty(KernelForge, tag)
-    println("reloading")
     @eval detect_arch(::Val{$dev}) = $T()
     return Base.invokelatest(detect_arch, Val(dev))
 end
