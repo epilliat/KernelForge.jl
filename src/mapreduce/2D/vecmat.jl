@@ -62,7 +62,13 @@ end
 
 @inline function default_nitem(::A40, ::Type{VecMat}, src::AbstractArray{T}) where {T} #A40
     n, p = size(src)
-    n * p * sizeof(T) >= 4 * 10^8 ? 2 : prevpow(2, cld(16, cld(sizeof(T), 2)))
+    if n * p * sizeof(T) >= 4 * 10^8 && p * sizeof(T) >= 4 * 1000
+        return prevpow(2, cld(4, cld(sizeof(T), 2)))
+    elseif p * sizeof(T) <= 4 * 100
+        return min(16, prevpow(2, cld(64, sizeof(T))))
+    else
+        return prevpow(2, cld(16, cld(sizeof(T), 2)))
+    end
 end
 
 @inline function default_nitem(::RTX1000, ::Type{VecMat}, src::AbstractArray{T}) where {T}
@@ -164,13 +170,11 @@ function resolve_parameters(
 
 
     if isnothing(Nthreads)
-        @show param1_vecmat(arch)
         thresh = prevpow(2, max(fld(n, param1_vecmat(arch)), 1))
         if thresh >= workgroup # n large (tall matrix, reduction regime)
             Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, param2_vecmat(arch))), 1))
             Nthreads = workgroup * Nblocks
         else # n small (large matrix, copy regime)
-            @show thresh
             Nthreads = cld(thresh, cld(Nitem, param2_vecmat(arch)))
         end
     end
@@ -293,7 +297,7 @@ function _vecmat_entry!(
     Nthreads, Nitem, workgroup = resolve_parameters(
         arch, VecMat, src, Nthreads, Nitem, workgroup, blocks
     )
-    @show Nthreads, Nitem, workgroup
+    #@show Nthreads, Nitem, workgroup
 
     _vecmat_impl!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H, n, p, arch)
 end

@@ -63,20 +63,22 @@ CUDA.@profile x' * src
 CUDA.@profile KernelForge.vecmat(*, +, x, src)
 
 
-n = 1000
-p = 100000
+n = 10
+p = 100000000
 x = CUDA.ones(Float32, n)
 src = CUDA.ones(Float32, n, p)
 
 CUDA.@profile x' * src
 CUDA.@profile KernelForge.vecmat(*, +, x, src)
 
-isapprox(KernelForge.vecmat(*, +, x, src; Nthreads=32), transpose(x' * src))
+#isapprox(KernelForge.vecmat(*, +, x, src), transpose(x' * src))
+
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
 
-total_elements = [10^6, 10^7]
+total_elements = [10^6, 10^7, 10^8]#[10^9]
+total_elements = [10^9]
 types = [Float32]
 
 # ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ types = [Float32]
 all_rows = NamedTuple[]
 
 for total in total_elements, T in types
-    n_values = [10^k for k in 1:floor(Int, log10(total / 10))]
+    n_values = [10^k for k in 1:floor(Int, log10(total))]
     for n in n_values
         p = total ÷ n
         append!(all_rows, run_vecmat_benchmarks(n, p, T))
