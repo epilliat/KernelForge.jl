@@ -1,5 +1,5 @@
 @inline function default_nitem(::AbstractArch, ::Type{MapReduce1D}, ::Type{T}) where {T}
-    cld(16, sizeof(T))
+    prevpow(2, cld(16, sizeof(T)))
 end
 
 @inline function default_nitem(::RTX1000, ::Type{MapReduce1D}, ::Type{T}) where {T}
@@ -7,6 +7,10 @@ end
     sizeof(T) == 2 && return 4
     return 1
 end
+@inline function default_nitem(::A40, ::Type{MapReduce1D}, ::Type{T}) where {T}
+    return prevpow(2, cld(16, cld(sizeof(T), 2)))
+end
+
 
 
 # ============================================================================

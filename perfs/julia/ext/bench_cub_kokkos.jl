@@ -32,4 +32,4 @@ function run_kokkos_scan_benchmark(exe::String;
 end
 
 kokkos_exe::String = "$(@__DIR__)/../../cuda_cpp/kokkos/build/bench_kokkos_scan"
-run_kokkos_scan_benchmark(kokkos_exe, dtype=Float64)
+run_kokkos_scan_benchmark(kokkos_exe, dtype=Float64, N=10^9)

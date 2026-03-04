@@ -116,7 +116,10 @@
         end
         if Nthreads <= workgroup && lane == nwarps_per_chunk
             dst[chid] = g(val_acc)
-        elseif lane == cld(workgroup, warpsz)
+        end
+    end
+    if Nthreads > workgroup
+        if local_wid == 1 && lane == cld(workgroup, warpsz)
             idx = (chid - 1) * Nblocks + local_gid
             partial[idx] = val_acc
             @access flag[idx] = 0x01

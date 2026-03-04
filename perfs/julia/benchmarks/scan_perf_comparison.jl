@@ -18,12 +18,7 @@ include("../architectures.jl")
 
 const DEFAULT_CUB_EXE = joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_scan_benchmark")
 
-# ---------------------------------------------------------------------------
-# Configuration — edit these to control what gets benchmarked
-# ---------------------------------------------------------------------------
 
-sizes = [1_000_000, 100_000_000]
-types = [Float32, Float64]# UInt8, QuaternionF64
 
 # ---------------------------------------------------------------------------
 # Benchmark runner — returns a vector of NamedTuples
@@ -61,15 +56,21 @@ function run_scan_benchmarks(src::CuArray{T}, dst::CuArray{T}, label_T::String, 
 end
 
 # Simple profiling example (without warmup here which gives slower results)
-
-src = CuArray{Float32}(1:1000000)
-dst = CUDA.zeros(Float32, 1000000)
+n = 10^8
+dst = CUDA.zeros(Float32, n)
+src = CuArray{Float32}(1:n)
 
 CUDA.@profile accumulate!(+, dst, src)
 CUDA.@profile AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0)
-CUDA.@profile KernelForge.scan!(identity, +, dst, src)
+CUDA.@profile KernelForge.scan!(identity, +, dst, src; Nitem=16)
 
 
+# ---------------------------------------------------------------------------
+# Configuration — edit these to control what gets benchmarked
+# ---------------------------------------------------------------------------
+
+sizes = [10^6, 10^7, 10^8, 10^9]
+types = [Float32, Float64]# UInt8, QuaternionF64
 
 # ---------------------------------------------------------------------------
 # Collect all results

@@ -57,21 +57,28 @@ end
 
 # Simple profiling example (without warmup here which gives slower results)
 
-src = CuArray{Float32}(1:1000000)
+n = 100_000_000
+src = CUDA.rand(Float32, 100000000)
+src = CuArray([rand(UInt8) for _ in 1:n])
 
 CUDA.@profile CUDA.mapreduce(identity, +, src)
 CUDA.@profile AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
 CUDA.@profile KernelForge.mapreduce(identity, +, src)
+KernelForge.mapreduce(identity, +, src)
 
-@code_warntype KernelForge.mapreduce(identity, +, src)
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------
 
-sizes = [1_000_000, 100_000_000]
+sizes = [10^6, 10^7, 10^8, 10^9]
 types = [Float32, UnitFloat8]
 
 all_rows = NamedTuple[]
+
+src = CuArray([rand(UnitFloat8) for _ in 1:100000000])
+u(x) = Float32(x)::Float32
+CUDA.@profile KernelForge.mapreduce(identity, +, src; Nitem=16)
+CUDA.@profile mapreduce(u, +, src)
 
 for n in sizes, T in types
   if T === UnitFloat8

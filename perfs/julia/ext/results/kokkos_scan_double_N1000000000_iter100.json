@@ -1,0 +1,24 @@
+[
+    {
+        "operation": "inclusive_scan",
+        "dtype": "float64",
+        "N": 1000000000,
+        "element_size": 8,
+        "memory_mb": 7629.394531,
+        "temp_storage_kb": 0,
+        "warmup_iterations": 7,
+        "benchmark_iterations": 100,
+        "mean_ms": 73.445105,
+        "std_ms": 0.016836,
+        "min_ms": 73.327332,
+        "max_ms": 73.523491,
+        "coeff_var_percent": 0.022923,
+        "throughput_gb_s": 217.84978,
+        "elements_per_sec_billion": 13.615611,
+        "gpu_name": "NVIDIA A40",
+        "compute_major": 8,
+        "compute_minor": 6,
+        "peak_bandwidth_gb_s": 696.096,
+        "verified": true
+    }
+]

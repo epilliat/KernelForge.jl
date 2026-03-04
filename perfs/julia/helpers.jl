@@ -4,8 +4,8 @@ Benchmark Helper Utilities
 Shared functions for KernelForge GPU benchmarking scripts.
 All benchmark scripts (copy, mapreduce, scan, matvec, vecmat) include this file.
 =#
-
 using KernelForge
+import KernelForge as KF
 using KernelForge: UnitFloat8
 using CUDA
 using KernelAbstractions

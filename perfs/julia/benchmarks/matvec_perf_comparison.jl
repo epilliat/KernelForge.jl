@@ -57,18 +57,25 @@ function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
 end
 
 # Simple profiling example (without warmup here which gives slower results.)
-n = 1000000
-src = CUDA.ones(Float32, n, 1)
-x = CUDA.ones(Float32, 1)
-
+GC.gc()
+p = 1
+n = 1000000000
+src = CUDA.ones(Float32, n, p)
+x = CUDA.ones(Float32, p)
 
 CUDA.@profile src * x
 CUDA.@profile KernelForge.matvec(*, +, src, x)
-CUDA.@profile KernelForge.matvec(*, +, src, x; Nitem=4, workgroup=128, chunksz=256)
+
+# GC.gc()
+# p = 10
+# n = 10^7
+# src = CUDA.ones(Float32, n, p)
+# x = CUDA.ones(Float32, p)
+
+# CUDA.@profile src * x
+# CUDA.@profile KernelForge.matvec(*, +, src, x)
 
 
-@btime CUDA.@sync src * x
-@btime CUDA.@sync KernelForge.matvec(*, +, src, x)
 #%%
 # ---------------------------------------------------------------------------
 # Collect all results
@@ -76,11 +83,19 @@ CUDA.@profile KernelForge.matvec(*, +, src, x; Nitem=4, workgroup=128, chunksz=2
 
 all_rows = NamedTuple[]
 
+total_elements = [10^6, 10^7, 10^8]
+types = [Float32]
+
+# n ranges from 10 to total÷10, powers of 10
+# recomputed per total in the loop below
+
 for total in total_elements, T in types
-    n_values = [10^k for k in 1:floor(Int, log10(total / 10))]
+    n_values = [10^k for k in 0:round(Int, log10(total))]
     for n in n_values
         p = total ÷ n
         append!(all_rows, run_matvec_benchmarks(n, p, T))
+        GC.gc(true)
+        CUDA.reclaim()
     end
 end
 

@@ -131,6 +131,9 @@ end
 # ============================================================================
 # Parameter resolution
 # ============================================================================
+factor_matvec(::AbstractArch) = 4
+factor_matvec(::Ampere) = 2
+factor_matvec(::RTX1000) = 8
 
 function resolve_parameters(
     arch::AbstractArch,
@@ -144,7 +147,7 @@ function resolve_parameters(
     Nitem=nothing
 )
     blocks_row = something(blocks_row, default_blocks(arch))
-    chunksz = something(chunksz, min(cld(nextpow(2, n), 8), 64))
+    chunksz = something(chunksz, min(cld(nextpow(2, n), factor_matvec(arch)), 64))
     Nblocks = something(Nblocks, prevpow(2, cld(blocks_row, cld(n, chunksz))))
     workgroup = something(workgroup, Nblocks == 1 ? 128 : default_workgroup(arch))
     Nitem = something(Nitem, 1)
@@ -310,6 +313,7 @@ function _matvec_impl!(
     p::Int,
     arch::AbstractArch
 ) where {S,T,F,O,G,H}
+    #@show chunksz, Nblocks, workgroup
     if Nblocks == 1
         _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H)
     else
@@ -361,7 +365,6 @@ function _matvec_impl_single!(
         )
     else
         ndrange = cld(n, Nitem)
-        @show ndrange, workgroup
         matvec_vload_kernel!(backend, workgroup, ndrange)(
             f, op, g, dst, src, x, Val(Nitem), H
         )
@@ -384,6 +387,7 @@ function _matvec_impl_multi!(
     backend = get_backend(src)
     ndrange = cld(n, chunksz) * Nblocks * workgroup
     fill!(tmp.arrays.flag, 0x00)
+
     matvec_kernel!(backend, workgroup, ndrange)(
         f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.arrays.partial, tmp.arrays.flag, H
     )

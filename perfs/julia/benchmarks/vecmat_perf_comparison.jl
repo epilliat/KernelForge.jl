@@ -18,12 +18,6 @@ include("../architectures.jl")
 using DataFrames
 using CSV
 
-# ---------------------------------------------------------------------------
-# Configuration — edit these to control what gets benchmarked
-# ---------------------------------------------------------------------------
-
-total_elements = [10^6, 10^7]
-types = [Float32]
 
 # n ranges from 10 to total÷10, powers of 10
 # e.g. total=10^6 → [10, 100, 1_000, 100_000]
@@ -60,12 +54,30 @@ end
 
 # Simple profiling example (without warmup here which gives slower results.)
 
-src = CUDA.ones(Float32, 1000, 1000)
-x = CUDA.ones(Float32, 1000)
+n = 100
+p = 1000000
+x = CUDA.ones(Float32, n)
+src = CUDA.ones(Float32, n, p)
 
 CUDA.@profile x' * src
 CUDA.@profile KernelForge.vecmat(*, +, x, src)
 
+
+n = 1000
+p = 100000
+x = CUDA.ones(Float32, n)
+src = CUDA.ones(Float32, n, p)
+
+CUDA.@profile x' * src
+CUDA.@profile KernelForge.vecmat(*, +, x, src)
+
+isapprox(KernelForge.vecmat(*, +, x, src; Nthreads=32), transpose(x' * src))
+# ---------------------------------------------------------------------------
+# Configuration — edit these to control what gets benchmarked
+# ---------------------------------------------------------------------------
+
+total_elements = [10^6, 10^7]
+types = [Float32]
 
 # ---------------------------------------------------------------------------
 # Collect all results
