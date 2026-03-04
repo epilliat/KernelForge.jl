@@ -2,7 +2,7 @@
 Copy Scaling Benchmarking Script
 =================================
 Benchmarks copy performance as a function of array size.
-Compares KernelForge v1/v4/v8 against CUDA.copyto!
+Compares KernelForge v1/v4/v8/v16 against CUDA.copyto!
 
 Methodology:
 - Single warmup pass per dtype (outside size loop)
@@ -24,7 +24,7 @@ using CSV
 # Copy scaling plots
 # ---------------------------------------------------------------------------
 
-const COPY_SCALING_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "Forge v8"]
+const COPY_SCALING_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "Forge v8", "Forge v16"]
 const COPY_ELEMENT_SIZES = Dict("Float32" => 4, "UInt8" => 1)
 
 function get_l2_cache_size()
@@ -62,7 +62,7 @@ function plot_copy_scaling(
             d = sort(filter(r -> r.method == method, subset), :n)
             isempty(d) && continue
             c = method_colors[method]
-            lw = endswith(method, "v8") ? 3 : 2
+            lw = endswith(method, "v16") ? 3 : (endswith(method, "v8") ? 3 : 2)
             lines!(ax, d.n, d.mean_kernel_μs; color=c, linewidth=lw, label=method)
             band!(ax, d.n,
                 d.mean_kernel_μs .- d.std_kernel_μs,
@@ -114,7 +114,7 @@ function plot_copy_bandwidth(
             isempty(d) && continue
             bw = (d.n .* elem_size .* 2) ./ (d.mean_kernel_μs .* 1e-6) ./ 1e9
             c = method_colors[method]
-            lw = endswith(method, "v8") ? 3 : 2
+            lw = endswith(method, "v16") ? 3 : (endswith(method, "v8") ? 3 : 2)
             lines!(ax, d.n, bw; color=c, linewidth=lw, label=method)
         end
 
@@ -131,7 +131,7 @@ end
 # Configuration
 # ---------------------------------------------------------------------------
 
-sizes = [Int(i * 1e5) for i in 1:500]   # 100k to 50M
+sizes = unique(round.(Int, 10 .^ range(log10(1_000_000), log10(1000_000_000), length=200)))
 types = [Float32, UInt8]
 trials = 10
 
@@ -151,6 +151,7 @@ function run_copy_benchmarks(sizes::Vector{Int}, types::Vector{DataType}; trials
         warmup(() -> KernelForge.vcopy!(dst, src; Nitem=1))
         warmup(() -> KernelForge.vcopy!(dst, src; Nitem=4))
         warmup(() -> KernelForge.vcopy!(dst, src; Nitem=8))
+        warmup(() -> KernelForge.vcopy!(dst, src; Nitem=16))
 
         for (idx, n) in enumerate(sizes)
             println("[$idx/$(length(sizes))] T=$T, n=$n")
@@ -163,6 +164,7 @@ function run_copy_benchmarks(sizes::Vector{Int}, types::Vector{DataType}; trials
                 ("Forge v1", () -> KernelForge.vcopy!(dst, src; Nitem=1)),
                 ("Forge v4", () -> KernelForge.vcopy!(dst, src; Nitem=4)),
                 ("Forge v8", () -> KernelForge.vcopy!(dst, src; Nitem=8)),
+                ("Forge v16", () -> KernelForge.vcopy!(dst, src; Nitem=16)),
             ]
                 s = bench(method, call; trials, duration=-1, exclude_copy=false)
                 push!(rows, (; n, T=string(T), method,

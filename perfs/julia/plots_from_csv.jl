@@ -14,7 +14,7 @@ using CSV
 # Config
 # ---------------------------------------------------------------------------
 
-const GPU_TAG = "RTX1000"   # adjust or import from architectures.jl
+const GPU_TAG = "A40"   # adjust or import from architectures.jl
 
 const CSV_PATH_MAPREDUCE = "./perfs/julia/results/$GPU_TAG/mapreduce.csv"
 const CSV_PATH_SCAN = "./perfs/julia/results/$GPU_TAG/scan.csv"
