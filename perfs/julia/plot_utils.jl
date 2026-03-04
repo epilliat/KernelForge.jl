@@ -24,11 +24,14 @@ const BENCH_COLORS = Dict(
     "Forge" => colorant"#0072B2",
     "Forge v1" => colorant"#0072B2",
     "Forge v4" => colorant"#E69F00",
+    "Forge v8" => colorant"#D55E00",
+    "Forge v16" => colorant"#F0E442",
     "cuBLAS" => colorant"#56B4E9",
     "CUB" => colorant"#00008B",
 )
 
 const COPY_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "CUB"]
+const COPY_SCALING_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "Forge v8", "Forge v16"]
 const REDUCE_METHOD_ORDER = ["CUDA", "AK", "Forge", "CUB"]
 const COPY_METHOD_COLORS = Dict(k => BENCH_COLORS[k] for k in COPY_METHOD_ORDER)
 
@@ -486,5 +489,52 @@ function plot_npbar_multi(
     Legend(fig[2, :], legend_elems, legend_lbls,
         orientation=:horizontal, tellheight=true, tellwidth=false, labelsize=16)
 
+    return fig
+end
+
+"""
+    plot_copy_bandwidth(df; ...) -> Figure
+
+Achieved memory bandwidth vs array size, one panel per dtype.
+Bandwidth computed as 2 × n × sizeof(T) / kernel_time.
+"""
+function plot_copy_bandwidth(
+    df::DataFrame;
+    figsize::Tuple{Int,Int}=(1000, 450),
+    method_colors::Dict{String,<:Any}=BENCH_COLORS,
+    method_order::Vector{String}=COPY_SCALING_METHOD_ORDER,
+)
+    fig = Figure(size=figsize)
+    types = ["Float32", "UInt8"]
+    l2_bytes = get_l2_cache_size()
+
+    for (col, T) in enumerate(types)
+        subset = sort(filter(r -> r.T == T, df), :n)
+        isempty(subset) && continue
+
+        ax = Axis(fig[1, col];
+            xlabel="Array size (elements)", ylabel="Bandwidth (GB/s)",
+            xscale=log10,
+            title="Memory Bandwidth: $T", titlesize=18,
+            xlabelsize=14, ylabelsize=14,
+        )
+
+        elem_size = get(COPY_ELEMENT_SIZES, T, 4)
+
+        for method in method_order
+            d = sort(filter(r -> r.method == method, subset), :n)
+            isempty(d) && continue
+            bw = (d.n .* elem_size .* 2) ./ (d.mean_kernel_μs .* 1e-6) ./ 1e9
+            c = method_colors[method]
+            lw = endswith(method, "v16") ? 3 : (endswith(method, "v8") ? 3 : 2)
+            lines!(ax, d.n, bw; color=c, linewidth=lw, label=method)
+        end
+
+        vlines!(ax, [l2_bytes ÷ (2 * elem_size)];
+            color=:black, linestyle=:dashdot, linewidth=1, label="L2 limit")
+    end
+
+    Legend(fig[2, :], fig.content[1];
+        orientation=:horizontal, tellheight=true, tellwidth=false)
     return fig
 end
