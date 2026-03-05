@@ -9,6 +9,7 @@ include("./plot_utils.jl")
 
 using DataFrames
 using CSV
+using Printf
 
 # ---------------------------------------------------------------------------
 # Config
@@ -25,14 +26,23 @@ mkpath("perfs/figures/$GPU_TAG")
 # Size filters (nothing = use all sizes found in CSV)
 # ---------------------------------------------------------------------------
 
-const SIZES_MAPREDUCE = nothing        # e.g. [10^7, 10^8, 10^9]
-const SIZES_SCAN = nothing
-const SIZES_COPY = nothing        # copy uses n directly (not total_elements)
-const TOTALS_MATVEC = nothing        # filters on total_elements = n*p
-const TOTALS_VECMAT = nothing
+const SIZES_MAPREDUCE = [10^7, 10^8]
+const SIZES_SCAN = [10^7, 10^8]
+const SIZES_COPY = nothing
+const TOTALS_MATVEC = [10^7, 10^8]
+const TOTALS_VECMAT = [10^7, 10^8]
 
 filter_sizes(df_col, override) =
     isnothing(override) ? sort(unique(df_col)) : override
+
+# ---------------------------------------------------------------------------
+# Label formatter: integer (no decimals) for matvec / vecmat
+# ---------------------------------------------------------------------------
+
+fmt_int(x) = @sprintf("%d", round(Int, x))
+
+np_time_scale(total) = total > 10^7 ? 100.0 : 1.0
+np_time_unit(total) = total > 10^7 ? "×100 μs" : "μs"
 
 # ---------------------------------------------------------------------------
 # Helper: load and normalize a CSV
@@ -122,13 +132,17 @@ end
 let df = load_npdf("./perfs/julia/results/$GPU_TAG/matvec.csv")
     totals = filter_sizes(df.total_elements, TOTALS_MATVEC)
 
-    figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (rows)")
+    figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (rows)",
+        label_fmt_fn=fmt_int,
+        time_scale=np_time_scale(total), time_unit=np_time_unit(total))
                    for total in totals)
     for (total, fig) in figures
         #save("perfs/figures/$GPU_TAG/matvec_np$(total).png", fig)
     end
 
-    fig_multi = plot_npbar_multi(df, totals; x_col=:n, xlabel="n (rows)")
+    fig_multi = plot_npbar_multi(df, totals; x_col=:n, xlabel="n (rows)",
+        label_fmt_fn=fmt_int,
+        time_scale_fn=np_time_scale, time_unit_fn=np_time_unit)
     save("perfs/figures/$GPU_TAG/matvec_$(GPU_TAG)_comparison.png", fig_multi)
     @info "MatVec figures saved."
 end
@@ -140,13 +154,17 @@ end
 let df = load_npdf("./perfs/julia/results/$GPU_TAG/vecmat.csv")
     totals = filter_sizes(df.total_elements, TOTALS_VECMAT)
 
-    figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (vector length)")
+    figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (vector length)",
+        label_fmt_fn=fmt_int,
+        time_scale=np_time_scale(total), time_unit=np_time_unit(total))
                    for total in totals)
     for (total, fig) in figures
         #save("perfs/figures/$GPU_TAG/vecmat_np$(total).png", fig)
     end
 
-    fig_multi = plot_npbar_multi(df, totals; x_col=:n, xlabel="n (vector length)")
+    fig_multi = plot_npbar_multi(df, totals; x_col=:n, xlabel="n (vector length)",
+        label_fmt_fn=fmt_int,
+        time_scale_fn=np_time_scale, time_unit_fn=np_time_unit)
     save("perfs/figures/$GPU_TAG/vecmat_$(GPU_TAG)_comparison.png", fig_multi)
     @info "VecMat figures saved."
 end

@@ -10,6 +10,7 @@ using CairoMakie
 using DataFrames
 using CSV
 using Printf
+using JSON
 
 
 include("number_format.jl")
@@ -25,7 +26,7 @@ const BENCH_COLORS = Dict(
     "Forge v1" => colorant"#0072B2",
     "Forge v4" => colorant"#E69F00",
     "Forge v8" => colorant"#D55E00",
-    "Forge v16" => colorant"#F0E442",
+    "Forge v16" => colorant"#009E73",
     "cuBLAS" => colorant"#56B4E9",
     "CUB" => colorant"#00008B",
 )
@@ -38,9 +39,6 @@ const COPY_METHOD_COLORS = Dict(k => BENCH_COLORS[k] for k in COPY_METHOD_ORDER)
 # ---------------------------------------------------------------------------
 # Generic grouped-barplot (for copy / mapreduce / scan)
 # ---------------------------------------------------------------------------
-
-
-
 
 """
     plot_grouped_barplot(df, n; ...) -> Figure
@@ -286,6 +284,9 @@ function plot_npbar(
     colors::Tuple=(:steelblue, :coral),
     overhead_alpha::Float64=0.3,
     label_offset_frac::Float64=0.02,
+    label_fmt_fn=format_3digits,
+    time_scale::Float64=1.0,
+    time_unit::String="μs",
 )
     subset = filter(r -> r.total_elements == total_elements, df)
     isempty(subset) && error("No data for total_elements=$total_elements")
@@ -299,11 +300,11 @@ function plot_npbar(
         for v in x_vals
             row = filter(r -> getproperty(r, x_col) == v && r.method == method, d)
             if !isempty(row)
-                ki = row.mean_kernel_μs[1]
-                ti = row.mean_total_μs[1]
+                ki = row.mean_kernel_μs[1] / time_scale
+                ti = row.mean_total_μs[1] / time_scale
                 push!(k, ki)
                 push!(ov, max(0.0, ti - ki))
-                push!(err, row.std_kernel_μs[1])
+                push!(err, row.std_kernel_μs[1] / time_scale)
             else
                 push!(k, 0.0)
                 push!(ov, 0.0)
@@ -321,7 +322,7 @@ function plot_npbar(
         sub2 = filter(r -> r.total_elements == total_elements, df2)
         for v in x_vals
             row = filter(r -> getproperty(r, x_col) == v && r.method == "Forge", sub2)
-            push!(fo_alt, isempty(row) ? 0.0 : max(0.0, row.mean_total_μs[1] - row.mean_kernel_μs[1]))
+            push!(fo_alt, isempty(row) ? 0.0 : max(0.0, (row.mean_total_μs[1] - row.mean_kernel_μs[1]) / time_scale))
         end
     end
 
@@ -335,7 +336,7 @@ function plot_npbar(
 
     fig = Figure(size=figsize)
     ax = Axis(fig[1, 1];
-        xlabel=xlabel, ylabel="Time (μs)", title=title,
+        xlabel=xlabel, ylabel="Time ($time_unit)", title=title,
         xticks=(1:length(x_vals), string.(x_vals)), xticklabelrotation=π / 6,
         xlabelsize=18, ylabelsize=18, titlesize=20,
     )
@@ -361,9 +362,9 @@ function plot_npbar(
 
     for (i, xi) in enumerate(x)
         f_top = fk[i] + max(fo[i], isempty(fo_alt) ? 0.0 : fo_alt[i])
-        text!(ax, xi - off, f_top + fixed_offset; text=format_3digits(fk[i]),
+        text!(ax, xi - off, f_top + fixed_offset; text=label_fmt_fn(fk[i]),
             align=(:center, :bottom), fontsize=12, font=:bold)
-        text!(ax, xi + off, ck[i] + co[i] + fixed_offset; text=format_3digits(ck[i]),
+        text!(ax, xi + off, ck[i] + co[i] + fixed_offset; text=label_fmt_fn(ck[i]),
             align=(:center, :bottom), fontsize=12)
     end
 
@@ -386,6 +387,9 @@ function plot_npbar_multi(
     colors::Tuple=(:steelblue, :coral),
     overhead_alpha::Float64=0.3,
     label_offset_frac::Float64=0.02,
+    label_fmt_fn=format_3digits,
+    time_scale_fn=total -> 1.0,
+    time_unit_fn=total -> "μs",
 )
     fig = Figure(size=figsize)
     fc = Makie.to_color(colors[1])
@@ -399,19 +403,21 @@ function plot_npbar_multi(
         end
 
         x_vals = sort(unique(getproperty(subset, x_col)))
+        t_scale = time_scale_fn(total)
+        t_unit = time_unit_fn(total)
 
-        function get_series(d, method)
+        function get_series(d, method, scale)
             k = Float64[]
             ov = Float64[]
             err = Float64[]
             for v in x_vals
                 row = filter(r -> getproperty(r, x_col) == v && r.method == method, d)
                 if !isempty(row)
-                    ki = row.mean_kernel_μs[1]
-                    ti = row.mean_total_μs[1]
+                    ki = row.mean_kernel_μs[1] / scale
+                    ti = row.mean_total_μs[1] / scale
                     push!(k, ki)
                     push!(ov, max(0.0, ti - ki))
-                    push!(err, row.std_kernel_μs[1])
+                    push!(err, row.std_kernel_μs[1] / scale)
                 else
                     push!(k, 0.0)
                     push!(ov, 0.0)
@@ -421,15 +427,15 @@ function plot_npbar_multi(
             return k, ov, err
         end
 
-        fk, fo, fe = get_series(subset, "Forge")
-        ck, co, ce = get_series(subset, "cuBLAS")
+        fk, fo, fe = get_series(subset, "Forge", t_scale)
+        ck, co, ce = get_series(subset, "cuBLAS", t_scale)
 
         fo_alt = Float64[]
         if df2 !== nothing
             sub2 = filter(r -> r.total_elements == total, df2)
             for v in x_vals
                 row = filter(r -> getproperty(r, x_col) == v && r.method == "Forge", sub2)
-                push!(fo_alt, isempty(row) ? 0.0 : max(0.0, row.mean_total_μs[1] - row.mean_kernel_μs[1]))
+                push!(fo_alt, isempty(row) ? 0.0 : max(0.0, (row.mean_total_μs[1] - row.mean_kernel_μs[1]) / t_scale))
             end
         end
 
@@ -440,7 +446,7 @@ function plot_npbar_multi(
         fixed_offset = max_height * label_offset_frac
 
         ax = Axis(fig[1, col];
-            xlabel=xlabel, ylabel=col == 1 ? "Time (μs)" : "",
+            xlabel=xlabel, ylabel="Time ($t_unit)",
             title="n×p = $(format_number(total))",
             xticks=(1:length(x_vals), string.(x_vals)), xticklabelrotation=π / 6,
             xlabelsize=16, ylabelsize=16, titlesize=18,
@@ -466,9 +472,9 @@ function plot_npbar_multi(
 
         for (i, xi) in enumerate(x)
             f_top = fk[i] + max(fo[i], isempty(fo_alt) ? 0.0 : fo_alt[i])
-            text!(ax, xi - off, f_top + fixed_offset; text=format_3digits(fk[i]),
+            text!(ax, xi - off, f_top + fixed_offset; text=label_fmt_fn(fk[i]),
                 align=(:center, :bottom), fontsize=12, font=:bold)
-            text!(ax, xi + off, ck[i] + co[i] + fixed_offset; text=format_3digits(ck[i]),
+            text!(ax, xi + off, ck[i] + co[i] + fixed_offset; text=label_fmt_fn(ck[i]),
                 align=(:center, :bottom), fontsize=12)
         end
     end
@@ -492,13 +498,24 @@ function plot_npbar_multi(
     return fig
 end
 
-"""
-    plot_copy_bandwidth(df; ...) -> Figure
+function get_l2_cache_size()
+    return CUDA.attribute(CUDA.device(), CUDA.CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)
+end
 
-Achieved memory bandwidth vs array size, one panel per dtype.
-Bandwidth computed as 2 × n × sizeof(T) / kernel_time.
+# ---------------------------------------------------------------------------
+# Copy scaling plots
+# ---------------------------------------------------------------------------
+
+const COPY_SCALING_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "Forge v8", "Forge v16"]
+const COPY_ELEMENT_SIZES = Dict("Float32" => 4, "UInt8" => 1)
+
 """
-function plot_copy_bandwidth(
+    plot_copy_scaling(df; ...) -> Figure
+
+Log-log plot of copy kernel time vs array size, one panel per dtype.
+Error band shows ± std.
+"""
+function plot_copy_scaling(
     df::DataFrame;
     figsize::Tuple{Int,Int}=(1000, 450),
     method_colors::Dict{String,<:Any}=BENCH_COLORS,
@@ -513,28 +530,89 @@ function plot_copy_bandwidth(
         isempty(subset) && continue
 
         ax = Axis(fig[1, col];
-            xlabel="Array size (elements)", ylabel="Bandwidth (GB/s)",
-            xscale=log10,
-            title="Memory Bandwidth: $T", titlesize=18,
+            xlabel="Array size (elements)", ylabel="Time (μs)",
+            xscale=log10, yscale=log10,
+            title="Copy Performance: $T", titlesize=18,
             xlabelsize=14, ylabelsize=14,
         )
-
-        elem_size = get(COPY_ELEMENT_SIZES, T, 4)
 
         for method in method_order
             d = sort(filter(r -> r.method == method, subset), :n)
             isempty(d) && continue
-            bw = (d.n .* elem_size .* 2) ./ (d.mean_kernel_μs .* 1e-6) ./ 1e9
             c = method_colors[method]
             lw = endswith(method, "v16") ? 3 : (endswith(method, "v8") ? 3 : 2)
-            lines!(ax, d.n, bw; color=c, linewidth=lw, label=method)
+            lines!(ax, d.n, d.mean_kernel_μs; color=c, linewidth=lw, label=method)
+            band!(ax, d.n,
+                d.mean_kernel_μs .- d.std_kernel_μs,
+                d.mean_kernel_μs .+ d.std_kernel_μs;
+                color=(c, 0.2))
         end
 
+        elem_size = get(COPY_ELEMENT_SIZES, T, 4)
         vlines!(ax, [l2_bytes ÷ (2 * elem_size)];
             color=:black, linestyle=:dashdot, linewidth=1, label="L2 limit")
     end
 
     Legend(fig[2, :], fig.content[1];
         orientation=:horizontal, tellheight=true, tellwidth=false)
+    return fig
+end
+
+"""
+    plot_copy_bandwidth(df; ...) -> Figure
+
+Achieved memory bandwidth vs array size, one panel per dtype.
+Bandwidth computed as 2 × n × sizeof(T) / kernel_time.
+"""
+function plot_copy_bandwidth(
+    df::DataFrame;
+    figsize::Tuple{Int,Int}=(1000, 450),
+    results_dir::String="perfs/julia/results/A40",
+)
+    fig = Figure(size=figsize)
+    types = ["Float32", "UInt8"]
+    device_info = JSON.parsefile(joinpath(results_dir, "device_info.json"))
+    l2_bytes = device_info["attributes"]["CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE"]
+    panel_methods = Dict(
+        "Float32" => ["CUDA", "Forge v1", "Forge v4"],
+        "UInt8" => ["CUDA", "Forge v4", "Forge v16"],
+    )
+    version_colors = Dict(
+        "CUDA" => BENCH_COLORS["CUDA"],
+        "Forge v1" => BENCH_COLORS["Forge v1"],
+        "Forge v4" => BENCH_COLORS["Forge v4"],
+        "Forge v16" => BENCH_COLORS["Forge v16"],
+    )
+
+    for (col, T) in enumerate(types)
+        subset = sort(filter(r -> r.T == T, df), :n)
+        isempty(subset) && continue
+
+        ax = Axis(fig[1, col];
+            xlabel="Array size (elements)", ylabel="Bandwidth (GB/s)",
+            xscale=log10,
+            title="Memory Bandwidth: $T", titlesize=18,
+            xlabelsize=14, ylabelsize=14,
+        )
+        elem_size = get(COPY_ELEMENT_SIZES, T, 4)
+
+        for method in panel_methods[T]
+            d = sort(filter(r -> r.method == method, subset), :n)
+            isempty(d) && continue
+            bw = (d.n .* elem_size .* 2) ./ (d.mean_kernel_μs .* 1e-6) ./ 1e9
+            lines!(ax, d.n, bw; color=version_colors[method], linewidth=2, label=method)
+        end
+
+        vlines!(ax, [l2_bytes ÷ (2 * elem_size)];
+            color=:black, linestyle=:solid, linewidth=1, label="L2 limit")
+    end
+
+    all_methods = ["CUDA", "Forge v1", "Forge v4", "Forge v16"]
+    elems = [LineElement(color=version_colors[m], linewidth=2) for m in all_methods]
+    push!(elems, LineElement(color=:black, linewidth=1))
+    lbls = [all_methods..., "L2 limit"]
+    Legend(fig[2, :], elems, lbls;
+        orientation=:horizontal, tellheight=true, tellwidth=false)
+
     return fig
 end

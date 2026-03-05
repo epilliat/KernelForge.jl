@@ -21,68 +21,6 @@ using CSV
 
 
 # ---------------------------------------------------------------------------
-# Copy scaling plots
-# ---------------------------------------------------------------------------
-
-const COPY_SCALING_METHOD_ORDER = ["CUDA", "Forge v1", "Forge v4", "Forge v8", "Forge v16"]
-const COPY_ELEMENT_SIZES = Dict("Float32" => 4, "UInt8" => 1)
-
-function get_l2_cache_size()
-    return CUDA.attribute(CUDA.device(), CUDA.CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)
-end
-
-"""
-    plot_copy_scaling(df; ...) -> Figure
-
-Log-log plot of copy kernel time vs array size, one panel per dtype.
-Error band shows ± std.
-"""
-function plot_copy_scaling(
-    df::DataFrame;
-    figsize::Tuple{Int,Int}=(1000, 450),
-    method_colors::Dict{String,<:Any}=BENCH_COLORS,
-    method_order::Vector{String}=COPY_SCALING_METHOD_ORDER,
-)
-    fig = Figure(size=figsize)
-    types = ["Float32", "UInt8"]
-    l2_bytes = get_l2_cache_size()
-
-    for (col, T) in enumerate(types)
-        subset = sort(filter(r -> r.T == T, df), :n)
-        isempty(subset) && continue
-
-        ax = Axis(fig[1, col];
-            xlabel="Array size (elements)", ylabel="Time (μs)",
-            xscale=log10, yscale=log10,
-            title="Copy Performance: $T", titlesize=18,
-            xlabelsize=14, ylabelsize=14,
-        )
-
-        for method in method_order
-            d = sort(filter(r -> r.method == method, subset), :n)
-            isempty(d) && continue
-            c = method_colors[method]
-            lw = endswith(method, "v16") ? 3 : (endswith(method, "v8") ? 3 : 2)
-            lines!(ax, d.n, d.mean_kernel_μs; color=c, linewidth=lw, label=method)
-            band!(ax, d.n,
-                d.mean_kernel_μs .- d.std_kernel_μs,
-                d.mean_kernel_μs .+ d.std_kernel_μs;
-                color=(c, 0.2))
-        end
-
-        elem_size = get(COPY_ELEMENT_SIZES, T, 4)
-        vlines!(ax, [l2_bytes ÷ (2 * elem_size)];
-            color=:black, linestyle=:dashdot, linewidth=1, label="L2 limit")
-    end
-
-    Legend(fig[2, :], fig.content[1];
-        orientation=:horizontal, tellheight=true, tellwidth=false)
-    return fig
-end
-
-
-
-# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
