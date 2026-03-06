@@ -7,11 +7,13 @@
     flag::AbstractArray{UInt8},
 ) where {U,T,H,Nitem}
 
-    N = length(srcs[1])
-    workgroup = Int(@groupsize()[1])
-    ndrange = @ndrange()[1]
-
-    blocks = cld(ndrange, workgroup)
+    @uniform begin
+        warpsz = @warpsize
+        N = length(srcs[1])
+        workgroup = Int(@groupsize()[1])
+        ndrange = @ndrange()[1]
+        blocks = cld(ndrange, workgroup)
+    end
     lid = Int(@index(Local, Linear))
     gid = Int(@index(Group, Linear))
 
@@ -20,7 +22,7 @@
     warp_id = cld(lid, warpsz)
     lane = (lid - 1) % warpsz + 1
 
-    shared = @localmem Tuple{H,Int} 32
+    shared = @localmem Tuple{H,Int} warpsz
 
     i = I
     begin

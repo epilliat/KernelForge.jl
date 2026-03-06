@@ -8,9 +8,12 @@
     flag::Union{Nothing,AbstractArray{UInt8}},
     ::Type{H}
 ) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks}
-    n, p = size(src)
-    workgroup = @groupsize()[1]
-    Nchunks = cld(workgroup, chunksz)
+    @uniform begin
+        warpsz = @warpsize
+        n, p = size(src)
+        workgroup = @groupsize()[1]
+        Nchunks = cld(workgroup, chunksz)
+    end
 
     # Shared memory for inter-warp reduction: one element per chunk
     # careful that the size is equal to sizeof(H) * chunksz * cld(workgroup,warpsz) which can be large if chunksz if large
@@ -59,7 +62,7 @@
     # Shuffle reduction within chunk
     offset = chunksz
     while offset < warpsz
-        shuffled = @shfl(Up, val, offset, warpsz, 0xffffffff)
+        shuffled = @shfl(Up, val, offset)
         if lane > offset
             val = op(val, shuffled)
         end
@@ -85,7 +88,7 @@
         offset = 1
         #gid == 1 && wid == 1 && @print("secc:  $val, $lane, $idx, $wid, idx: $idx, warps_per_row: $warps_per_row, abc: $(warps_per_row)\n")
         while offset < warps_per_row
-            shuffled = @shfl(Up, val, offset, warpsz, 0xffffffff)
+            shuffled = @shfl(Up, val, offset)
             if lane > offset
                 val = op(val, shuffled)
             end
@@ -126,7 +129,7 @@
         #global_row == 1 && @print("$val,    $lane    $chunksz", "\n")
         #gid == 1 && global_row == 2 && @print("$val,  $(cld(lid,chunksz)),  wid: $wid, lane: $lane chunksz: $chunksz\n")
         while offset < min(chunksz * Nblocks, warpsz)
-            shuffled = @shfl(Up, val, offset, warpsz, 0xffffffff)
+            shuffled = @shfl(Up, val, offset)
             if lane > offset
                 val = op(val, shuffled)
             end
@@ -158,7 +161,7 @@
             idx = (sid - 1) * chunksz + (wid - 1) * cld(warpsz, warps_per_row) + cld(lane, warps_per_row)
             #idx == 7 && @print("$val $lane  $idx  $(chunksz * warps_per_row) \n")
             while offset < warps_per_row
-                shuffled = @shfl(Up, val, offset, warpsz, 0xffffffff)
+                shuffled = @shfl(Up, val, offset)
                 #careful to edge case for reduction here: warps_per_row is not necessarily a power of two!!
                 if (lane - 1) % warps_per_row + 1 > offset# || lane > warps_per_row && lane - warps_per_row > offset
                     val = op(val, shuffled)

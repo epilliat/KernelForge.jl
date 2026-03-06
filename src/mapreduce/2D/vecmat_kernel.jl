@@ -9,12 +9,14 @@
     flag::Union{Nothing,AbstractArray{UInt8}},
     ::Type{H}
 ) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads}
-    n, p = size(src)
-    workgroup = Int(@groupsize()[1])
-    Nblocks = cld(Nthreads, workgroup)
-    ndrange = @ndrange()[1]
-
-    blocks = cld(ndrange, workgroup)
+    @uniform begin
+        warpsz = @warpsize
+        n, p = size(src)
+        workgroup = Int(@groupsize()[1])
+        Nblocks = cld(Nthreads, workgroup)
+        ndrange = @ndrange()[1]
+        blocks = cld(ndrange, workgroup)
+    end
 
     lid = Int(@index(Local, Linear))
     gid = Int(@index(Group, Linear))
@@ -75,7 +77,7 @@
 
     offset = 1
     while offset < min(Nthreads, warpsz)
-        shuffled = @shfl(Up, val, offset, warpsz, 0xffffffff)
+        shuffled = @shfl(Up, val, offset)
         if chlane > offset
             val = op(shuffled, val)
         end
@@ -108,7 +110,7 @@
         offset = 1
 
         while offset < nwarps_per_chunk
-            shuffled = @shfl(Up, val_acc, offset, warpsz, 0xffffffff)
+            shuffled = @shfl(Up, val_acc, offset)
             if chlane > offset
                 val_acc = op(shuffled, val_acc)
             end

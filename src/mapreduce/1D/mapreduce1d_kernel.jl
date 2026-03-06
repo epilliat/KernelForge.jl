@@ -11,13 +11,14 @@ T -> f -> H -> op -> H -> g -> S
     flag::AbstractArray{FlagType},
     ::Val{Alignment}
 ) where {U,T,H,S,FlagType<:Integer,Nitem,Alignment}
+    @uniform begin
+        warpsz = @warpsize
+        N = length(srcs[1])
+        workgroup = Int(@groupsize()[1])
+        ndrange = @ndrange()[1]
+        blocks = cld(ndrange, workgroup)
+    end
 
-    N = length(srcs[1])
-    workgroup = Int(@groupsize()[1])
-    ndrange = @ndrange()[1]
-
-
-    blocks = cld(ndrange, workgroup)
     lid = Int(@index(Local, Linear))
     gid = Int(@index(Group, Linear))
 
@@ -26,7 +27,7 @@ T -> f -> H -> op -> H -> g -> S
     warp_id = cld(lid, warpsz)
     lane = (lid - 1) % warpsz + 1
 
-    shared = @localmem H 32
+    shared = @localmem H warpsz
 
     i = I
 

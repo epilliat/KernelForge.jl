@@ -146,6 +146,7 @@ function resolve_parameters(
     blocks_row=nothing,
     Nitem=nothing
 )
+    warpsz = get_warpsize(arch)
     blocks_row = something(blocks_row, default_blocks(arch))
     chunksz = something(chunksz, min(cld(nextpow(2, n), factor_matvec(arch)), 64))
     Nblocks = something(Nblocks, prevpow(2, cld(blocks_row, cld(n, chunksz))))

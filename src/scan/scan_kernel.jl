@@ -16,15 +16,19 @@ end
     flag::AbstractVector{UInt8},
     ::Val{Alignment}
 ) where {Nitem,T,H,S,Alignment}
-    N = length(src)
-    workgroup = Int(@groupsize()[1])
+    @uniform begin
+        warpsz = @warpsize
+        N = length(src)
+        workgroup = Int(@groupsize()[1])
+        nwarps = workgroup ÷ warpsz
+    end
+
     lid = Int(@index(Local))
     gid = Int(@index(Group))
     I = (gid - 1) * workgroup + lid
 
     idx_base = (I - 1) * Nitem
 
-    nwarps = workgroup ÷ warpsz
     warp_id = cld(lid, warpsz)
     lane = (lid - 1) % warpsz + 1
 
@@ -64,7 +68,7 @@ end
     if gid >= 2 && warp_id == nwarps
         lookback = 0
         contains_prefix = false
-        while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1, warpsz)
+        while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
             idx_lookback = max(gid - lookback - lane, 1)
             @access flg = flag[idx_lookback]
             has_aggregate = (0x01 <= flg <= 0x02)
@@ -78,8 +82,8 @@ end
                 offset = 1
                 contains_prefix = has_prefix
                 while offset < warpsz
-                    shuffled = @shfl(Down, val, offset, warpsz)
-                    shuffled_contains_prefix = @shfl(Down, contains_prefix, offset, warpsz)
+                    shuffled = @shfl(Down, val, offset)
+                    shuffled_contains_prefix = @shfl(Down, contains_prefix, offset)
                     if !contains_prefix && lane + offset <= warpsz && gid - lookback - lane - offset >= 1
                         val = op(shuffled, val)
                         contains_prefix = contains_prefix || shuffled_contains_prefix
@@ -109,7 +113,7 @@ end
     end
 
     if gid >= 2
-        prefix_block = shared[32]
+        prefix_block = shared[warpsz]
     end
 
 
@@ -117,7 +121,7 @@ end
         prefix_warp = shared[warp_id-1]
     end
 
-    prefix_lane = @shfl(Idx, stored_val, max(lane - 1, 1), warpsz)
+    prefix_lane = @shfl(Idx, stored_val, max(lane - 1, 1))
 
     if warp_id == 1 && lane == 1 && gid >= 2
         global_prefix = prefix_block

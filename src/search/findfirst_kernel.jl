@@ -1,9 +1,10 @@
 @kernel inbounds = true unsafe_indices = true function findfirst_kernel!(dst, src, filtr::F, ::Val{Nitem}) where {F,Nitem}
-    n = length(src)
-    warpsz = @warpsize
-    workgroup = Int(@groupsize()[1])
-    ndrange = @ndrange()[1]
-
+    @uniform begin
+        n = length(src)
+        warpsz = @warpsize
+        workgroup = Int(@groupsize()[1])
+        ndrange = @ndrange()[1]
+    end
     lid = Int(@index(Local, Linear))
     gid = Int(@index(Group, Linear))
 
