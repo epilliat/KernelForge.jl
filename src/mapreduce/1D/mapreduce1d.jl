@@ -282,7 +282,8 @@ function _mapreduce1d_impl!(
         aligns = ntuple(i -> (Int(pointer(srcs[i])) ÷ sizeof(T)) % Nitem, Val(U))
         allequal(aligns) ? aligns[1] + 1 : -1
     end
+    warpsz = get_warpsize(arch)
     mapreduce1d_kernel!(backend, workgroup)(
-        f, op, g, dst, srcs, Val(Nitem), partial, flag, Val(Alignment); ndrange
+        f, op, g, dst, srcs, Val(Nitem), partial, flag, Val(Alignment), Val(warpsz); ndrange
     )
 end

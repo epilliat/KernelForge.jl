@@ -9,10 +9,10 @@ T -> f -> H -> op -> H -> g -> S
     ::Val{Nitem},
     partial::AbstractArray{H},
     flag::AbstractArray{FlagType},
-    ::Val{Alignment}
-) where {U,T,H,S,FlagType<:Integer,Nitem,Alignment}
+    ::Val{Alignment},
+    ::Val{warpsz}
+) where {U,T,H,S,FlagType<:Integer,Nitem,Alignment,warpsz}
     @uniform begin
-        warpsz = @warpsize
         N = length(srcs[1])
         workgroup = Int(@groupsize()[1])
         ndrange = @ndrange()[1]

@@ -6,10 +6,10 @@
     ::Val{chunksz}, ::Val{Nblocks},
     partial::Union{Nothing,AbstractArray{H}},
     flag::Union{Nothing,AbstractArray{UInt8}},
-    ::Type{H}
-) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks}
+    ::Type{H},
+    ::Val{warpsz}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,chunksz,Nblocks,warpsz}
     @uniform begin
-        warpsz = @warpsize
         n, p = size(src)
         workgroup = @groupsize()[1]
         Nchunks = cld(workgroup, chunksz)

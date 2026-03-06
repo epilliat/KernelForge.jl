@@ -7,10 +7,10 @@
     ::Val{Nthreads},
     partial::Union{Nothing,AbstractArray{H}},
     flag::Union{Nothing,AbstractArray{UInt8}},
-    ::Type{H}
-) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads}
+    ::Type{H},
+    ::Val{warpsz}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads,warpsz}
     @uniform begin
-        warpsz = @warpsize
         n, p = size(src)
         workgroup = Int(@groupsize()[1])
         Nblocks = cld(Nthreads, workgroup)

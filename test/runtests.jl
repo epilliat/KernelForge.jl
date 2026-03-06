@@ -30,6 +30,23 @@ if !isnothing(Base.find_package("CUDA"))
     end
 end
 
+if !isnothing(Base.find_package("AMDGPU"))
+    using AMDGPU
+    if AMDGPU.functional()
+        @info "ROC backend available"
+        backend = ROCBackend()
+        AT = ROCArray
+        BACKEND_ARRAY_TYPES[ROCBackend()] = ROCArray
+    else
+        @warn "AMDGPU not functional"
+    end
+    @testset "AMDGPU" begin
+        include("general_routine.jl")
+    end
+end
+
+
+
 
 
 

@@ -1,5 +1,6 @@
 [deps]
 AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 KernelForge = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
 KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"

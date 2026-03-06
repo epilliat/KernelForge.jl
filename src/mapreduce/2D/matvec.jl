@@ -316,10 +316,10 @@ function _matvec_impl!(
 ) where {S,T,F,O,G,H}
     #@show chunksz, Nblocks, workgroup
     if Nblocks == 1
-        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H)
+        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H, arch)
     else
         tmp = get_allocation(MatVec, f, op, src, x, Nblocks, arch)
-        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H)
+        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H, arch)
     end
 end
 
@@ -340,9 +340,9 @@ function _matvec_impl!(
     arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nblocks == 1
-        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H)
+        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H, arch)
     else
-        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H)
+        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H, arch)
     end
 end
 
@@ -355,14 +355,16 @@ function _matvec_impl_single!(
     chunksz::Int,
     workgroup::Int,
     Nitem::Int,
-    ::Type{H}
+    ::Type{H},
+    arch
 ) where {S,T,F,O,G,H}
     n, p = size(src)
     backend = get_backend(src)
+    warpsz = get_warpsize(arch)
     if Nitem == 1
         ndrange = cld(n, chunksz) * workgroup
         matvec_kernel!(backend, workgroup, ndrange)(
-            f, op, g, dst, src, x, Val(chunksz), Val(1), nothing, nothing, H
+            f, op, g, dst, src, x, Val(chunksz), Val(1), nothing, nothing, H, Val(warpsz)
         )
     else
         ndrange = cld(n, Nitem)
@@ -382,14 +384,15 @@ function _matvec_impl_multi!(
     Nblocks::Int,
     workgroup::Int,
     tmp::KernelBuffer,
-    ::Type{H}
+    ::Type{H},
+    arch
 ) where {S,T,F,O,G,H}
     n, p = size(src)
     backend = get_backend(src)
     ndrange = cld(n, chunksz) * Nblocks * workgroup
     fill!(tmp.arrays.flag, 0x00)
-
+    warpsz = get_warpsize(arch)
     matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.arrays.partial, tmp.arrays.flag, H
+        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
     )
 end

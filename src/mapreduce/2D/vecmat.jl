@@ -322,11 +322,11 @@ function _vecmat_impl!(
     arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nthreads <= workgroup
-        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H)
+        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, arch)
     else
         Nblocks = cld(Nthreads, workgroup)
         tmp = get_allocation(VecMat, f, op, x, src, Nblocks, arch)
-        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H)
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H, arch)
     end
 end
 
@@ -346,9 +346,9 @@ function _vecmat_impl!(
     arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nthreads <= workgroup
-        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H)
+        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, arch)
     else
-        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H)
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H, arch)
     end
 end
 
@@ -361,13 +361,15 @@ function _vecmat_impl_single!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    ::Type{H}
+    ::Type{H},
+    arch
 ) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
+    warpsz = get_warpsize(arch)
     vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H, Val(warpsz)
     )
 end
 
@@ -381,13 +383,15 @@ function _vecmat_impl_multi!(
     Nthreads::Int,
     workgroup::Int,
     tmp::KernelBuffer,
-    ::Type{H}
+    ::Type{H},
+    arch
 ) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
     fill!(tmp.arrays.flag, 0x00)
+    warpsz = get_warpsize(arch)
     vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
     )
 end

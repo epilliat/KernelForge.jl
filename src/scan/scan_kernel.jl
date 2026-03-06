@@ -14,10 +14,10 @@ end
     partial1::AbstractVector{H},
     partial2::AbstractVector{H},
     flag::AbstractVector{UInt8},
-    ::Val{Alignment}
-) where {Nitem,T,H,S,Alignment}
+    ::Val{Alignment},
+    ::Val{warpsz}
+) where {Nitem,T,H,S,Alignment,warpsz}
     @uniform begin
-        warpsz = @warpsize
         N = length(src)
         workgroup = Int(@groupsize()[1])
         nwarps = workgroup ÷ warpsz
