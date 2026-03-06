@@ -33,4 +33,20 @@ src = AT(T.([i for i in 1:n]))
 dst = AT([T(0)])
 
 # Warm up
-KF.mapreduce1d!(identity, +, dst, src)
+n = 100_000
+T = Float32
+src_cpu = rand(T, n)
+src = AT(src_cpu)
+dst = AT(zeros(T, n))
+KF.scan!(*, dst, src)
+KA.synchronize(backend)
+@test isapprox(Array(dst), accumulate(*, src_cpu))
+
+n = 1005
+T = Float64
+src_cpu = rand(T, n)
+src = AT(src_cpu)
+dst = AT(zeros(T, n))
+KF.scan!(identity, *, dst, src)
+KA.synchronize(backend)
+@test isapprox(Array(dst), accumulate(*, src_cpu))
