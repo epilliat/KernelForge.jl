@@ -163,15 +163,18 @@ function arch_tag(dev)
     return Symbol(replace(first(raw, 20), " " => "_"))
 end
 
-function detect_arch(::Val{dev}) where dev
+detect_arch(backend::Backend, src::AbstractArray) = detect_arch(backend, KI.deviceid(src))
+detect_arch(src::AbstractArray) = detect_arch(get_backend(src), src)
+detect_arch(backend::Backend, id::Integer) = detect_arch(backend, Val(id))
+
+function detect_arch(backend::Backend, ::Val{id}) where id
+    dev = KI.device(backend, id)
     tag = arch_tag(dev)
     T = getproperty(KernelForge, tag)
-    @eval detect_arch(::Val{$dev}) = $T()
-    return Base.invokelatest(detect_arch, Val(dev))
+    @eval detect_arch(::$(typeof(backend)), ::Val{$id}) = $T()
+    return Base.invokelatest(detect_arch, backend, Val(id))
 end
 
-detect_arch(dev) = detect_arch(Val(dev))
-detect_arch(src::AbstractArray) = detect_arch(KI.device(src))
 
 
 get_warpsize(::CUDAArch) = 32  # all NVIDIA

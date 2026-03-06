@@ -3,12 +3,12 @@ using KernelForge
 using KernelAbstractions
 using AMDGPU
 import KernelForge: detect_arch
-import KernelIntrinsics: list_devices
+import KernelIntrinsics: devices
 
 function __init__()
     if AMDGPU.functional()
-        for dev in list_devices(ROCBackend())
-            detect_arch(Val(dev))
+        for dev in devices(ROCBackend())
+            detect_arch(ROCBackend(), KI.deviceid(dev))
         end
     end
 end
