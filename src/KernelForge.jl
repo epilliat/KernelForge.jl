@@ -5,7 +5,6 @@ import KernelIntrinsics as KI
 
 using KernelAbstractions
 using KernelAbstractions: adapt
-using GPUArraysCore
 using Atomix: @atomicreplace, @atomic
 using ArgCheck
 

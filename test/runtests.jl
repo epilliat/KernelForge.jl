@@ -1,3 +1,20 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend selection
+# ─────────────────────────────────────────────────────────────────────────────
+using Pkg
+include("meta_helpers.jl")
+
+TEST_BACKEND = get(ENV, "TEST_BACKEND") do
+    backend_str = has_cuda() ? "cuda" : has_roc() ? "roc" : "unknown"
+    @info "TEST_BACKEND not set, defaulting to $backend_str"
+    backend_str
+end
+
+
+#Pkg.activate("test/envs/$TEST_BACKEND")
+Pkg.activate("envs/$TEST_BACKEND") # when running tests
+Pkg.instantiate()
+
 using Test
 using KernelAbstractions
 import KernelAbstractions as KA
@@ -6,43 +23,26 @@ import KernelForge as KF
 using Random
 
 
-const BACKEND_ARRAY_TYPES = Dict{Any,Any}(CPU() => Array)
-
-
-
-
-# Default to CPU
-backend = CPU()
-AT = Array
-
-if !isnothing(Base.find_package("CUDA"))
+if TEST_BACKEND == "cuda"
     using CUDA
-    if CUDA.functional()
-        @info "CUDA backend available"
-        backend = CUDABackend()
-        AT = CuArray
-        BACKEND_ARRAY_TYPES[CUDABackend()] = CuArray
-    else
-        @warn "CUDA not functional"
+    if !CUDA.functional()
+        @warn "No CUDA device found — skipping tests"
+        exit(0)
     end
-    @testset "CUDA" begin
-        include("general_routine.jl")
-    end
-end
-
-if !isnothing(Base.find_package("AMDGPU"))
+    AT = CuArray
+    backend = CUDABackend()
+    include("general_routine.jl")
+elseif TEST_BACKEND == "roc"
     using AMDGPU
-    if AMDGPU.functional()
-        @info "ROC backend available"
-        backend = ROCBackend()
-        AT = ROCArray
-        BACKEND_ARRAY_TYPES[ROCBackend()] = ROCArray
-    else
-        @warn "AMDGPU not functional"
+    if !AMDGPU.functional()
+        @warn "No AMDGPU device found — skipping tests"
+        exit(0)
     end
-    @testset "AMDGPU" begin
-        include("general_routine.jl")
-    end
+    AT = ROCArray
+    backend = ROCBackend()
+    include("general_routine.jl")
+else
+    error("Unknown backend: $TEST_BACKEND")
 end
 
 

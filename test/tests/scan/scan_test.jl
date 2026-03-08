@@ -1,6 +1,6 @@
 @testset "KernelForge.scan! basic tests" begin
     #AT = BACKEND_ARRAY_TYPES[backend]
-    n = 100_000
+    n = 1000_0000
     T = Float32
     src_cpu = rand(T, n)
     src = AT(src_cpu)

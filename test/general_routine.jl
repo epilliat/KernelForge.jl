@@ -1,25 +1,25 @@
 #KF.detect_arch(Val(device()))
 include("helpers.jl")
 @testset "mapreduce" begin
-    include("mapreduce/mapreduce1d_test.jl")
-    include("mapreduce/mapreduce2d_test.jl")
-    include("mapreduce/mapreducedims_test.jl")
-    include("mapreduce/mapreduce_test.jl")
-    include("mapreduce/vecmat_test.jl")
-    include("mapreduce/matvec_test.jl")
+    include("tests/mapreduce/mapreduce1d_test.jl")
+    include("tests/mapreduce/mapreduce2d_test.jl")
+    include("tests/mapreduce/mapreducedims_test.jl")
+    include("tests/mapreduce/mapreduce_test.jl")
+    include("tests/mapreduce/vecmat_test.jl")
+    include("tests/mapreduce/matvec_test.jl")
 end
 @testset "copy" begin
-    include("copy/copy_test.jl")
+    include("tests/copy/copy_test.jl")
 end
 @testset "scan" begin
-    include("scan/scan_test.jl")
+    include("tests/scan/scan_test.jl")
 end
 @testset "views" begin
-    include("views/views_test.jl")
+    include("tests/views/views_test.jl")
 end
 @testset "argmax" begin
-    include("search/argmax_test.jl")
+    include("tests/search/argmax_test.jl")
 end
 @testset "findfirst" begin
-    include("search/findfirst_test.jl")
+    include("tests/search/findfirst_test.jl")
 end

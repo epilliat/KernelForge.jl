@@ -48,7 +48,8 @@ function findfirst(
     gs = cld(gs, 32) * 32
     dst = KernelAbstractions.allocate(backend, Int, 1)
     fill!(dst, n + 1)
-    findfirst_kernel!(backend, gs, nd)(dst, src, filtr, Val(Nitem))
+    warpsz = get_warpsize(arch)
+    findfirst_kernel!(backend, gs, nd)(dst, src, filtr, Val(Nitem), Val(warpsz))
     result = Array(dst)[1]
     result > n && return nothing
     if ndims(src) != 1

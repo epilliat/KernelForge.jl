@@ -5,10 +5,10 @@
     ::Val{Nitem},
     partial::AbstractArray{Tuple{H,Int}},
     flag::AbstractArray{UInt8},
-) where {U,T,H,Nitem}
+    ::Val{warpsz}
+) where {U,T,H,Nitem,warpsz}
 
     @uniform begin
-        warpsz = @warpsize
         N = length(srcs[1])
         workgroup = Int(@groupsize()[1])
         ndrange = @ndrange()[1]

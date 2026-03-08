@@ -1,0 +1,12 @@
+[deps]
+AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+KernelForge = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
+KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"
+Quaternions = "94ee1d12-ae83-5a48-8b1c-48b8ff168ae0"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[sources]
+KernelForge = {path = "../../.."}
+KernelIntrinsics = {path = "../../../../KernelIntrinsics.jl"}

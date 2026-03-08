@@ -105,7 +105,7 @@
     local_wid = (wid - 1) % nwarps_per_chunk + 1
     if local_wid == 1 # amounts to wid == 1 if Nthreads > workgroup (Nblocks > 1)
         val_acc = shared[lane]
-        @warpreduce(val_acc, lane, op)
+        @warpreduce(val_acc, op, lane)
         val_acc = shared[min(wid - 1 + lane, warpsz)]
         offset = 1
 
@@ -146,7 +146,7 @@
         val = op(val, partial[idx])
         i += workgroup
     end
-    @warpreduce(val, lane, op)
+    @warpreduce(val, op, lane)
     if lane == warpsz && lid <= Nblocks || lid == Nblocks
         shared[wid] = val
     end
@@ -155,7 +155,7 @@
 
     if wid == 1
         val_acc = shared[lane]
-        @warpreduce(val_acc, lane, op)
+        @warpreduce(val_acc, op, lane)
         if lane == min(cld(workgroup, warpsz), cld(Nblocks, warpsz))
             dst[chid] = g(val_acc)
         end

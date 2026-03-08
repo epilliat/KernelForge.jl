@@ -44,7 +44,7 @@ end
     end
 
     val = values[end]
-    @warpreduce(val, lane, op)
+    @warpreduce(val, op, lane)
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -55,7 +55,7 @@ end
     last_idx = Nitem * workgroup * gid
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, lane, op)
+        @warpreduce(val_acc, op, lane)
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
             partial1[gid] = val_acc

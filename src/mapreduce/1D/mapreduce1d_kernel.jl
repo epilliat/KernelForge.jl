@@ -49,7 +49,7 @@ T -> f -> H -> op -> H -> g -> S
         end
     end
 
-    @warpreduce(val, lane, op)
+    @warpreduce(val, op, lane)
     if lane == warpsz && lid <= N || lid == N
         shared[warp_id] = val
     end
@@ -57,7 +57,7 @@ T -> f -> H -> op -> H -> g -> S
 
     if warp_id == 1#cld(workgroup, warpsz) && warp_id <= cld(N, warpsz) || warp_id == cld(N, warpsz)
         val_acc = shared[lane]
-        @warpreduce(val_acc, lane, op)
+        @warpreduce(val_acc, op, lane)
         if lane == min(cld(workgroup, warpsz), cld(N, warpsz))
             partial[gid] = val_acc
             @access flag[gid] = 0x01
@@ -78,14 +78,14 @@ T -> f -> H -> op -> H -> g -> S
             val = op(val, partial[i])
             i += workgroup
         end
-        @warpreduce(val, lane, op)
+        @warpreduce(val, op, lane)
         if lane == warpsz && lid <= blocks || lid == blocks
             shared[warp_id] = val
         end
         @synchronize
         if warp_id == 1#cld(workgroup, warpsz) && warp_id <= cld(blocks, warpsz) || warp_id == cld(blocks, warpsz)
             val_acc = shared[lane]
-            @warpreduce(val_acc, lane, op)
+            @warpreduce(val_acc, op, lane)
             if lane == min(cld(workgroup, warpsz), cld(blocks, warpsz))
                 dst[1] = g(val_acc)
             end

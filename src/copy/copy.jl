@@ -1,5 +1,5 @@
 """
-    vcopy!(dst::AbstractGPUVector, src::AbstractGPUVector; Nitem=4)
+    vcopy!(dst::AbstractArray, src::AbstractArray; Nitem=4)
 
 Copy `src` to `dst` using vectorized GPU memory access.
 
@@ -21,14 +21,14 @@ vcopy!(dst, src)
 
 See also: [`KernelForge.setvalue!`](@ref)
 """
-function vcopy!(dst::AbstractGPUVector, src::AbstractGPUVector; Nitem=4)
+function vcopy!(dst::AbstractArray, src::AbstractArray; Nitem=4)
     backend = get_backend(src)
     ndrange = fld(length(src), Nitem)
     copy_kernel!(backend)(dst, src, Val(Nitem); ndrange=ndrange)
 end
 
 """
-    setvalue!(dst::AbstractGPUVector{T}, val::T; Nitem=4) where T
+    setvalue!(dst::AbstractArray{T}, val::T; Nitem=4) where T
 
 Fill `dst` with `val` using vectorized GPU memory access.
 
@@ -49,7 +49,7 @@ setvalue!(dst, 1.0f0)
 
 See also: [`KernelForge.vcopy!`](@ref)
 """
-function setvalue!(dst::AbstractGPUVector{T}, val::T; Nitem=4) where T
+function setvalue!(dst::AbstractArray{T}, val::T; Nitem=4) where T
     backend = get_backend(dst)
     ndrange = fld(length(dst), Nitem)
     setvalue_kernel!(backend)(dst, val, Val(Nitem); ndrange=ndrange)

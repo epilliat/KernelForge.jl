@@ -183,7 +183,7 @@ function argmax1d(
     workgroup = something(workgroup, default_workgroup(arch))
     blocks = something(blocks, default_blocks(arch))
     _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, length(srcs[1]), backend, arch)
-    return to_cpu ? (@allowscalar dst[1]) : dst
+    return to_cpu ? (Array(dst)[1]) : dst
 end
 
 # ============================================================================
@@ -263,8 +263,8 @@ function _argmax1d_impl!(
     Nitem = min(Nitem, prevpow(2, max(fld(n, ndrange), 1)))
 
     fill!(tmp.arrays.flag, 0x00)
-
+    warpsz = get_warpsize(arch)
     argmax_kernel!(backend, workgroup, ndrange)(
-        f, rel, dst, srcs, Val(Nitem), tmp.arrays.partial, tmp.arrays.flag
+        f, rel, dst, srcs, Val(Nitem), tmp.arrays.partial, tmp.arrays.flag, Val(warpsz)
     )
 end

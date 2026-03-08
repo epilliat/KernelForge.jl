@@ -6,32 +6,33 @@ authors = ["Emmanuel Pilliat <epilliat@gmail.com>"]
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
-GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"
 
 [weakdeps]
+AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 
 [extensions]
+KernelForgeAMDGPUExt = "AMDGPU"
 KernelForgeCUDAExt = "CUDA"
 
 [compat]
+julia = "1.10"
 ArgCheck = "2.5.0"
 Atomix = "1.1.2"
-GPUArraysCore = "0.2.0"
 KernelAbstractions = "0.9.39"
 KernelIntrinsics = "0.1.5"
-julia = "1.10"
 CUDA = "5.4"
+AMDGPU = "1"
 
 [extras]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
-InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Quaternions = "94ee1d12-ae83-5a48-8b1c-48b8ff168ae0"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["CUDA", "Test", "Quaternions", "InteractiveUtils", "Random"]
+test = ["Pkg", "Test"]
