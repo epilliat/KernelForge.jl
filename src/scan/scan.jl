@@ -6,15 +6,9 @@ end
     return min(16, cld(64, sizeof(T)))
 end
 
-@inline function default_nitem(::Ada, ::Type{Scan1D}, ::Type{T}) where {T}
+@inline function default_nitem(::RTX1000, ::Type{Scan1D}, ::Type{T}) where {T}
     sz = sizeof(T)
-    sz == 1 && return 16
-    sz == 2 && return 16
-    sz == 4 && return 8
-    sz == 8 && return 8
-    sz == 16 && return 4
-    sz == 32 && return 4
-    return 1
+    cld(16, cld(sz, 2))
 end
 
 # ============================================================================

@@ -17,3 +17,7 @@ function has_roc()
 end
 
 has_metal() = Sys.isapple()
+backend_str = has_roc() ? "roc" :
+              has_cuda() ? "cuda" :
+              has_metal() ? "metal" :
+              error("No supported GPU backend found")

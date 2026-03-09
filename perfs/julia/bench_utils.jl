@@ -5,17 +5,16 @@ Benchmarking primitives: warmup, kernel timing, CUB runner, DataFrame helpers.
 No plotting dependencies — safe to use in the minimal quick_bench environment.
 =#
 
-using Revise
-using KernelForge
-using KernelForge: UnitFloat8
-using CUDA
-using KernelAbstractions
+
+
+if haskey(Base.loaded_modules, Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"))
+    using CUDA
+end
 using AcceleratedKernels
 using BenchmarkTools
 using Statistics
 using DataFrames
 using CSV
-using JSON3
 using Printf
 using PrettyTables
 using Quaternions
@@ -32,10 +31,11 @@ include("number_format.jl")
 
 Repeatedly call `f()` for `duration` seconds to warm up JIT and GPU state.
 """
-function warmup(f; duration=0.5)
+function warmup(backend, f; duration=0.5)
     start = time()
     while time() - start < duration
-        CUDA.@sync f()
+        f()
+        KA.synchronize(backend)
     end
 end
 
@@ -68,16 +68,20 @@ Benchmark `f()` by:
 function bench(name, f;
     duration=0.5,
     trials=100,
-    backend=CUDABackend(),
+    backend,
     exclude_copy=true
 )
-    warmup(f; duration)
+    warmup(backend, f; duration)
     println("=== $name ===")
 
     kernel_times = Vector{Float64}(undef, trials)
-    for i in 1:trials
-        prof = CUDA.@profile f()
-        kernel_times[i] = sum_kernel_durations_μs(prof; exclude_copy)
+    if @isdefined(CUDABackend) && backend isa CUDABackend
+        for i in 1:trials
+            prof = CUDA.@profile f()
+            kernel_times[i] = sum_kernel_durations_μs(prof; exclude_copy)
+        end
+    else
+        fill!(kernel_times, NaN)
     end
 
     mean_kernel_μs = mean(kernel_times)

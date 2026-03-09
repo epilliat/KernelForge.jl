@@ -27,11 +27,7 @@ CUDA = "5.4"
 AMDGPU = "1"
 
 [extras]
-AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-Quaternions = "94ee1d12-ae83-5a48-8b1c-48b8ff168ae0"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]

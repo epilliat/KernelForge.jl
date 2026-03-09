@@ -9,110 +9,90 @@ Methodology:
 - Results saved to results/<gpu_short>/profiling_benchmarks/matvec.csv
 - Final DataFrame printed at the end
 =#
+include("../meta_helper.jl")
 using Pkg
-Pkg.activate("perfs/envs/benchenv")
+Pkg.activate("perfs/envs/benchenv/$backend_str")
+Pkg.instantiate()
 using Revise
+include("../architecture.jl")
 include("../bench_utils.jl")
-include("../architectures.jl")
-
 using DataFrames
 using CSV
 
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-
 total_elements = [10^6, 10^7]
 types = [Float32]
-
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
 
 # ---------------------------------------------------------------------------
 # Benchmark runner
 # ---------------------------------------------------------------------------
-
 function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
-    A = CUDA.ones(T, n, p)
-    x = CuArray{T}(1:p)
-    dst = CUDA.zeros(T, n, 1)
+    A = fill!(AT{T}(undef, n, p), one(T))
+    x = AT{T}(1:p)
+    dst = fill!(AT{T}(undef, n, 1), zero(T))
 
     println("\n" * "="^60)
     println("MatVec: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
     rows = NamedTuple[]
-
     for (name, method, call) in [
         ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.matvec(*, +, A, x)),
-        ("cuBLAS [n=$n, p=$p]", "cuBLAS", () -> A * x),
+        (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
+            has_cuda() ? "cuBLAS" : "LinearAlgebra",
+            () -> A * x),
     ]
-        s = bench(name, call)
+        s = bench(name, call; backend)
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
     end
-
     return rows
 end
 
 # Simple profiling example (without warmup here which gives slower results.)
-GC.gc()
-p = 1
-n = 1000000000
-src = CUDA.ones(Float32, n, p)
-x = CUDA.ones(Float32, p)
+if has_cuda()
+    GC.gc()
+    p = 1
+    n = 1000000
+    src = fill!(AT{Float32}(undef, n, p), one(Float32))
+    x = fill!(AT{Float32}(undef, p), one(Float32))
+    CUDA.@profile src * x
+    CUDA.@profile KernelForge.matvec(*, +, src, x)
+end
 
-CUDA.@profile src * x
-CUDA.@profile KernelForge.matvec(*, +, src, x)
-
-# GC.gc()
-# p = 10
-# n = 10^7
-# src = CUDA.ones(Float32, n, p)
-# x = CUDA.ones(Float32, p)
-
-# CUDA.@profile src * x
-# CUDA.@profile KernelForge.matvec(*, +, src, x)
-
-
-#%%
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------
-
 all_rows = NamedTuple[]
-
-total_elements = [10^6, 10^7, 10^8]
+total_elements = [10^6, 10^7]
 types = [Float32]
-
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
-
 for total in total_elements, T in types
     n_values = [10^k for k in 0:round(Int, log10(total))]
     for n in n_values
         p = total ÷ n
         append!(all_rows, run_matvec_benchmarks(n, p, T))
         GC.gc(true)
-        CUDA.reclaim()
+        has_cuda() && CUDA.reclaim()
     end
 end
 
 # ---------------------------------------------------------------------------
 # Build DataFrame, save CSV, display
 # ---------------------------------------------------------------------------
-
 df = DataFrame(all_rows)
-
-out_dir = RESULT_DIR
-mkpath(out_dir)
-csv_path = joinpath(out_dir, "matvec.csv")
+mkpath(RESULT_DIR)
+csv_path = joinpath(RESULT_DIR, "matvec.csv")
 CSV.write(csv_path, df)
 println("\nResults saved to: $csv_path\n")
 
 fmt_e(x) = "1e$(round(Int, log10(x)))"
-
 df_display = transform(df,
     [:mean_kernel_μs, :std_kernel_μs, :mean_total_μs, :std_total_μs] .=>
         (x -> round.(x; digits=2)) .=>

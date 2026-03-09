@@ -9,11 +9,17 @@ Methodology:
 - Results saved to results/<gpu_short>/profiling_benchmarks/vecmat.csv
 - Final DataFrame printed at the end
 =#
+include("../meta_helper.jl")
 using Pkg
-Pkg.activate("perfs/envs/benchenv")
+Pkg.activate("perfs/envs/benchenv/$backend_str")
+
+Pkg.instantiate()
+
 using Revise
+
+
+include("../architecture.jl")
 include("../bench_utils.jl")
-include("../architectures.jl")
 
 using DataFrames
 using CSV
@@ -28,65 +34,60 @@ using CSV
 # ---------------------------------------------------------------------------
 
 function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
-    x = CuArray{T}(1:n)
-    A = CUDA.ones(T, n, p)
-    dst = CUDA.zeros(T, 1, p)
+    x = AT{T}(1:n)
+    A = fill!(AT{T}(undef, n, p), one(T))
+    dst = fill!(AT{T}(undef, 1, p), zero(T))
 
     println("\n" * "="^60)
     println("VecMat: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
     rows = NamedTuple[]
-
     for (name, method, call) in [
         ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.vecmat(*, +, x, A)),
-        ("cuBLAS [n=$n, p=$p]", "cuBLAS", () -> x' * A),
+        (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
+            has_cuda() ? "cuBLAS" : "LinearAlgebra",
+            () -> x' * A),
     ]
-        s = bench(name, call)
+        s = bench(name, call; backend)
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
     end
-
     return rows
 end
 
 
 # Simple profiling example (without warmup here which gives slower results.)
-
-n = 100
-p = 1000000
-x = CUDA.ones(Float32, n)
-src = CUDA.ones(Float32, n, p)
-
-CUDA.@profile x' * src
-CUDA.@profile KernelForge.vecmat(*, +, x, src)
-
-
-n = 10
-p = 100000000
-x = CUDA.ones(Float32, n)
-src = CUDA.ones(Float32, n, p)
-
-CUDA.@profile x' * src
-CUDA.@profile KernelForge.vecmat(*, +, x, src)
-
-#isapprox(KernelForge.vecmat(*, +, x, src), transpose(x' * src))
+if has_cuda()
+    n = 100
+    p = 100000
+    x = AT{Float32}(undef, n)
+    fill!(x, one(Float32))
+    src = AT{Float32}(undef, n, p)
+    fill!(src, one(Float32))
+    CUDA.@profile x' * src
+    CUDA.@profile KernelForge.vecmat(*, +, x, src)
+    n = 10
+    p = 1000000
+    x = AT{Float32}(undef, n)
+    fill!(x, one(Float32))
+    src = AT{Float32}(undef, n, p)
+    fill!(src, one(Float32))
+    CUDA.@profile x' * src
+    CUDA.@profile KernelForge.vecmat(*, +, x, src)
+end
 
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-
-total_elements = [10^6, 10^7, 10^8]#[10^9]
-total_elements = [10^9]
+total_elements = [10^6, 10^7]
 types = [Float32]
 
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------
-
 all_rows = NamedTuple[]
-
 for total in total_elements, T in types
     n_values = [10^k for k in 1:floor(Int, log10(total))]
     for n in n_values
@@ -98,17 +99,13 @@ end
 # ---------------------------------------------------------------------------
 # Build DataFrame, save CSV, display
 # ---------------------------------------------------------------------------
-
 df = DataFrame(all_rows)
-
-out_dir = RESULT_DIR
-mkpath(out_dir)
-csv_path = joinpath(out_dir, "vecmat.csv")
+mkpath(RESULT_DIR)
+csv_path = joinpath(RESULT_DIR, "vecmat.csv")
 CSV.write(csv_path, df)
 println("\nResults saved to: $csv_path\n")
 
 fmt_e(x) = "1e$(round(Int, log10(x)))"
-
 df_display = transform(df,
     [:mean_kernel_μs, :std_kernel_μs, :mean_total_μs, :std_total_μs] .=>
         (x -> round.(x; digits=2)) .=>
