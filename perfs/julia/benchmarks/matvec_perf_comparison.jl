@@ -54,16 +54,27 @@ function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
     return rows
 end
 
+
+# warup
+p = 1000
+n = 1000
+T = Float64
+src = fill!(AT{T}(undef, n, p), one(T))
+x = fill!(AT{T}(undef, p), one(T))
+
+src * x
+KA.synchronize(backend)
+KernelForge.matvec(*, +, src, x; chunksz=8, Nblocks=1, workgroup=1024)
+KA.synchronize(backend)
 # Simple profiling example (without warmup here which gives slower results.)
-if has_cuda()
-    GC.gc()
-    p = 1
-    n = 1000000
-    src = fill!(AT{Float32}(undef, n, p), one(Float32))
-    x = fill!(AT{Float32}(undef, p), one(Float32))
-    CUDA.@profile src * x
-    CUDA.@profile KernelForge.matvec(*, +, src, x)
-end
+
+@btime (src * x; KA.synchronize(backend))
+@btime (KernelForge.matvec(*, +, src, x; chunksz=32, Nblocks=1, workgroup=1024); KA.synchronize(backend))
+@btime (KernelForge.matvec(*, +, src, x; chunksz=16); KA.synchronize(backend))
+#@btime (KernelForge.vecmat(*, +, x, src'); KA.synchronize(backend))
+# CUDA.@profile src * x
+# CUDA.@profile KernelForge.matvec(*, +, src, x)
+
 
 # ---------------------------------------------------------------------------
 # Collect all results

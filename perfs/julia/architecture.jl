@@ -62,15 +62,14 @@ if @isdefined(CUDABackend)
 end
 
 if @isdefined(ROCBackend)
-    function save_device_info(::ROCBackend, path::String)
-        dev = AMDGPU.device()
+    function save_device_info(backend::ROCBackend, path::String)
+        dev = KI.device(backend)
         info = Dict(
-            "name" => AMDGPU.name(dev),
+            "name" => KI.name(dev),
             "gpu_tag" => GPU_TAG,
-            "agent_type" => string(AMDGPU.device_type(dev)),
-            "total_memory_bytes" => AMDGPU.totalmem(dev),
-            "rocm_version" => string(AMDGPU.runtime_version()),
-            "wavefront_size" => AMDGPU.wavefrontsize(dev),
+            "total_memory_bytes" => AMDGPU.HIP.properties(dev).totalGlobalMem,
+            "rocm_version" => string(AMDGPU.HIP.runtime_version()),
+            "wavefront_size" => AMDGPU.HIP.wavefrontsize(dev),
         )
         open(path, "w") do io
             JSON3.write(io, info)

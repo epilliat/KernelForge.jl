@@ -20,6 +20,7 @@ include("../bench_utils.jl")
 using DataFrames
 using CSV
 
+
 const DEFAULT_CUB_EXE = joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_sum_benchmark")
 
 # ---------------------------------------------------------------------------
@@ -64,28 +65,44 @@ function run_mapreduce_benchmarks(src::AT{T}, label_T::String, n::Int;
   return rows
 end
 
-# Simple profiling example (without warmup here which gives slower results)
-if has_cuda()
-  n = 1000000
-  src = fill!(AT{Float32}(undef, n), one(Float32))
-  src_u8 = fill!(AT{UInt8}(undef, n), one(UInt8))
+# warmup
+n = 100000000
+src = fill!(AT{Float32}(undef, n), one(Float32))
+src_u8 = fill!(AT{UInt8}(undef, n), one(UInt8))
 
-  CUDA.@profile CUDA.mapreduce(identity, +, src)
-  CUDA.@profile AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
-  CUDA.@profile KernelForge.mapreduce(identity, +, src)
+KernelForge.mapreduce(identity, +, src)
+KA.synchronize(backend)
+mapreduce(identity, +, src)
+KA.synchronize(backend)
+AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
+KA.synchronize(backend)
 
-  src_uf8 = fill!(AT{UnitFloat8}(undef, n), one(UnitFloat8))
-  u(x) = Float32(x)::Float32
-  CUDA.@profile KernelForge.mapreduce(identity, +, src_uf8; Nitem=16)
-  CUDA.@profile mapreduce(u, +, src_uf8)
-end
+#%%
+@btime (KernelForge.mapreduce(identity, +, src); KA.synchronize(backend))
+@btime (mapreduce(identity, +, src); KA.synchronize(backend))
+@btime (AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0); KA.synchronize(backend))
 
+@btime (KernelForge.mapreduce(identity, +, src_u8; Nitem=32); KA.synchronize(backend))
+@btime (mapreduce(identity, +, src_u8); KA.synchronize(backend))
+@btime (AcceleratedKernels.mapreduce(identity, +, src_u8; init=0.0f0); KA.synchronize(backend))
+
+# # Simple profiling example (without warmup here which gives slower results)
+
+# CUDA.@profile CUDA.mapreduce(identity, +, src)
+# CUDA.@profile AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
+# CUDA.@profile KernelForge.mapreduce(identity, +, src)
+
+# src_uf8 = fill!(AT{UnitFloat8}(undef, n), one(UnitFloat8))
+# u(x) = Float32(x)::Float32
+# CUDA.@profile KernelForge.mapreduce(identity, +, src_uf8)
+# CUDA.@profile mapreduce(u, +, src_uf8)
+#%%
 
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------
 
-sizes = [10^6, 10^7]
+sizes = [10^6, 10^7, 10^8, 10^9]
 types = [Float32, UnitFloat8]
 
 all_rows = NamedTuple[]
@@ -142,8 +159,17 @@ select!(df_display, :n_str, :)
 select!(df_display, Not(:n))
 
 println("=== MapReduce Benchmark Results — GPU: $GPU_TAG ===")
-hl = TextHighlighter(
-  (data, i, j) -> data[i, :method] == "KernelForge",
-  crayon"blue bold"
-)
-pretty_table(df_display; highlighters=[hl])
+
+if has_cuda()
+  hl = TextHighlighter(
+    (data, i, j) -> data[i, :method] == "KernelForge",
+    crayon"blue bold"
+  )
+  pretty_table(df_display; highlighters=[hl])
+else
+  hl = Highlighter(
+    (data, i, j) -> data[i, Symbol("method")] == "KernelForge",
+    crayon"blue bold"
+  )
+  pretty_table(df_display; highlighters=(hl,), backend=Val(:text))
+end

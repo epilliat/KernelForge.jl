@@ -1,5 +1,6 @@
 default_workgroup(::AbstractArch) = 256
 default_blocks(::AbstractArch) = 128
+default_blocks(::AMDArch) = 256 # tuned for MI300X
 
 abstract type ForgeAlgorithm end
 

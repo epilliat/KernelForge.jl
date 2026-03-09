@@ -62,22 +62,35 @@ function run_scan_benchmarks(src::AT{T}, dst::AT{T}, label_T::String, n::Int;
     return rows
 end
 
-# Simple profiling example (without warmup here which gives slower results)
-if has_cuda()
-    n = 10^8
-    src = fill!(AT{Float32}(undef, n), one(Float32))
-    dst = fill!(AT{Float32}(undef, n), zero(Float32))
 
-    CUDA.@profile accumulate!(+, dst, src)
-    CUDA.@profile AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0)
-    CUDA.@profile KernelForge.scan!(identity, +, dst, src; Nitem=8)
-end
+n = 10^6
+T = Float32
+src = fill!(AT{T}(undef, n), one(T))
+dst = fill!(AT{T}(undef, n), zero(T))
+
+KernelForge.scan!(identity, +, dst, src)
+KA.synchronize(backend)
+accumulate!(+, dst, src)
+KA.synchronize(backend)
+AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0)
+KA.synchronize(backend)
+# Simple profiling example (without warmup here which gives slower results)
+
+@btime (KernelForge.scan!(identity, +, dst, src); KA.synchronize(backend))
+@btime (accumulate!(+, dst, src); KA.synchronize(backend))
+@btime (AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0); KA.synchronize(backend))
+
+#%%
+# CUDA.@profile accumulate!(+, dst, src)
+# CUDA.@profile AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0)
+# CUDA.@profile KernelForge.scan!(identity, +, dst, src; Nitem=8)
+
 
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
 
-sizes = [10^6, 10^7, 10^8, 10^9]
+sizes = [10^6, 10^7, 10^8]
 types = [Float32, Float64]
 
 # ---------------------------------------------------------------------------
@@ -141,8 +154,16 @@ select!(df_display, :n_str, :)
 select!(df_display, Not(:n))
 
 println("=== Scan Benchmark Results — GPU: $GPU_TAG ===")
-hl = TextHighlighter(
-    (data, i, j) -> data[i, :method] == "KernelForge",
-    crayon"blue bold"
-)
-pretty_table(df_display; highlighters=[hl])
+if has_cuda()
+    hl = TextHighlighter(
+        (data, i, j) -> data[i, :method] == "KernelForge",
+        crayon"blue bold"
+    )
+    pretty_table(df_display; highlighters=[hl])
+else
+    hl = Highlighter(
+        (data, i, j) -> data[i, Symbol("method")] == "KernelForge",
+        crayon"blue bold"
+    )
+    pretty_table(df_display; highlighters=(hl,), backend=Val(:text))
+end

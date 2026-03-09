@@ -10,7 +10,9 @@ end
     return prevpow(2, cld(16, cld(sizeof(T), 2)))
 end
 
-
+@inline function default_nitem(::AMDArch, ::Type{MapReduce1D}, src::AbstractArray{T}) where {T}
+    return prevpow(2, cld(32, cld(sizeof(T), 2)))
+end
 
 # ============================================================================
 # Public API docstrings

@@ -59,24 +59,31 @@ end
 
 
 # Simple profiling example (without warmup here which gives slower results.)
-if has_cuda()
-    n = 100
-    p = 100000
-    x = AT{Float32}(undef, n)
-    fill!(x, one(Float32))
-    src = AT{Float32}(undef, n, p)
-    fill!(src, one(Float32))
-    CUDA.@profile x' * src
-    CUDA.@profile KernelForge.vecmat(*, +, x, src)
-    n = 10
-    p = 1000000
-    x = AT{Float32}(undef, n)
-    fill!(x, one(Float32))
-    src = AT{Float32}(undef, n, p)
-    fill!(src, one(Float32))
-    CUDA.@profile x' * src
-    CUDA.@profile KernelForge.vecmat(*, +, x, src)
-end
+
+n = 10000
+p = 10000
+x = AT{Float32}(undef, n)
+fill!(x, one(Float32))
+src = AT{Float32}(undef, n, p)
+fill!(src, one(Float32))
+
+(x' * src; KA.synchronize(backend))
+
+
+@btime (x' * src; KA.synchronize(backend))
+@btime (KernelForge.vecmat(*, +, x, src; Nitem=16); KA.synchronize(backend))
+
+# CUDA.@profile x' * src
+# CUDA.@profile KernelForge.vecmat(*, +, x, src)
+# n = 10
+# p = 1000000
+# x = AT{Float32}(undef, n)
+# fill!(x, one(Float32))
+# src = AT{Float32}(undef, n, p)
+# fill!(src, one(Float32))
+# CUDA.@profile x' * src
+# CUDA.@profile KernelForge.vecmat(*, +, x, src)
+
 
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked

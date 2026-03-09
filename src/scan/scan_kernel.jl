@@ -44,7 +44,7 @@ end
     end
 
     val = values[end]
-    @warpreduce(val, op, lane)
+    @warpreduce(val, op, lane, warpsz)
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -55,7 +55,7 @@ end
     last_idx = Nitem * workgroup * gid
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, op, lane)
+        @warpreduce(val_acc, op, lane, warpsz)
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
             partial1[gid] = val_acc
@@ -72,7 +72,7 @@ end
             idx_lookback = max(gid - lookback - lane, 1)
             @access flg = flag[idx_lookback]
             has_aggregate = (0x01 <= flg <= 0x02)
-            if @vote(All, has_aggregate)
+            if @vote(All, has_aggregate, warpsz)
                 has_prefix = (flg == 0x02)
                 if has_prefix
                     val = partial2[idx_lookback]

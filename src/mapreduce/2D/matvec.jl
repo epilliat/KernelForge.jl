@@ -103,12 +103,13 @@ function get_allocation(
     op::O,
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing},
-    Nblocks::Integer
+    Nblocks::Integer,
+    Nitem=1
 ) where {T,F<:Function,O<:Function}
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     n = size(src, 1)
     backend = get_backend(src)
-    partial = KernelAbstractions.allocate(backend, H, n * Nblocks)
+    partial = KernelAbstractions.allocate(backend, NTuple{Nitem,H}, n * Nblocks)
     flag = KernelAbstractions.allocate(backend, UInt8, n * Nblocks)
     return KernelBuffer((; partial, flag))
 end
@@ -120,12 +121,13 @@ function get_allocation(
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing},
     Nblocks=nothing,
+    Nitem=1,
     arch=nothing
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
     arch = something(arch, detect_arch(src))
     _, Nblocks_resolved, _, _, _ = resolve_parameters(arch, MatVec, n, p, nothing, Nblocks)
-    return get_allocation(MatVec, f, op, src, x, Nblocks_resolved)
+    return get_allocation(MatVec, f, op, src, x, Nblocks_resolved, Nitem)
 end
 
 # ============================================================================
@@ -318,7 +320,7 @@ function _matvec_impl!(
     if Nblocks == 1
         _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H, arch)
     else
-        tmp = get_allocation(MatVec, f, op, src, x, Nblocks, arch)
+        tmp = get_allocation(MatVec, f, op, src, x, Nblocks, Nitem, arch)
         _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H, arch)
     end
 end
@@ -361,17 +363,16 @@ function _matvec_impl_single!(
     n, p = size(src)
     backend = get_backend(src)
     warpsz = get_warpsize(arch)
-    if Nitem == 1
-        ndrange = cld(n, chunksz) * workgroup
-        matvec_kernel!(backend, workgroup, ndrange)(
-            f, op, g, dst, src, x, Val(chunksz), Val(1), nothing, nothing, H, Val(warpsz)
-        )
-    else
-        ndrange = cld(n, Nitem)
-        matvec_vload_kernel!(backend, workgroup, ndrange)(
-            f, op, g, dst, src, x, Val(Nitem), H
-        )
-    end
+    ndrange = cld(n, chunksz) * workgroup
+    matvec_kernel!(backend, workgroup, ndrange)(
+        f, op, g, dst, src, x, Val(chunksz), Val(1), Val(Nitem), nothing, nothing, H, Val(warpsz)
+    )
+    # else
+    #     ndrange = cld(n, Nitem)
+    #     matvec_vload_kernel!(backend, workgroup, ndrange)(
+    #         f, op, g, dst, src, x, Val(Nitem), H
+    #     )
+    # end
 end
 
 # Multi-block case (with synchronization)

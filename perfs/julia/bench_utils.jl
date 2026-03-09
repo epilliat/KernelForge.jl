@@ -7,9 +7,6 @@ No plotting dependencies — safe to use in the minimal quick_bench environment.
 
 
 
-if haskey(Base.loaded_modules, Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA"))
-    using CUDA
-end
 using AcceleratedKernels
 using BenchmarkTools
 using Statistics
@@ -18,6 +15,7 @@ using CSV
 using Printf
 using PrettyTables
 using Quaternions
+using PrettyTables
 
 
 include("number_format.jl")
@@ -65,6 +63,14 @@ Benchmark `f()` by:
 - Profiling `trials` times for kernel time via `CUDA.@profile`.
 - Timing `trials` samples with `BenchmarkTools` for total wall-clock time.
 """
+
+macro maybe_profile(ex)
+    if @isdefined(CUDA)
+        :(CUDA.@profile $(esc(ex)))
+    else
+        esc(ex)
+    end
+end
 function bench(name, f;
     duration=0.5,
     trials=100,
@@ -77,7 +83,7 @@ function bench(name, f;
     kernel_times = Vector{Float64}(undef, trials)
     if @isdefined(CUDABackend) && backend isa CUDABackend
         for i in 1:trials
-            prof = CUDA.@profile f()
+            prof = @maybe_profile f()
             kernel_times[i] = sum_kernel_durations_μs(prof; exclude_copy)
         end
     else
