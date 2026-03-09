@@ -43,12 +43,13 @@ function findfirst(
     n = length(src)
     backend = get_backend(src)
     ndrange = blocks * workgroup
+    warpsz = get_warpsize(arch)
+
     nd = min(ndrange, cld(n, Nitem))
-    gs = max(32, min(workgroup, nd))
-    gs = cld(gs, 32) * 32
+    gs = max(warpsz, min(workgroup, nd))
+    gs = cld(gs, warpsz) * warpsz
     dst = KernelAbstractions.allocate(backend, Int, 1)
     fill!(dst, n + 1)
-    warpsz = get_warpsize(arch)
     findfirst_kernel!(backend, gs, nd)(dst, src, filtr, Val(Nitem), Val(warpsz))
     result = Array(dst)[1]
     result > n && return nothing
@@ -98,6 +99,7 @@ function findlast(
 ) where {F,T}
     n = length(src)
     rev = @view src[end:-1:1]
+
     result = findfirst(filtr, rev; Nitem, workgroup, blocks, arch)
     result === nothing && return nothing
     if ndims(src) != 1

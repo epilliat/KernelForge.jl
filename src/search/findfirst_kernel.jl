@@ -16,7 +16,6 @@
     any_found = false
     best_id = n + 1
     i = I
-
     last_i = i + (warpsz - lane)
 
     while last_i * Nitem <= n
@@ -36,7 +35,7 @@
         last_i += ndrange
         (any_found || stop) && break
     end
-    #@print(lane, "\n")
+    #@print("lane = $lane, found=$found, any_found = $any_found,\n")
     if !stop && !found && (i - 1) * Nitem + 1 <= n
         for j in 1:Nitem
             idx = (i - 1) * Nitem + j
