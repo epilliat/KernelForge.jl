@@ -4,6 +4,7 @@ using KernelAbstractions
 using AMDGPU
 import KernelForge: detect_arch
 import KernelIntrinsics: devices
+import KernelIntrinsics as KI
 
 function __init__()
     if AMDGPU.functional()

@@ -3,7 +3,7 @@
 # argmax1d
 # ============================================================================
 
-@inline default_nitem(arch::AbstractArch, ::Type{Argmax1D}, ::Type{T}) where T = default_nitem(arch, MapReduce1D, T)
+@inline default_nitem(arch::AbstractArch, ::Type{Argmax1D}, src::AbstractArray{T}) where T = default_nitem(arch, MapReduce1D, src)
 
 """
     argmax1d(f, rel, src; kwargs...) -> Int or GPU array
@@ -179,7 +179,7 @@ function argmax1d(
     backend = get_backend(srcs[1])
     dst = KernelAbstractions.allocate(backend, Int, 1)
     arch = something(arch, detect_arch(srcs[1]))
-    Nitem = something(Nitem, default_nitem(arch, Argmax1D, T))
+    Nitem = something(Nitem, default_nitem(arch, Argmax1D, srcs[1]))
     workgroup = something(workgroup, default_workgroup(arch))
     blocks = something(blocks, default_blocks(arch))
     _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, length(srcs[1]), backend, arch)
@@ -216,7 +216,7 @@ function argmax1d!(
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     arch = something(arch, detect_arch(srcs[1]))
-    Nitem = something(Nitem, default_nitem(arch, Argmax1D, T))
+    Nitem = something(Nitem, default_nitem(arch, Argmax1D, srcs[1]))
     workgroup = something(workgroup, default_workgroup(arch))
     blocks = something(blocks, default_blocks(arch))
     _argmax1d_impl!(f, rel, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)

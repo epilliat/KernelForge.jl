@@ -51,7 +51,7 @@
         id_base = (i - 1) * Nitem + 1
         if id_base <= N
             for j in id_base:N
-                v = broadcast_apply_across(f, srcs, j, Val(1))
+                v = broadcast_apply_across(f, srcs, j, Val(1))[1]
                 if rel(v, maxval)
                     maxval = v
                     argm = j
