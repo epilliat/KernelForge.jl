@@ -67,11 +67,11 @@ fill!(x, one(Float32))
 src = AT{Float32}(undef, n, p)
 fill!(src, one(Float32))
 
-(x' * src; KA.synchronize(backend))
+x' * src
+KA.synchronize(backend)
+KernelForge.vecmat(*, +, x, src)
+KA.synchronize(backend)
 
-
-@btime (x' * src; KA.synchronize(backend))
-@btime (KernelForge.vecmat(*, +, x, src; Nitem=16); KA.synchronize(backend))
 
 # CUDA.@profile x' * src
 # CUDA.@profile KernelForge.vecmat(*, +, x, src)
@@ -88,7 +88,7 @@ fill!(src, one(Float32))
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^6, 10^7]
+total_elements = [10^6, 10^7, 10^8]
 types = [Float32]
 
 # ---------------------------------------------------------------------------

@@ -42,7 +42,11 @@
 
     if !isnothing(x)
         i_x = (lchid - 1) * Nitem + 1
-        values_x = vload(x, i_x, Val(Nitem), Val(false)) # No bound problem if Nthreads*Nitem <=n
+        if i_x + Nitem - 1 <= n
+            values_x = vload(x, i_x, Val(Nitem), Val(false))
+        else
+            values_x = safe_vload(x, i_x, n, Val(Nitem))
+        end
         values = f.(values_x, values) # careful to the order here
         i_x += Nthreads * Nitem
     else

@@ -1,24 +1,24 @@
-@inline function default_nitem(::AbstractArch, ::Type{Scan1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::AbstractArch, ::Type{Scan1D}, n, ::Type{T}) where {T}
     return cld(16, sizeof(T))
 end
 
-@inline function default_nitem(::Ampere, ::Type{Scan1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::Ampere, ::Type{Scan1D}, n, ::Type{T}) where {T}
     return min(16, cld(64, sizeof(T)))
 end
 
-@inline function default_nitem(::RTX1000, ::Type{Scan1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::RTX1000, ::Type{Scan1D}, n, ::Type{T}) where {T}
     sz = sizeof(T)
     cld(16, cld(sz, 2))
 end
 
-@inline function default_nitem(::AMDArch, ::Type{Scan1D}, src::AbstractArray{T}) where T # MI300X
-    nitem = length(src) <= cld(sizeof(T), 4) * 10^6 ? cld(32, cld(sizeof(T), 2)) : cld(32, cld(sizeof(T), 4))
+@inline function default_nitem(::AMDArch, ::Type{Scan1D}, n, ::Type{T}) where T # MI300X
+    nitem = n <= cld(sizeof(T), 4) * 10^6 ? cld(32, cld(sizeof(T), 2)) : cld(32, cld(sizeof(T), 4))
     return nitem
 end
 
-default_workgroup(arch::AbstractArch, ::Type{Scan1D}, src::AbstractArray{T}) where T = default_workgroup(arch) # default fallback
+default_workgroup(arch::AbstractArch, ::Type{Scan1D}, n, ::Type{T}) where T = default_workgroup(arch) # default fallback
 
-@inline function default_workgroup(::AMDArch, ::Type{Scan1D}, src::AbstractArray{T}) where {T} # tuned for MI300X
+@inline function default_workgroup(::AMDArch, ::Type{Scan1D}, n, ::Type{T}) where {T} # tuned for MI300X
     return 1024
 end
 
@@ -168,9 +168,9 @@ function get_allocation(
     T = eltype(AT)
     H = Base.promote_op(f, T)
     arch = something(arch, detect_arch(src))
-    Nitem = default_nitem(arch, Scan1D, src)
-    workgroup = something(workgroup, default_workgroup(arch, Scan1D, src))
     n = length(src)
+    Nitem = default_nitem(arch, Scan1D, n, T)
+    workgroup = something(workgroup, default_workgroup(arch, Scan1D, n, T))
     ndrange = cld(n, Nitem)
     blocks = something(blocks, cld(ndrange, workgroup))
     return get_allocation(Scan1D, f, op, src, blocks)
@@ -239,8 +239,8 @@ function scan!(
     H = Base.promote_op(f, T)
     backend = get_backend(src)
     arch = something(arch, detect_arch(src))
-    Nitem = something(Nitem, default_nitem(arch, Scan1D, src))
-    workgroup = something(workgroup, default_workgroup(arch, Scan1D, src))
+    Nitem = something(Nitem, default_nitem(arch, Scan1D, n, T))
+    workgroup = something(workgroup, default_workgroup(arch, Scan1D, n, T))
     ndrange = cld(n, Nitem)
     blocks = cld(ndrange, workgroup)
     _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend, arch)

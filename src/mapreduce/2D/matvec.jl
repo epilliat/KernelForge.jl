@@ -1,29 +1,25 @@
 ## TODO: understand relationship of defaults with cache sizes of arch
 
-@inline function default_nblocks(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
-    n, p = size(src)
+@inline function default_nblocks(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}) where T
     n * p <= cld(4 * 10^6, sizeof(T)) && n >= 10^4 && return 1 # micro optim
     return nextpow(2, cld(128, floor(Int, sqrt(n))))
 end
-@inline function default_workgroup(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
+@inline function default_workgroup(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}) where T
     sizeof(T) > 8 && return 256 # safe guard
-    n, p = size(src)
     (n * p <= cld(4 * 10^6, sizeof(T)) || (n <= cld(4 * 10^2, sizeof(T)))) && return 128 # small matrices or large matrices
     (n < cld(4 * 10^4, sizeof(T))) && return 256 # intermediary regime
     p <= 10 && return 256 # big tall matrices
     return 512 # big large matrices
 end
 
-@inline function default_nitem(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
+@inline function default_nitem(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}) where T
     sizeof(T) > 8 && return 1
-    n, p = size(src)
     n == 1 && return 1
     n <= 10 && return min(max(1, fld(n, 4)), prevpow(2, cld(16, sizeof(T))))
     return prevpow(2, cld(16, sizeof(T)))
 end
 
-@inline function default_chunksz(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}, Nitem, workgroup) where T
-    n, p = size(src)
+@inline function default_chunksz(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}, Nitem, workgroup) where T
     p == 1 && return workgroup
     n <= cld(4 * 10, sizeof(T)) && return nextpow(2, cld(n, 2 * Nitem))
     n <= cld(4 * 100, sizeof(T)) && return 4#prevpow(2, cld(n, 2 * Nitem))
@@ -185,10 +181,10 @@ function resolve_parameters(
     n, p = size(src)
     warpsz = get_warpsize(arch)
     blocks_row = something(blocks_row, default_blocks(arch))
-    workgroup = something(workgroup, default_workgroup(arch, MatVec, src))
-    Nblocks = something(Nblocks, default_nblocks(arch, MatVec, src))
-    Nitem = something(Nitem, default_nitem(arch, MatVec, src))
-    chunksz = something(chunksz, default_chunksz(arch, MatVec, src, Nitem, workgroup))
+    workgroup = something(workgroup, default_workgroup(arch, MatVec, n, p, T))
+    Nblocks = something(Nblocks, default_nblocks(arch, MatVec, n, p, T))
+    Nitem = something(Nitem, default_nitem(arch, MatVec, n, p, T))
+    chunksz = something(chunksz, default_chunksz(arch, MatVec, n, p, T, Nitem, workgroup))
 
     workgroup = max(min(workgroup, prevpow(2, n * p)), warpsz)
     Nblocks = min(Nblocks, prevpow(2, max(fld(p, cld(workgroup, chunksz)), 1)))

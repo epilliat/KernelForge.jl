@@ -1,4 +1,4 @@
-@inline default_nitem(arch::AbstractArch, ::Type{FindFirst1D}, src::AbstractArray{T}) where T = 1#default_nitem(arch, MapReduce1D, src)
+@inline default_nitem(arch::AbstractArch, ::Type{FindFirst1D}, n, ::Type{T}) where T = 1#default_nitem(arch, MapReduce1D, n, T)
 
 """
     findfirst(filtr, src; kwargs...) -> Int or CartesianIndex or nothing
@@ -37,10 +37,10 @@ function findfirst(
     arch=nothing
 ) where {F,T}
     arch = something(arch, detect_arch(src))::AbstractArch
-    Nitem = something(Nitem, default_nitem(arch, FindFirst1D, src))
+    n = length(src)
+    Nitem = something(Nitem, default_nitem(arch, FindFirst1D, n, T))
     workgroup = something(workgroup, default_workgroup(arch))
     blocks = something(blocks, default_blocks(arch))
-    n = length(src)
     backend = get_backend(src)
     ndrange = blocks * workgroup
     warpsz = get_warpsize(arch)

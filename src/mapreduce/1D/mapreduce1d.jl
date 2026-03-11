@@ -1,16 +1,16 @@
-@inline function default_nitem(::AbstractArch, ::Type{MapReduce1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where {T}
     prevpow(2, cld(16, cld(sizeof(T), 2)))
 end
 
-@inline function default_nitem(::RTX1000, ::Type{MapReduce1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::RTX1000, ::Type{MapReduce1D}, n, ::Type{T}) where {T}
     prevpow(2, cld(16, cld(sizeof(T), 2)))
 end
 
-@inline function default_nitem(::A40, ::Type{MapReduce1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::A40, ::Type{MapReduce1D}, n, ::Type{T}) where {T}
     return prevpow(2, cld(16, cld(sizeof(T), 2)))
 end
 
-@inline function default_nitem(::AMDArch, ::Type{MapReduce1D}, src::AbstractArray{T}) where {T}
+@inline function default_nitem(::AMDArch, ::Type{MapReduce1D}, n, ::Type{T}) where {T}
     return prevpow(2, cld(32, cld(sizeof(T), 2)))
 end
 
@@ -226,7 +226,7 @@ function mapreduce1d!(
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     arch = something(arch, detect_arch(srcs[1]))
     workgroup = something(workgroup, default_workgroup(arch))
-    Nitem = something(Nitem, default_nitem(arch, MapReduce1D, srcs[1]))
+    Nitem = something(Nitem, default_nitem(arch, MapReduce1D, n, T))
     blocks = something(blocks, default_blocks(arch))
     _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end

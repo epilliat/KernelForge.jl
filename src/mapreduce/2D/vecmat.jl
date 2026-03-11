@@ -51,37 +51,43 @@ function vecmat end, function vecmat! end
 # ============================================================================
 # Configuration helpers
 # ============================================================================
-@inline default_workgroup(::AbstractArch, ::Type{VecMat}, src::AbstractArray{T}) where T = 256
-@inline default_blocks(::AbstractArch, ::Type{VecMat}, src::AbstractArray{T}) where T = 128
-@inline default_blocks(::AMDArch, ::Type{VecMat}, src::AbstractArray{T}) where T = 256
+@inline default_workgroup(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
+@inline default_workgroup(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
+
+@inline default_blocks(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 128
+@inline default_blocks(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 80
+@inline default_blocks(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
 
 
-@inline function default_nitem(::AbstractArch, ::Type{VecMat}, src::AbstractArray{T}) where {T}
-    prevpow(2, cld(16, sizeof(T)))
+@inline function default_nitem(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where {T}
+    Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    return Nitem
 end
 
-@inline function default_nitem(::Ampere, ::Type{VecMat}, src::AbstractArray{T}) where {T} #A40
-    prevpow(2, cld(16, cld(sizeof(T), 2)))
+@inline function default_nitem(::Ampere, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
+    Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    return Nitem
+end
+@inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
+    Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    return Nitem
 end
 
-@inline function default_nitem(::A40, ::Type{VecMat}, src::AbstractArray{T}) where {T} #A40
-    n, p = size(src)
+@inline function default_nitem(::A40, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
     if n * p * sizeof(T) >= 4 * 10^8 && p * sizeof(T) >= 4 * 1000
-        return prevpow(2, cld(4, cld(sizeof(T), 2)))
+        Nitem = prevpow(2, cld(4, cld(sizeof(T), 2)))
     elseif p * sizeof(T) <= 4 * 100
-        return min(16, prevpow(2, cld(64, sizeof(T))))
+        Nitem = min(16, prevpow(2, cld(64, sizeof(T))))
     else
-        return prevpow(2, cld(16, cld(sizeof(T), 2)))
+        Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
     end
+    return Nitem
 end
 
-@inline function default_nitem(::RTX1000, ::Type{VecMat}, src::AbstractArray{T}) where {T}
-    sz = sizeof(T)
-    sz == 1 && return 16
-    sz == 2 && return 8
-    sz == 4 && return 8
-    return 4
-end
+# @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T}
+#     Nitem = prevpow(2, cld(16, sizeof(T)))
+#     return min(Nitem, prevpow(2, n))
+# end
 
 
 
@@ -91,14 +97,13 @@ param1(::RTX1000, ::Type{VecMat}) = 4
 param2(::AbstractArch, ::Type{VecMat}) = 100 # large enough so cld = 1
 param2(::RTX1000, ::Type{VecMat}) = 1
 
-@inline function default_nthreads(arch::AbstractArch, ::Type{VecMat}, src::AbstractArray{T}, Nitem, workgroup, blocks) where T
-    n, p = size(src)
+@inline function default_nthreads(arch::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
     p1 = param1(arch, VecMat)
     p2 = param2(arch, VecMat)
     thresh = prevpow(2, max(fld(n, p1), 1))
     if thresh >= workgroup # n large (tall matrix, reduction regime)
         Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
-        Nthreads = workgroup * Nblocks
+        Nthreads = workgroup * Nblocks ÷ 2
     else # n small (large matrix, copy regime)
         Nthreads = cld(thresh, cld(Nitem, p2))
     end
@@ -119,15 +124,14 @@ function resolve_parameters(
     blocks=nothing
 ) where {T}
     n, p = size(src)
-    workgroup = something(workgroup, default_workgroup(arch, VecMat, src))
-    blocks = something(blocks, default_blocks(arch, VecMat, src))
-    Nitem = something(Nitem, default_nitem(arch, VecMat, src))
-    Nthreads = something(Nthreads, default_nthreads(arch, VecMat, src, Nitem, workgroup, blocks))
+    workgroup = something(workgroup, default_workgroup(arch, VecMat, n, p, T))
+    blocks = something(blocks, default_blocks(arch, VecMat, n, p, T))
+    Nitem = something(Nitem, default_nitem(arch, VecMat, n, p, T))
+    Nthreads = something(Nthreads, default_nthreads(arch, VecMat, n, p, T, Nitem, workgroup, blocks))
 
-
+    Nitem = min(Nitem, prevpow(2, n))
+    Nthreads = min(Nthreads, prevpow(2, max(fld(n, Nitem), 1)))
     workgroup = min(workgroup, prevpow(2, n * p))
-    Nthreads = min(Nthreads, prevpow(2, n))
-    Nitem = min(Nitem, prevpow(2, max(fld(n, Nthreads), 1)))
 
     @assert Nthreads * Nitem <= n "Nthreads * Nitem must be <= n"
     return (; Nitem, Nthreads, workgroup, blocks)

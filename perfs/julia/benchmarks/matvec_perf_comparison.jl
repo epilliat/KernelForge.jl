@@ -22,7 +22,7 @@ using CSV
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^6, 10^7]
+total_elements = [10^6, 10^7, 10^8]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
@@ -66,10 +66,6 @@ src * x
 KA.synchronize(backend)
 KernelForge.matvec(*, +, src, x)
 KA.synchronize(backend)
-
-CUDA.@profile src * x
-KA.synchronize(backend)
-
 
 
 # ---------------------------------------------------------------------------
