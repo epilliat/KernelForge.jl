@@ -12,7 +12,7 @@ end
 
 
 Pkg.activate("test/envs/$TEST_BACKEND")
-Pkg.activate("envs/$TEST_BACKEND") # when running tests
+#Pkg.activate("envs/$TEST_BACKEND") # when running tests
 Pkg.instantiate()
 
 using Test
@@ -23,6 +23,8 @@ import KernelForge as KF
 using Random
 
 
+
+
 if TEST_BACKEND == "cuda"
     using CUDA
     if !CUDA.functional()
@@ -31,7 +33,6 @@ if TEST_BACKEND == "cuda"
     end
     AT = CuArray
     backend = CUDABackend()
-    include("general_routine.jl")
 elseif TEST_BACKEND == "roc"
     using AMDGPU
     if !AMDGPU.functional()
@@ -40,12 +41,13 @@ elseif TEST_BACKEND == "roc"
     end
     AT = ROCArray
     backend = ROCBackend()
-    include("general_routine.jl")
+    arch = KF.detect_arch(backend, Val(1))
 else
     error("Unknown backend: $TEST_BACKEND")
 end
-
-
+include("helpers.jl")
+#%%
+include("general_routine.jl")
 
 
 

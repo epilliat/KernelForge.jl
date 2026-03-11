@@ -20,8 +20,8 @@
     # This is a reason why we try to keep chunksz small in practice.
     shared = @localmem NTuple{Nitem,H} max(chunksz * cld(workgroup, warpsz), warpsz)
 
-    lid = @index(Local)
-    gid = @index(Group)
+    lid = Int(@index(Local))
+    gid = Int(@index(Group))
 
     #chunksz is exactly the number of rows that a workgroup takes
 

@@ -9,6 +9,11 @@ end
 # ============================================================================
 # matvec! tests
 # ============================================================================
+rng = Xoshiro()
+src, x, dst = make_test_arrays2(rng, 1, 1)
+KF.matvec!(*, +, dst, src, x)
+@test isapprox(Array(dst), Array(vec(src * x)); rtol=1f-3)
+#%%
 
 @testset "matvec!" begin
 

@@ -64,8 +64,12 @@ function vecmat end, function vecmat! end
     return Nitem
 end
 
-@inline function default_nitem(::Ampere, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
-    Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+@inline function default_nitem(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
+    Nitem = if p <= 10^3
+        prevpow(2, cld(16, cld(sizeof(T), 4)))
+    else
+        prevpow(2, cld(16, cld(sizeof(T), 2)))
+    end
     return Nitem
 end
 @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
@@ -107,7 +111,22 @@ param2(::RTX1000, ::Type{VecMat}) = 1
     else # n small (large matrix, copy regime)
         Nthreads = cld(thresh, cld(Nitem, p2))
     end
-    return Nthreads
+    return prevpow(2, Nthreads)
+end
+
+@inline function default_nthreads(arch::AMDArch, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
+    p1 = param1(arch, VecMat)
+    p2 = param2(arch, VecMat)
+    thresh = prevpow(2, max(fld(n, p1), 1))
+    if thresh >= workgroup # n large (tall matrix, reduction regime)
+        Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
+        Nthreads = workgroup * Nblocks
+    elseif p <= 100 # n small (large matrix, copy regime)
+        Nthreads = cld(thresh, cld(Nitem, p2)) * 8
+    else
+        Nthreads = cld(thresh, cld(Nitem, p2))
+    end
+    return prevpow(2, Nthreads)
 end
 # ============================================================================
 # Parameter resolution
