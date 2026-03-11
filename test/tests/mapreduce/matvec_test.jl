@@ -14,9 +14,9 @@ end
 
     @testset "square matrices" begin
         rng = Xoshiro(1)
-        for (n, p) in [(100, 100), (256, 256), (512, 512), (1000, 1000)]
+        for (n, p) in [(3, 3), (101, 101), (256, 256), (512, 512), (1000, 1000)]
             src, x, dst = make_test_arrays2(rng, n, p)
-            KF.matvec!(*, +, dst, src, x)
+            KF.matvec!(*, +, dst, src, x; Nitem=8)
             @test isapprox(Array(dst), Array(vec(src * x)); rtol=1f-3)
         end
     end

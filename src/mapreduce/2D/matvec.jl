@@ -1,3 +1,44 @@
+## TODO: understand relationship of defaults with cache sizes of arch
+
+@inline function default_nblocks(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
+    n, p = size(src)
+    n * p <= cld(4 * 10^6, sizeof(T)) && n >= 10^4 && return 1 # micro optim
+    return nextpow(2, cld(128, floor(Int, sqrt(n))))
+end
+@inline function default_workgroup(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
+    sizeof(T) > 8 && return 256 # safe guard
+    n, p = size(src)
+    (n * p <= cld(4 * 10^6, sizeof(T)) || (n <= cld(4 * 10^2, sizeof(T)))) && return 128 # small matrices or large matrices
+    (n < cld(4 * 10^4, sizeof(T))) && return 256 # intermediary regime
+    p <= 10 && return 256 # big tall matrices
+    return 512 # big large matrices
+end
+
+@inline function default_nitem(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}) where T
+    sizeof(T) > 8 && return 1
+    n, p = size(src)
+    n == 1 && return 1
+    n <= 10 && return min(max(1, fld(n, 4)), prevpow(2, cld(16, sizeof(T))))
+    return prevpow(2, cld(16, sizeof(T)))
+end
+
+@inline function default_chunksz(arch::AbstractArch, ::Type{MatVec}, src::AbstractArray{T}, Nitem, workgroup) where T
+    n, p = size(src)
+    p == 1 && return workgroup
+    n <= cld(4 * 10, sizeof(T)) && return nextpow(2, cld(n, 2 * Nitem))
+    n <= cld(4 * 100, sizeof(T)) && return 4#prevpow(2, cld(n, 2 * Nitem))
+    if n * p <= cld(4 * 10^6, sizeof(T))
+        p <= 10 && return 64
+        p <= 1000 && return 16
+    end
+    p <= 100 && return 64
+
+    return cld(workgroup, get_warpsize(arch))
+end
+
+
+
+
 # ============================================================================
 # Public API docstrings
 # ============================================================================
@@ -97,22 +138,6 @@ for i in 1:100
 end
 ```
 """
-function get_allocation(
-    ::Type{MatVec},
-    f::F,
-    op::O,
-    src::AbstractMatrix{T},
-    x::Union{AbstractArray,Nothing},
-    Nblocks::Integer,
-    Nitem=1
-) where {T,F<:Function,O<:Function}
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
-    n = size(src, 1)
-    backend = get_backend(src)
-    partial = KernelAbstractions.allocate(backend, NTuple{Nitem,H}, n * Nblocks)
-    flag = KernelAbstractions.allocate(backend, UInt8, n * Nblocks)
-    return KernelBuffer((; partial, flag))
-end
 
 function get_allocation(
     ::Type{MatVec},
@@ -120,14 +145,24 @@ function get_allocation(
     op::O,
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing},
+    chunksz=nothing,
     Nblocks=nothing,
-    Nitem=1,
+    workgroup=nothing,
+    blocks_row=nothing,
+    Nitem=nothing,
     arch=nothing
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
     arch = something(arch, detect_arch(src))
-    _, Nblocks_resolved, _, _, _ = resolve_parameters(arch, MatVec, n, p, nothing, Nblocks)
-    return get_allocation(MatVec, f, op, src, x, Nblocks_resolved, Nitem)
+    params = resolve_parameters(
+        arch, MatVec, src, chunksz, Nblocks, workgroup, blocks_row, Nitem
+    )
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
+    backend = get_backend(src)
+    nbatch = cld(n, params.Nitem)
+    partial = KernelAbstractions.allocate(backend, NTuple{params.Nitem,H}, nbatch * params.Nblocks)
+    flag = KernelAbstractions.allocate(backend, UInt8, nbatch * params.Nblocks)
+    return KernelBuffer((; partial, flag))
 end
 
 # ============================================================================
@@ -140,28 +175,22 @@ factor_matvec(::RTX1000) = 8
 function resolve_parameters(
     arch::AbstractArch,
     ::Type{MatVec},
-    n::Int,
-    p::Int,
+    src::AbstractArray{T},
     chunksz=nothing,
     Nblocks=nothing,
     workgroup=nothing,
     blocks_row=nothing,
     Nitem=nothing
-)
+) where T
+    n, p = size(src)
     warpsz = get_warpsize(arch)
     blocks_row = something(blocks_row, default_blocks(arch))
-    chunksz = something(chunksz, min(cld(nextpow(2, n), factor_matvec(arch)), 64))
-    Nblocks = something(Nblocks, prevpow(2, cld(blocks_row, cld(n, chunksz))))
-    workgroup = something(workgroup, Nblocks == 1 ? 128 : default_workgroup(arch))
-    Nitem = something(Nitem, 1)
+    workgroup = something(workgroup, default_workgroup(arch, MatVec, src))
+    Nblocks = something(Nblocks, default_nblocks(arch, MatVec, src))
+    Nitem = something(Nitem, default_nitem(arch, MatVec, src))
+    chunksz = something(chunksz, default_chunksz(arch, MatVec, src, Nitem, workgroup))
 
     workgroup = max(min(workgroup, prevpow(2, n * p)), warpsz)
-    Nitem = min(Nitem, prevpow(2, max(fld(n, workgroup), 1)))
-    if Nitem > 1
-        @assert Nitem * workgroup <= n
-        return workgroup, 1, workgroup, blocks_row, Nitem
-    end
-
     Nblocks = min(Nblocks, prevpow(2, max(fld(p, cld(workgroup, chunksz)), 1)))
     chunksz = min(max(chunksz, nextpow(2, cld(workgroup * Nblocks, p))), workgroup)
 
@@ -169,10 +198,9 @@ function resolve_parameters(
         chunksz = workgroup
     end
 
-
     @assert cld(workgroup, chunksz) * Nblocks <= p
     @assert ispow2(Nblocks) || chunksz * Nblocks >= workgroup || chunksz * Nblocks <= warpsz
-    return chunksz, Nblocks, workgroup, blocks_row, Nitem
+    return (; chunksz, Nblocks, workgroup, blocks_row, Nitem)
 end
 
 # ============================================================================
@@ -289,41 +317,19 @@ function _matvec_entry!(
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
     arch = something(arch, detect_arch(src))::AbstractArch
-    chunksz_, Nblocks_, workgroup_, _, Nitem_ = resolve_parameters(
-        arch, MatVec, n, p, chunksz, Nblocks, workgroup, blocks_row, Nitem
+    params = resolve_parameters(
+        arch, MatVec, src, chunksz, Nblocks, workgroup, blocks_row, Nitem
     )
-
-    _matvec_impl!(f, op, g, dst, src, x, chunksz_, Nblocks_, workgroup_, Nitem_, tmp, H, n, p, arch)
+    if params.Nblocks > 1
+        tmp = something(tmp, get_allocation(MatVec, f, op, src, x, params.chunksz, params.Nblocks, params.workgroup, params.blocks_row, params.Nitem, arch))
+    end
+    #@show params
+    _matvec_impl!(f, op, g, dst, src, x, params.chunksz, params.Nblocks, params.workgroup, params.Nitem, tmp, H, n, p, arch)
 end
 
 # ============================================================================
 # Core implementation
 # ============================================================================
-
-# Nothing dispatch: allocate buffer then forward to KernelBuffer dispatch
-function _matvec_impl!(
-    f::F, op::O, g::G,
-    dst::AbstractArray{S},
-    src::AbstractMatrix{T},
-    x::Union{AbstractArray,Nothing},
-    chunksz::Int,
-    Nblocks::Int,
-    workgroup::Int,
-    Nitem::Int,
-    ::Nothing,
-    ::Type{H},
-    n::Int,
-    p::Int,
-    arch::AbstractArch
-) where {S,T,F,O,G,H}
-    #@show chunksz, Nblocks, workgroup
-    if Nblocks == 1
-        _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H, arch)
-    else
-        tmp = get_allocation(MatVec, f, op, src, x, Nblocks, Nitem, arch)
-        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H, arch)
-    end
-end
 
 # KernelBuffer dispatch
 function _matvec_impl!(
@@ -335,7 +341,7 @@ function _matvec_impl!(
     Nblocks::Int,
     workgroup::Int,
     Nitem::Int,
-    tmp::KernelBuffer,
+    tmp::Union{Nothing,KernelBuffer},
     ::Type{H},
     n::Int,
     p::Int,
@@ -344,7 +350,7 @@ function _matvec_impl!(
     if Nblocks == 1
         _matvec_impl_single!(f, op, g, dst, src, x, chunksz, workgroup, Nitem, H, arch)
     else
-        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, workgroup, tmp, H, arch)
+        _matvec_impl_multi!(f, op, g, dst, src, x, chunksz, Nblocks, Nitem, workgroup, tmp, H, arch)
     end
 end
 
@@ -363,7 +369,7 @@ function _matvec_impl_single!(
     n, p = size(src)
     backend = get_backend(src)
     warpsz = get_warpsize(arch)
-    ndrange = cld(n, chunksz) * workgroup
+    ndrange = cld(n, chunksz * Nitem) * workgroup
     matvec_kernel!(backend, workgroup, ndrange)(
         f, op, g, dst, src, x, Val(chunksz), Val(1), Val(Nitem), nothing, nothing, H, Val(warpsz)
     )
@@ -383,6 +389,7 @@ function _matvec_impl_multi!(
     x::Union{AbstractArray,Nothing},
     chunksz::Int,
     Nblocks::Int,
+    Nitem::Int,
     workgroup::Int,
     tmp::KernelBuffer,
     ::Type{H},
@@ -390,10 +397,10 @@ function _matvec_impl_multi!(
 ) where {S,T,F,O,G,H}
     n, p = size(src)
     backend = get_backend(src)
-    ndrange = cld(n, chunksz) * Nblocks * workgroup
+    ndrange = cld(n, chunksz * Nitem) * Nblocks * workgroup
     fill!(tmp.arrays.flag, 0x00)
     warpsz = get_warpsize(arch)
     matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
+        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), Val(Nitem), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
     )
 end

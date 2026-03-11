@@ -37,7 +37,7 @@
     if id_base + Nitem - 1 <= n * p
         values = vload(src, id_base, Val(Nitem), Val(false))
     else
-        values = ntuple(i -> src[n*p], Val(Nitem)) # dummy value when chid <= p
+        values = safe_vload(src, id_base, n * p, Val(Nitem)) # dummy value when chid <= p
     end
 
     if !isnothing(x)

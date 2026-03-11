@@ -56,31 +56,27 @@ end
 
 
 # warup
-p = 1000
-n = 1000
-T = Float64
+p = 100
+n = 1000000
+T = Float32
 src = fill!(AT{T}(undef, n, p), one(T))
 x = fill!(AT{T}(undef, p), one(T))
 
 src * x
 KA.synchronize(backend)
-KernelForge.matvec(*, +, src, x; chunksz=8, Nblocks=1, workgroup=1024)
+KernelForge.matvec(*, +, src, x)
 KA.synchronize(backend)
-# Simple profiling example (without warmup here which gives slower results.)
 
-@btime (src * x; KA.synchronize(backend))
-@btime (KernelForge.matvec(*, +, src, x; chunksz=32, Nblocks=1, workgroup=1024); KA.synchronize(backend))
-@btime (KernelForge.matvec(*, +, src, x; chunksz=16); KA.synchronize(backend))
-#@btime (KernelForge.vecmat(*, +, x, src'); KA.synchronize(backend))
-# CUDA.@profile src * x
-# CUDA.@profile KernelForge.matvec(*, +, src, x)
+CUDA.@profile src * x
+KA.synchronize(backend)
+
 
 
 # ---------------------------------------------------------------------------
 # Collect all results
 # ---------------------------------------------------------------------------
 all_rows = NamedTuple[]
-total_elements = [10^6, 10^7]
+total_elements = [10^6, 10^7, 10^8]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below

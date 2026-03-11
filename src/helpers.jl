@@ -1,7 +1,16 @@
+function safe_vload(arr, base, limit, ::Val{N}) where N
+    ntuple(Val(N)) do i
+        @inbounds base + i - 1 <= limit ? arr[base+i-1] : arr[limit]
+    end
+end
+
+
 @generated function apply(f, srcs::NTuple{U}, idx) where {U}
     args = [:(srcs[$u][idx]) for u in 1:U]
     return :(f($(args...)))
 end
+
+
 
 @generated function vloads(srcs::NTuple{Nsrc}, idx, ::Val{Nitem}, ::Val{Rebase}, ::Val{Alignment}) where {Nsrc,Nitem,Rebase,Alignment}
     loads = [:(vload(srcs[$k], idx, Val($Nitem), Val($Rebase), Val($Alignment))) for k in 1:Nsrc]
