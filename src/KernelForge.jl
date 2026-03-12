@@ -24,6 +24,7 @@ include("mapreduce/1D/mapreduce1d_kernel.jl")
 include("mapreduce/1D/mapreduce1d.jl")
 
 include("mapreduce/2D/vecmat_kernel.jl")
+include("mapreduce/2D/vecmat_tall_kernel.jl")
 include("mapreduce/2D/matvec_kernel.jl")
 
 include("mapreduce/2D/vecmat.jl")

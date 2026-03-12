@@ -8,7 +8,7 @@ include("../../bench_utils.jl")
 using DataFrames
 using CSV
 
-function quick_profile(total_size::Int, ::Type{Op}; arch=KF.RTX1000(), T=Float32, AT=CuArray, def=false, tuned=true, ms=500) where Op
+function quick_profile(total_size::Int, ::Type{Op}; arch, T=Float32, AT=CuArray, def=false, tuned=true, ms=500) where Op
     tuning = Op == KF.MatVec ? matvec_params[T][total_size] : vecmat_params[T][total_size]
     results = []
 
@@ -23,6 +23,7 @@ function quick_profile(total_size::Int, ::Type{Op}; arch=KF.RTX1000(), T=Float32
     fmt_exp(x) = "10^$(round(log10(x), digits=2))"
 
     for ((n, p), params) in sort(collect(tuning), by=x -> x[1][1])
+        println("doing (n,p)=$((n,p))")
         src = fill!(AT{T}(undef, n, p), one(T))
         backend = get_backend(src)
 

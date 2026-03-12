@@ -6,6 +6,7 @@ perfs/_barplot_scripts_old/
 **/build
 **/bin
 *.png
+*tmp.jl
 *dev.jl
 /perfs/figures
 Manifest.toml

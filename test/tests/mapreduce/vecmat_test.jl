@@ -10,6 +10,7 @@ end
 # vecmat! tests
 # ============================================================================
 
+
 @testset "vecmat!" begin
 
     @testset "square matrices" begin

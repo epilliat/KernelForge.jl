@@ -60,4 +60,4 @@ matvec_params = Dict(
     ),
 )
 
-quick_profile(10^7, KF.MatVec, T=Float64, ms=0.01, def=true, tuned=true)
+quick_profile(10^7, KF.MatVec, arch=KF.RTX1000(), T=Float64, ms=0.01, def=true, tuned=true)

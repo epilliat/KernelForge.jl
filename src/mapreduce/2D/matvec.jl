@@ -319,7 +319,7 @@ function _matvec_entry!(
     if params.Nblocks > 1
         tmp = something(tmp, get_allocation(MatVec, f, op, src, x, params.chunksz, params.Nblocks, params.workgroup, params.blocks_row, params.Nitem, arch))
     end
-    @show params
+    #@show params
     _matvec_impl!(f, op, g, dst, src, x, params.chunksz, params.Nblocks, params.workgroup, params.Nitem, tmp, H, n, p, arch)
 end
 

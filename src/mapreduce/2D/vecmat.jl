@@ -55,7 +55,7 @@ function vecmat end, function vecmat! end
 @inline default_workgroup(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
 
 @inline default_blocks(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 128
-@inline default_blocks(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 80
+@inline default_blocks(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 40
 @inline default_blocks(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
 
 
@@ -73,7 +73,11 @@ end
     return Nitem
 end
 @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
-    Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    Nitem = if n <= 10^3
+        prevpow(2,min(8, cld(n, 50)))
+    else
+        prevpow(2, cld(16, cld(sizeof(T), 2)))
+    end
     return Nitem
 end
 
@@ -85,7 +89,7 @@ end
     else
         Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
     end
-    return Nitem
+    return prevpow(2,Nitem)
 end
 
 # @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T}
@@ -99,7 +103,7 @@ param1(::AbstractArch, ::Type{VecMat}) = 2 # tuned for A40
 param1(::RTX1000, ::Type{VecMat}) = 4
 
 param2(::AbstractArch, ::Type{VecMat}) = 100 # large enough so cld = 1
-param2(::RTX1000, ::Type{VecMat}) = 1
+param2(::RTX1000, ::Type{VecMat}) = 2
 
 @inline function default_nthreads(arch::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
     p1 = param1(arch, VecMat)
@@ -107,7 +111,20 @@ param2(::RTX1000, ::Type{VecMat}) = 1
     thresh = prevpow(2, max(fld(n, p1), 1))
     if thresh >= workgroup # n large (tall matrix, reduction regime)
         Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
-        Nthreads = workgroup * Nblocks ÷ 2
+        Nthreads = workgroup * Nblocks
+    else # n small (large matrix, copy regime)
+        Nthreads = cld(thresh, cld(Nitem, p2))
+    end
+    return prevpow(2, Nthreads)
+end
+
+@inline function default_nthreads(arch::RTX1000, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
+    p1 = param1(arch, VecMat)
+    p2 = param2(arch, VecMat)
+    thresh = prevpow(2, max(fld(n, p1), 1))
+    if thresh >= workgroup # n large (tall matrix, reduction regime)
+        Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
+        Nthreads = workgroup * Nblocks * 2
     else # n small (large matrix, copy regime)
         Nthreads = cld(thresh, cld(Nitem, p2))
     end
@@ -147,7 +164,7 @@ function resolve_parameters(
     blocks = something(blocks, default_blocks(arch, VecMat, n, p, T))
     Nitem = something(Nitem, default_nitem(arch, VecMat, n, p, T))
     Nthreads = something(Nthreads, default_nthreads(arch, VecMat, n, p, T, Nitem, workgroup, blocks))
-
+    #@show Nthreads
     Nitem = min(Nitem, prevpow(2, n))
     Nthreads = min(Nthreads, prevpow(2, max(fld(n, Nitem), 1)))
     workgroup = min(workgroup, prevpow(2, n * p))
@@ -197,17 +214,23 @@ function get_allocation(
     Nthreads=nothing,
     workgroup=nothing,
     blocks=nothing,
-    arch=nothing
-) where {T,F<:Function,O<:Function}
+    arch=nothing;
+    flag_alloc::Val{FA}=Val(true)
+) where {T,F<:Function,O<:Function,FA}
     arch = something(arch, detect_arch(src))
     params = resolve_parameters(arch, VecMat, src, Nitem, Nthreads, workgroup, blocks)
     Nblocks = cld(params.Nthreads, params.workgroup)
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
     _, p = size(src)
     backend = get_backend(src)
-    partial = KernelAbstractions.allocate(backend, H, Nblocks * p)
-    flag = KernelAbstractions.allocate(backend, UInt8, Nblocks * p)
-    return KernelBuffer((; partial, flag))
+    if FA
+        partial = KernelAbstractions.allocate(backend, H, Nblocks * p)      # 2D: (Nblocks, p)
+        flag = KernelAbstractions.allocate(backend, UInt8, Nblocks * p) # 2D: (Nblocks, p)
+        return KernelBuffer((; partial, flag))
+    else
+        partial = KernelAbstractions.allocate(backend, H, Nblocks, p)
+        return KernelBuffer((; partial))
+    end
 end
 
 
@@ -321,13 +344,10 @@ function _vecmat_entry!(
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
     arch = something(arch, detect_arch(src))::AbstractArch
+
     params = resolve_parameters(arch, VecMat, src, Nitem, Nthreads, workgroup, blocks)
 
-    if params.Nthreads > params.workgroup
-        tmp = something(tmp, get_allocation(VecMat, f, op, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, arch))
-    end
-
-    _vecmat_impl!(f, op, g, dst, x, src, params.Nitem, params.Nthreads, params.workgroup, tmp, H, n, p, arch)
+    _vecmat_impl!(f, op, g, dst, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, tmp, H, n, p, arch)
 end
 
 # ============================================================================
@@ -344,6 +364,7 @@ function _vecmat_impl!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
+    blocks::Int,
     tmp::Union{Nothing,KernelBuffer},
     ::Type{H},
     n::Int,
@@ -351,9 +372,11 @@ function _vecmat_impl!(
     arch::AbstractArch
 ) where {S,T,F,O,G,H}
     if Nthreads <= workgroup
-        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, H, arch)
+        _vecmat_impl_single!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, H, arch)
+    elseif cld(Nthreads, workgroup) < p
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, H, arch)
     else
-        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, tmp, H, arch)
+        _vecmat_impl_multi!(f, op, g, dst, x, src, Nitem, Nthreads, workgroup, blocks, tmp, H, arch)
     end
 end
 
@@ -366,6 +389,7 @@ function _vecmat_impl_single!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
+    blocks::Int,
     ::Type{H},
     arch
 ) where {S,T,F,O,G,H}
@@ -387,16 +411,49 @@ function _vecmat_impl_multi!(
     Nitem::Int,
     Nthreads::Int,
     workgroup::Int,
-    tmp::KernelBuffer,
+    blocks::Int,
+    tmp::Union{Nothing,KernelBuffer},
     ::Type{H},
     arch
 ) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     ndrange = Nthreads * p
+    tmp = something(tmp, get_allocation(VecMat, f, op, x, src, Nitem, Nthreads, workgroup, blocks, arch))
     fill!(tmp.arrays.flag, 0x00)
     warpsz = get_warpsize(arch)
     vecmat_kernel!(backend, workgroup, ndrange)(
         f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
     )
+end
+
+function _vecmat_impl_multi_tall!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    x::Union{AbstractArray,Nothing},
+    src::AbstractMatrix{T},
+    Nitem::Int,
+    Nthreads::Int,
+    workgroup::Int,
+    blocks::Int,
+    tmp::Union{Nothing,KernelBuffer},
+    ::Type{H},
+    arch
+) where {S,T,F,O,G,H}
+    p = size(src, 2)
+    backend = get_backend(src)
+    tmp = something(tmp, get_allocation(VecMat, f, op, x, src, Nitem, Nthreads, workgroup, blocks, arch; flag_alloc=Val(false)))
+    warpsz = get_warpsize(arch)
+    Nblocks = cld(Nthreads, workgroup)
+
+    #@assert Nblocks >= p "tall kernel needs Nblocks ($Nblocks) >= p ($p); increase blocks parameter"
+    #@show Nthreads, workgroup, Nitem
+    # phase 1: reduce src into partial_2d, one entry per block per column
+    vecmat_tall_kernel!(backend, workgroup, Nthreads)(
+        f, op, identity, tmp.arrays.partial, x, src, Val(Nitem), Val(Nthreads), H, Val(warpsz)
+    )
+    #KernelAbstractions.synchronize(backend)
+    workgroup = min(256, prevpow(2, Nblocks))
+    Nthreads = workgroup
+    _vecmat_impl_single!(identity, op, g, dst, nothing, tmp.arrays.partial, 1, Nthreads, workgroup, blocks, H, arch)
 end
