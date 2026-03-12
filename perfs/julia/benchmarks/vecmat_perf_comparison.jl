@@ -88,7 +88,7 @@ KA.synchronize(backend)
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^6, 10^7, 10^8]
+total_elements = [10^6, 10^7, 10^8, 10^9]
 types = [Float32]
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ types = [Float32]
 # ---------------------------------------------------------------------------
 all_rows = NamedTuple[]
 for total in total_elements, T in types
-    n_values = [10^k for k in 1:floor(Int, log10(total))]
+    n_values = total <= 10^8 ? [10^k for k in 0:round(Int, log10(total))] : [10^k for k in 1:(round(Int, log10(total))-1)]
     for n in n_values
         p = total ÷ n
         append!(all_rows, run_vecmat_benchmarks(n, p, T))

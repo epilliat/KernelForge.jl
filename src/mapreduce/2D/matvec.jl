@@ -65,23 +65,30 @@ end
     p == 1 && return workgroup
     p <= 10 && return 128
     p <= 100 && return 64
-    p <= 1000 && return 32
-    p <= 10^4 && n * p >= 10^8 && return 32
-    p <= 10^4 && n * p < 10^8 && return 16
-    p <= 10^5 && return 8
+    p <= 1000 && n*p > 10^6 && return 32
+    p <= 1000 && n*p <= 10^6 && return 16
 
-    chunksz = if n <= 10
-            prevpow(2, max(fld(n, Nitem), 1))
+    p <= 10^4 && n * p >= 10^8 && return 32
+    p <= 10^4 && 10^6 < n * p < 10^8 && return 16
+    p <= 10^4 && n*p <= 10^6 && return 8
+
+    p <= 10^4 && n * p < 10^8 && return 16
+
+    p <= 10^5 && n*p > 10^6 && return 8
+    p <= 10^5 && n*p <= 10^6 && return 4
+
+    if n <= 10
+            chunksz=prevpow(2, max(fld(n, Nitem), 1))
         elseif n <= 100
-            4
+            chunksz=4
         else
-            8
+            chunksz=8
         end
     if n*p <= 10^6
-        chunksz = 2*chunksz
+        chunksz = cld(chunksz,2)
     end
 
-    return 64
+    return chunksz
 end
 
 

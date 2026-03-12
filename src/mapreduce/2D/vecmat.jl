@@ -81,16 +81,16 @@ end
     return Nitem
 end
 
-@inline function default_nitem(::A40, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
-    if n * p * sizeof(T) >= 4 * 10^8 && p * sizeof(T) >= 4 * 1000
-        Nitem = prevpow(2, cld(4, cld(sizeof(T), 2)))
-    elseif p * sizeof(T) <= 4 * 100
-        Nitem = min(16, prevpow(2, cld(64, sizeof(T))))
-    else
-        Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
-    end
-    return prevpow(2,Nitem)
-end
+# @inline function default_nitem(::A40, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
+#     if n * p * sizeof(T) >= 4 * 10^8 && p * sizeof(T) >= 4 * 1000
+#         Nitem = prevpow(2, cld(4, cld(sizeof(T), 2)))
+#     elseif p * sizeof(T) <= 4 * 100
+#         Nitem = min(16, prevpow(2, cld(64, sizeof(T))))
+#     else
+#         Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+#     end
+#     return prevpow(2,Nitem)
+# end
 
 @inline function default_nitem(::A40, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
     if n <= 10000
