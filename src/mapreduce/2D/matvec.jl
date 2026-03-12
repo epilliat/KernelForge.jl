@@ -4,6 +4,20 @@
     n * p <= cld(4 * 10^6, sizeof(T)) && n >= 10^4 && return 1 # micro optim
     return nextpow(2, cld(128, floor(Int, sqrt(n))))
 end
+@inline function default_nblocks(arch::A40, ::Type{MatVec}, n, p, ::Type{T}) where T
+    if n <= 10
+        Nblocks = cld(2048, n)
+    elseif n <= 100
+        Nblocks = cld(512, floor(Int, sqrt(n)))
+    else
+        Nblocks = cld(2^8, floor(Int, sqrt(n)))
+    end
+    return prevpow(2, Nblocks)
+end
+
+@inline function default_workgroup(arch::A40, ::Type{MatVec}, n, p, ::Type{T}) where T
+    return 256
+end
 @inline function default_workgroup(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}) where T
     sizeof(T) > 8 && return 256 # safe guard
     (n * p <= cld(4 * 10^6, sizeof(T)) || (n <= cld(4 * 10^2, sizeof(T)))) && return 128 # small matrices or large matrices
@@ -18,6 +32,21 @@ end
     n <= 10 && return min(max(1, fld(n, 4)), prevpow(2, cld(16, sizeof(T))))
     return prevpow(2, cld(16, sizeof(T)))
 end
+@inline function default_nitem(arch::A40, ::Type{MatVec}, n, p, ::Type{T}) where T
+    if n * p <= 10^7
+        return min(2, n)
+    end
+    if n >= 10^4
+        Nitem = 2#cld(sizeof(T), 2)
+    elseif n <= 10
+        Nitem = cld(n, 4)
+    else
+        Nitem = cld(16, sizeof(T))
+    end
+    return prevpow(2, Nitem)
+end
+
+
 
 @inline function default_chunksz(arch::AbstractArch, ::Type{MatVec}, n, p, ::Type{T}, Nitem, workgroup) where T
     p == 1 && return workgroup
@@ -31,6 +60,30 @@ end
 
     return cld(workgroup, get_warpsize(arch))
 end
+
+@inline function default_chunksz(arch::A40, ::Type{MatVec}, n, p, ::Type{T}, Nitem, workgroup) where T
+    p == 1 && return workgroup
+    p <= 10 && return 128
+    p <= 100 && return 64
+    p <= 1000 && return 32
+    p <= 10^4 && n * p >= 10^8 && return 32
+    p <= 10^4 && n * p < 10^8 && return 16
+    p <= 10^5 && return 8
+
+    chunksz = if n <= 10
+            prevpow(2, max(fld(n, Nitem), 1))
+        elseif n <= 100
+            4
+        else
+            8
+        end
+    if n*p <= 10^6
+        chunksz = 2*chunksz
+    end
+
+    return 64
+end
+
 
 
 

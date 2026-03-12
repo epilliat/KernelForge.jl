@@ -92,6 +92,15 @@ end
     return prevpow(2,Nitem)
 end
 
+@inline function default_nitem(::A40, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
+    if n <= 10000
+        Nitem = prevpow(2, cld(4, cld(sizeof(T), 2)))
+    else
+        Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    end
+    return prevpow(2,Nitem)
+end
+
 # @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T}
 #     Nitem = prevpow(2, cld(16, sizeof(T)))
 #     return min(Nitem, prevpow(2, n))
@@ -113,9 +122,9 @@ param2(::RTX1000, ::Type{VecMat}) = 2
         Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
         Nthreads = workgroup * Nblocks
     else # n small (large matrix, copy regime)
-        Nthreads = cld(thresh, cld(Nitem, p2))
+        Nthreads = prevpow(2,cld(thresh, cld(Nitem, p2)))
     end
-    return prevpow(2, Nthreads)
+    return Nthreads
 end
 
 @inline function default_nthreads(arch::RTX1000, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
@@ -126,9 +135,9 @@ end
         Nblocks = min(max(fld(blocks, p), 1), max(fld(n, workgroup * cld(Nitem, p2)), 1))
         Nthreads = workgroup * Nblocks * 2
     else # n small (large matrix, copy regime)
-        Nthreads = cld(thresh, cld(Nitem, p2))
+        Nthreads = prevpow(2,cld(thresh, cld(Nitem, p2)))
     end
-    return prevpow(2, Nthreads)
+    return Nthreads
 end
 
 @inline function default_nthreads(arch::AMDArch, ::Type{VecMat}, n, p, ::Type{T}, Nitem, workgroup, blocks) where T
