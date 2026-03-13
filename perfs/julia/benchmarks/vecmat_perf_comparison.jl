@@ -75,7 +75,7 @@ KA.synchronize(backend)
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^6, 10^7, 10^8, 10^9]
+total_elements = [10^7, 10^8]
 types = [Float32]
 
 # ---------------------------------------------------------------------------
@@ -112,8 +112,8 @@ select!(df_display, :np_str, :n_str, :p_str, :)
 select!(df_display, Not([:n, :p]))
 
 println("=== VecMat Benchmark Results — GPU: $GPU_TAG ===")
-hl = TextHighlighter(
-    (data, i, j) -> data[i, :method] == "KernelForge",
-    crayon"blue bold"
-)
-pretty_table(df_display; highlighters=[hl])
+# hl = TextHighlighter(
+#     (data, i, j) -> data[i, :method] == "KernelForge",
+#     crayon"blue bold"
+# )
+# pretty_table(df_display; highlighters=[hl])

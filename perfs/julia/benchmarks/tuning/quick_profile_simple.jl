@@ -147,21 +147,17 @@ function quick_profile_simple_roc(total_size::Int, ::Type{Op}; arch, T=Float32, 
     tuning = Op == KF.MatVec ? matvec_params[T][total_size] : vecmat_params[T][total_size]
     results = []
 
-    function bench(backend, f!; ms=500)
-        t0 = time_ns()
-        while (time_ns() - t0) < ms * 1e6
+    function bench(backend, f!; ms=500, n_warmup=10, n_measure=50)
+        # warmup
+        for _ in 1:n_warmup
             f!()
-            KernelAbstractions.synchronize(backend)
+            AMDGPU.synchronize()
         end
+        # measure
         times = Float64[]
-        t0 = time_ns()
-        while (time_ns() - t0) < ms * 1e6
-            KernelAbstractions.synchronize(backend)
-            t_start = time_ns()
-            f!()
-            KernelAbstractions.synchronize(backend)
-            t_end = time_ns()
-            push!(times, (t_end - t_start) * 1e-6)
+        for _ in 1:n_measure
+            t = AMDGPU.@elapsed f!()
+            push!(times, t * 1000)  # s → ms
         end
         return times
     end

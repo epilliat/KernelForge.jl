@@ -14,7 +14,7 @@ include("../init.jl")
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^6, 10^7, 10^8, 10^9]
+total_elements = [10^7, 10^8]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
@@ -64,7 +64,7 @@ KA.synchronize(backend)
 # Collect all results
 # ---------------------------------------------------------------------------
 all_rows = NamedTuple[]
-total_elements = [10^6, 10^7, 10^8, 10^9]
+total_elements = [10^7, 10^8]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
@@ -100,8 +100,8 @@ select!(df_display, :np_str, :n_str, :p_str, :)
 select!(df_display, Not([:n, :p]))
 
 println("=== MatVec Benchmark Results — GPU: $GPU_TAG ===")
-hl = TextHighlighter(
-    (data, i, j) -> data[i, :method] == "KernelForge",
-    crayon"blue bold"
-)
-pretty_table(df_display; highlighters=[hl])
+# hl = TextHighlighter(
+#     (data, i, j) -> data[i, :method] == "KernelForge",
+#     crayon"blue bold"
+# )
+# pretty_table(df_display; highlighters=[hl])

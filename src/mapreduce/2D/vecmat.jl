@@ -59,8 +59,7 @@ function vecmat end, function vecmat! end
 @inline default_blocks(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
 
 @inline use_simple_kernel(::AbstractArch) = false
-@inline use_simple_kernel(::AMDArch) = true # AMD handles registers pretty bad in these cases so we use a specialized two phase kernel
-
+@inline use_simple_kernel(::AMDArch) = false # TODO: maybe write a simple kernel for AMD which doesn't incurr runtime errors because of registers
 
 @inline function default_nitem(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where {T}
     Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))

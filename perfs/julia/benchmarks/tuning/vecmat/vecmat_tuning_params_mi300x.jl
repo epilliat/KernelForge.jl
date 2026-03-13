@@ -5,13 +5,13 @@ vecmat_params = Dict(
     Float32 => Dict(
         10^8 => Dict(
             (10^0, 10^8) => (Nitem=1, Nthreads=1, workgroup=256, blocks=128),
-            (10^1, 10^7) => (Nitem=4, Nthreads=1, workgroup=256, blocks=128),
-            (10^2, 10^6) => (Nitem=4, Nthreads=2, workgroup=64, blocks=128),
-            (10^3, 10^5) => (Nitem=4, Nthreads=64, workgroup=256, blocks=128),
-            (10^4, 10^4) => (Nitem=4, Nthreads=128, workgroup=256, blocks=128),
-            (10^5, 10^3) => (Nitem=4, Nthreads=256, workgroup=256, blocks=128),
-            (10^6, 10^2) => (Nitem=4, Nthreads=10*256, workgroup=256, blocks=128),
-            (10^7, 10^1) => (Nitem=4, Nthreads=64 * 256, workgroup=256, blocks=128),
+            (10^1, 10^7) => (Nitem=4, Nthreads=64, workgroup=256, blocks=128),
+            (10^2, 10^6) => (Nitem=4, Nthreads=64, workgroup=256, blocks=128),
+            (10^3, 10^5) => (Nitem=4, Nthreads=256, workgroup=256, blocks=128),
+            (10^4, 10^4) => (Nitem=4, Nthreads=256, workgroup=256, blocks=128),
+            (10^5, 10^3) => (Nitem=4, Nthreads=512, workgroup=512, blocks=128),
+            (10^6, 10^2) => (Nitem=4, Nthreads=100*256, workgroup=128, blocks=128),
+            (10^7, 10^1) => (Nitem=4, Nthreads=50 * 256, workgroup=256, blocks=128),
             (10^8, 10^0) => (Nitem=4, Nthreads=256 * 256, workgroup=256, blocks=128),
         ),
         10^7 => Dict(
