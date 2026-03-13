@@ -17,5 +17,6 @@ function __init__()
     end
 end
 
+_unsafe_free!(arr::CuArray) = CUDA.unsafe_free!(arr)
 
 end # module KernelForgeCUDAExt

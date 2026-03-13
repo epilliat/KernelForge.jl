@@ -1,4 +1,4 @@
-@kernel unsafe_indices = true inbounds = true function vecmat_tall_kernel!(
+@kernel unsafe_indices = true inbounds = true function vecmat_simple_kernel!(
     f::F, op::O, g::G,
     dst::AbstractMatrix{S},
     x::Union{Nothing,AbstractArray},

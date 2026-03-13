@@ -2,7 +2,8 @@ module KernelForgeAMDGPUExt
 using KernelForge
 using KernelAbstractions
 using AMDGPU
-import KernelForge: detect_arch
+import KernelForge: detect_arch, _unsafe_free!
+
 import KernelIntrinsics: devices
 import KernelIntrinsics as KI
 
@@ -13,5 +14,8 @@ function __init__()
         end
     end
 end
+
+_unsafe_free!(arr::ROCArray) = AMDGPU.unsafe_free!(arr)
+
 
 end # module KernelForgeAMDGPUExt

@@ -6,7 +6,10 @@ import KernelIntrinsics as KI
 using KernelAbstractions
 using KernelAbstractions: adapt
 using Atomix: @atomicreplace, @atomic
-using ArgCheck
+
+
+#========== Helpers =============#
+
 
 
 const BitwiseTypes = Union{UInt8,UInt16,UInt32,UInt64,Int8,Int16,Int32,Int64,Float16,Float32,Float64}
@@ -24,7 +27,7 @@ include("mapreduce/1D/mapreduce1d_kernel.jl")
 include("mapreduce/1D/mapreduce1d.jl")
 
 include("mapreduce/2D/vecmat_kernel.jl")
-include("mapreduce/2D/vecmat_tall_kernel.jl")
+include("mapreduce/2D/vecmat_simple_kernel.jl")
 include("mapreduce/2D/matvec_kernel.jl")
 
 include("mapreduce/2D/vecmat.jl")

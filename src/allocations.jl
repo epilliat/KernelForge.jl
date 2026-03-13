@@ -25,3 +25,11 @@ macro allocate(expr)
     tag === nothing && error("Unknown ForgeAlgorithm: $func")
     return :(get_allocation($(tag), $(esc.(args)...)))
 end
+
+function _unsafe_free! end
+
+function _unsafe_free!(tmp::KernelBuffer)
+    for arr in tmp.arrays
+        _unsafe_free!(arr)
+    end
+end
