@@ -1,3 +1,6 @@
+using Pkg
+Pkg.activate("docs")
+
 using Documenter
 using KernelForge
 

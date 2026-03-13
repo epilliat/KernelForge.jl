@@ -560,7 +560,7 @@ x = CUDA.rand(Float32, 100_000)
 dst = similar(x)
 
 # Pre-allocate for scan
-tmp = KernelForge.get_allocation(KernelForge.scan!, dst, x)
+tmp = KernelForge.get_allocation(KernelForge.Scan1D, identity, +, x)
 
 # Reuse in a loop
 for i in 1:100

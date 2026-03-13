@@ -21,7 +21,7 @@ Pkg.add("KernelForge")
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays
 - **Vectorized copy** with configurable load/store widths
 - Views and strided arrays supported throughout
-- Currently CUDA-only; cross-platform support via KernelAbstractions.jl planned
+- Supports CUDA (NVIDIA) and AMDGPU (AMD) backends via weak dependencies
 
 ## License
 

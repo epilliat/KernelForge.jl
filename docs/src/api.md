@@ -38,6 +38,7 @@ KernelForge.argmin
 ```@docs
 KernelForge.matvec
 KernelForge.matvec!
+KernelForge.vecmat
 KernelForge.vecmat!
 ```
 

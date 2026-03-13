@@ -4,19 +4,17 @@ High-performance, portable GPU primitives for Julia. A pure Julia implementation
 !!! warning "Experimental Status"
     This package is in an experimental phase. Although extensive testing has been performed,
     no bounds checking is performed, which may lead to unexpected behavior with out-of-bounds
-    access. Correctness and performance have been validated only on a small NVIDIA RTX 1000.
+    access. Correctness and performance have been validated on NVIDIA (RTX 1000, A40) and
+    AMD (MI300X) GPUs.
 
 !!! info "Architecture & Contributions"
     KernelForge.jl builds on [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl)
     for GPU kernel dispatch. However, certain low-level operations—including warp shuffle
     instructions, vectorized memory access, and memory ordering semantics—are not yet available
     in KA.jl, so we use [KernelIntrinsics.jl](https://github.com/epilliat/KernelIntrinsics.jl) for these primitives.
-    As KernelIntrinsics.jl currently supports only CUDA, KernelForge.jl is likewise restricted
-    to CUDA.
     **The core contribution of this package lies in the GPU kernel implementations themselves**,
-    designed to be portable once the underlying intrinsics become available on other backends.
-    Extending support to AMD and Intel GPUs would primarily require work in KernelIntrinsics.jl,
-    with minimal adaptations in KernelForge.jl.
+    designed to be portable across GPU backends. CUDA and AMDGPU are both supported as weak
+    dependencies; Intel GPU support would primarily require work in KernelIntrinsics.jl.
 
 !!! note "Citation"
     A paper describing this work is in preparation. If you use this code, please check back
@@ -37,7 +35,7 @@ Pkg.add("KernelForge")
 - **Vectorized copy** with configurable load/store widths
 - Views and strided arrays supported throughout, enabled by KernelIntrinsics.jl's
   vectorized memory access primitives which correctly handle non-contiguous memory layouts
-- Currently CUDA-only; cross-platform support via KernelAbstractions.jl planned
+- Supports CUDA (NVIDIA) and AMDGPU (AMD) backends via weak dependencies
 - Includes `UnitFloat8`, a custom 8-bit floating-point type with range (-1, 1) for testing
 
 ## Quick Start
