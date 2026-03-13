@@ -10,14 +10,7 @@ Methodology:
 - Results saved to results/<gpu_short>/copy.csv
 =#
 
-using Pkg
-Pkg.activate("perfs/envs/benchenv")
-using Revise
-include("../bench_utils.jl")
-include("../architectures.jl")
-
-using DataFrames
-using CSV
+include("../init.jl")
 
 
 # ---------------------------------------------------------------------------

@@ -9,20 +9,7 @@ Methodology:
 - Results saved to results/<gpu_short>/profiling_benchmarks/vecmat.csv
 - Final DataFrame printed at the end
 =#
-include("../meta_helper.jl")
-using Pkg
-Pkg.activate("perfs/envs/benchenv/$backend_str")
-
-Pkg.instantiate()
-
-using Revise
-
-
-include("../architecture.jl")
-include("../bench_utils.jl")
-
-using DataFrames
-using CSV
+include("../init.jl")
 
 
 # n ranges from 10 to total÷10, powers of 10

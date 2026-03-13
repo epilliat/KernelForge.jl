@@ -10,15 +10,7 @@ Methodology:
 - Results saved to results/<gpu_short>/mapreduce.csv
 - Final DataFrame printed at the end
 =#
-include("../meta_helper.jl")
-using Pkg
-Pkg.activate("perfs/envs/benchenv/$backend_str")
-Pkg.instantiate()
-using Revise
-include("../architecture.jl")
-include("../bench_utils.jl")
-using DataFrames
-using CSV
+include("../init.jl")
 
 
 const DEFAULT_CUB_EXE = joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_sum_benchmark")
