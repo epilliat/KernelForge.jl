@@ -47,7 +47,7 @@ function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
 end
 
 
-# warup
+# warmup
 p = 100
 n = 1000000
 T = Float32
