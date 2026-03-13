@@ -6,7 +6,7 @@ import KernelIntrinsics as KI
 using CUDA
 
 
-import KernelForge: detect_arch
+import KernelForge: detect_arch, _unsafe_free!
 import KernelIntrinsics: devices
 
 function __init__()
