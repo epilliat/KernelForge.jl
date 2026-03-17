@@ -1,3 +1,12 @@
+@inline default_workgroup(::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where T =default_workgroup(arch)
+@inline function default_workgroup(::AMDArch, ::Type{MapReduce1D}, n, ::Type{T}) where T
+    return 256
+end
+
+@inline default_blocks(arch::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where T = default_blocks(arch)
+@inline default_blocks(arch::AMDArch, ::Type{MapReduce1D}, n, ::Type{T}) where T = 256
+
+
 @inline function default_nitem(::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where {T}
     prevpow(2, cld(16, cld(sizeof(T), 2)))
 end
@@ -150,9 +159,9 @@ function get_allocation(
     arch=nothing
 ) where {U,F<:Function,O<:Function,AT<:AbstractArray}
     arch = something(arch, detect_arch(srcs[1]))
-    workgroup = something(workgroup, default_workgroup(arch))
-    blocks = something(blocks, default_blocks(arch))
     T = eltype(AT)
+    workgroup = something(workgroup, default_workgroup(arch, MapReduce1D, length(srcs[1]), T))
+    blocks = something(blocks, default_blocks(arch, MapReduce1D, length(srcs[1]), T))
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     backend = get_backend(srcs[1])
     partial = KernelAbstractions.allocate(backend, H, blocks)
@@ -225,9 +234,9 @@ function mapreduce1d!(
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)
     arch = something(arch, detect_arch(srcs[1]))
-    workgroup = something(workgroup, default_workgroup(arch))
+    workgroup = something(workgroup, default_workgroup(arch, MapReduce1D, n, T))
     Nitem = something(Nitem, default_nitem(arch, MapReduce1D, n, T))
-    blocks = something(blocks, default_blocks(arch))
+    blocks = something(blocks, default_blocks(arch, MapReduce1D, n, T))
     _mapreduce1d_impl!(f, op, g, dst, srcs, Nitem, workgroup, blocks, tmp, H, n, backend, arch)
 end
 
@@ -284,7 +293,7 @@ function _mapreduce1d_impl!(
         allequal(aligns) ? aligns[1] + 1 : -1
     end
     warpsz = get_warpsize(arch)
-    mapreduce1d_kernel!(backend, workgroup)(
+    mapreduce1d_kernel!(backend, workgroup, ndrange)(
         f, op, g, dst, srcs, Val(Nitem), partial, flag, Val(Alignment), Val(warpsz); ndrange
     )
 end

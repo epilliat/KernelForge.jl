@@ -28,15 +28,16 @@ function run_scan_benchmarks(src::AT{T}, dst::AT{T}, label_T::String, n::Int;
     cub_exe::String=DEFAULT_CUB_EXE, cub_T::Type=T) where T
 
     rows = NamedTuple[]
-
+    tmp_kf = KF.@allocate scan1d(identity, +, src)
+    temp_ak = similar(src)
     for (name, method, call) in [
         (has_cuda() ? "CUDA [$label_T]" : "Base [$label_T]",
             has_cuda() ? "CUDA" : "Base",
             () -> accumulate!(+, dst, src)),
         ("AcceleratedKernels [$label_T]", "AK",
-            () -> AcceleratedKernels.accumulate!(+, dst, src; init)),
+            () -> AcceleratedKernels.accumulate!(+, dst, src; init, temp=temp_ak)),
         ("KernelForge [$label_T]", "KernelForge",
-            () -> KernelForge.scan!(+, dst, src)),
+            () -> KernelForge.scan!(+, dst, src; tmp=tmp_kf)),
     ]
         s = bench(name, call; backend)
         push!(rows, (; n, type=label_T, method,
@@ -60,17 +61,15 @@ T = Float32
 src = fill!(AT{T}(undef, n), one(T))
 dst = fill!(AT{T}(undef, n), zero(T))
 
-KernelForge.scan!(identity, +, dst, src)
-KA.synchronize(backend)
-accumulate!(+, dst, src)
-KA.synchronize(backend)
-AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0)
-KA.synchronize(backend)
+# tmp=KF.@allocate scan1d(identity, +, src)
+# @benchmark (KernelForge.scan!(identity, +, dst, src; tmp);KA.synchronize(backend)) seconds=1
+# @benchmark (accumulate!(+, dst, src);KA.synchronize(backend)) seconds=1
+# KA.synchronize(backend)
+# temp_ak = similar(src)
+# @benchmark (AcceleratedKernels.accumulate!(+, dst, src; temp=temp_ak,init=0.0f0);KA.synchronize(backend)) seconds=1
+
 # Simple profiling example (without warmup here which gives slower results)
 
-@btime (KernelForge.scan!(identity, +, dst, src); KA.synchronize(backend))
-@btime (accumulate!(+, dst, src); KA.synchronize(backend))
-@btime (AcceleratedKernels.accumulate!(+, dst, src; init=0.0f0); KA.synchronize(backend))
 
 #%%
 # CUDA.@profile accumulate!(+, dst, src)
@@ -82,7 +81,7 @@ KA.synchronize(backend)
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
 
-sizes = [10^6, 10^7, 10^8]
+sizes = [10^6, 10^7, 10^8, 10^9]
 types = [Float32, Float64]
 
 # ---------------------------------------------------------------------------

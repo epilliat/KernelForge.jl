@@ -31,15 +31,18 @@ function run_mapreduce_benchmarks(src::AT{T}, label_T::String, n::Int;
   cub_exe::String=DEFAULT_CUB_EXE, cub_T::Type=T) where T
 
   rows = NamedTuple[]
+  tmp_kf = KF.@allocate mapreduce1d(f, +, src)
+  temp_ak = similar(src, cld(length(src), 10)) 
 
+  dst = AT{Float32}(undef, 1)
   for (name, method, call) in [
     (has_cuda() ? "CUDA [$label_T]" : "Base [$label_T]",
-      has_cuda() ? "CUDA" : "Base",
-      () -> mapreduce(f, +, src)),
+    has_cuda() ? "CUDA" : "Base",
+    () -> mapreduce(f, +, src)),
     ("AcceleratedKernels [$label_T]", "AK",
-      () -> AcceleratedKernels.mapreduce(f, +, src; init)),
+    () -> AcceleratedKernels.mapreduce(f, +, src; init, temp=temp_ak)),
     ("KernelForge [$label_T]", "KernelForge",
-      () -> KernelForge.mapreduce(f, +, src)),
+      () -> KernelForge.mapreduce!(f, +, dst,src; tmp=tmp_kf)),
   ]
     s = bench(name, call; backend)
     push!(rows, (; n, type=label_T, method,
@@ -57,26 +60,15 @@ function run_mapreduce_benchmarks(src::AT{T}, label_T::String, n::Int;
   return rows
 end
 
+
 # warmup
 n = 100000000
 src = fill!(AT{Float32}(undef, n), one(Float32))
 src_u8 = fill!(AT{UInt8}(undef, n), one(UInt8))
 
-KernelForge.mapreduce(identity, +, src)
-KA.synchronize(backend)
-mapreduce(identity, +, src)
-KA.synchronize(backend)
-AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0)
-KA.synchronize(backend)
 
 #%%
-@btime (KernelForge.mapreduce(identity, +, src); KA.synchronize(backend))
-@btime (mapreduce(identity, +, src); KA.synchronize(backend))
-@btime (AcceleratedKernels.mapreduce(identity, +, src; init=0.0f0); KA.synchronize(backend))
 
-@btime (KernelForge.mapreduce(identity, +, src_u8; Nitem=32); KA.synchronize(backend))
-@btime (mapreduce(identity, +, src_u8); KA.synchronize(backend))
-@btime (AcceleratedKernels.mapreduce(identity, +, src_u8; init=0.0f0); KA.synchronize(backend))
 
 # # Simple profiling example (without warmup here which gives slower results)
 
@@ -95,7 +87,7 @@ KA.synchronize(backend)
 # ---------------------------------------------------------------------------
 
 sizes = [10^6, 10^7, 10^8, 10^9]
-types = [Float32, UnitFloat8]
+types = [Float32, UnitFloat8, UInt8]
 
 all_rows = NamedTuple[]
 

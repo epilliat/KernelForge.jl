@@ -67,15 +67,29 @@ Benchmark `f()` by:
 macro maybe_profile(ex)
     if @isdefined(CUDA)
         :(CUDA.@profile $(esc(ex)))
+    elseif @isdefined(AMDGPU)
+        quote
+            local s = AMDGPU.stream()
+            local ev_start = AMDGPU.HIP.HIPEvent(s; do_record=true, timing=true)
+            $(esc(ex))
+            local ev_stop = AMDGPU.HIP.HIPEvent(s; do_record=true, timing=true)
+            AMDGPU.HIP.hipEventSynchronize(ev_stop.handle)
+            local elapsed_ref = Ref{Float32}(0.0f0)
+            AMDGPU.HIP.hipEventElapsedTime(elapsed_ref, ev_start.handle, ev_stop.handle)
+            elapsed_ref[]  # returns ms
+        end
     else
         esc(ex)
     end
 end
+
+
 function bench(name, f;
     duration=0.5,
     trials=100,
     backend,
-    exclude_copy=true
+    exclude_copy=true,
+    g = () -> ()
 )
     warmup(backend, f; duration)
     println("=== $name ===")
@@ -85,6 +99,10 @@ function bench(name, f;
         for i in 1:trials
             prof = @maybe_profile f()
             kernel_times[i] = sum_kernel_durations_μs(prof; exclude_copy)
+        end
+    elseif @isdefined(ROCBackend) && backend isa ROCBackend
+        for i in 1:trials
+            kernel_times[i] = @maybe_profile(f()) * 1000
         end
     else
         fill!(kernel_times, NaN)

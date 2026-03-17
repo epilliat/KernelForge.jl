@@ -52,6 +52,7 @@ function vecmat end, function vecmat! end
 # Configuration helpers
 # ============================================================================
 @inline default_workgroup(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
+@inline default_workgroup(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 512
 @inline default_workgroup(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where T = 256
 
 @inline default_blocks(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where T = 128
@@ -67,7 +68,11 @@ function vecmat end, function vecmat! end
 end
 
 @inline function default_nitem(::AMDArch, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
-    Nitem = prevpow(2, cld(16, sizeof(T)))
+    if n <= 10^6
+        Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
+    else
+        Nitem = prevpow(2, cld(16, cld(sizeof(T), 4)))
+    end
     return Nitem
 end
 @inline function default_nitem(::RTX1000, ::Type{VecMat}, n, p, ::Type{T}) where {T} #A40
@@ -353,7 +358,9 @@ function _vecmat_entry!(
     arch = something(arch, detect_arch(src))::AbstractArch
 
     params = resolve_parameters(arch, VecMat, src, Nitem, Nthreads, workgroup, blocks)
-
+    if isnothing(tmp) && params.Nthreads > params.workgroup
+        tmp = get_allocation(VecMat, f, op, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, arch)
+    end
     _vecmat_impl!(f, op, g, dst, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, tmp, H, n, p, arch)
 end
 
@@ -419,7 +426,7 @@ function _vecmat_impl_multi!(
     Nthreads::Int,
     workgroup::Int,
     blocks::Int,
-    tmp::Union{Nothing,KernelBuffer},
+    tmp,
     ::Type{H},
     arch
 ) where {S,T,F,O,G,H}
@@ -427,16 +434,11 @@ function _vecmat_impl_multi!(
     backend = get_backend(src)
     ndrange = Nthreads * p
     local_tmp = isnothing(tmp)
-    tmp = something(tmp, get_allocation(VecMat, f, op, x, src, Nitem, Nthreads, workgroup, blocks, arch))
     fill!(tmp.arrays.flag, 0x00)
     warpsz = get_warpsize(arch)
     vecmat_kernel!(backend, workgroup, ndrange)(
         f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
     )
-    if local_tmp
-        KernelAbstractions.synchronize(backend)   # ← attendre la fin du kernel avant de libérer
-        _unsafe_free!(tmp)
-    end
 end
 
 function _vecmat_impl_multi_simple!(
@@ -448,30 +450,24 @@ function _vecmat_impl_multi_simple!(
     Nthreads::Int,
     workgroup::Int,
     blocks::Int,
-    tmp::Union{Nothing,KernelBuffer},
+    tmp,
     ::Type{H},
     arch
 ) where {S,T,F,O,G,H}
     p = size(src, 2)
     backend = get_backend(src)
     local_tmp = isnothing(tmp)
-    tmp = something(tmp, get_allocation(VecMat, f, op, x, src, Nitem, Nthreads, workgroup, blocks, arch; flag_alloc=Val(false)))
+
     warpsz = get_warpsize(arch)
     Nblocks = cld(Nthreads, workgroup)
 
-    GC.@preserve tmp begin
-        ndrange = Nblocks * p * workgroup
-        # phase 1: reduce src into partial_2d, one entry per block per column
-        vecmat_simple_kernel!(backend, workgroup, ndrange)(
-            f, op, identity, tmp.arrays.partial, x, src, Val(Nitem), Val(Nthreads), H, Val(warpsz)
-        )
-        KernelAbstractions.synchronize(backend)
-        workgroup = min(256, prevpow(2, Nblocks))
-        Nthreads = workgroup
-        _vecmat_impl_single!(identity, op, g, dst, nothing, tmp.arrays.partial, 1, Nthreads, workgroup, blocks, H, arch)
-        if local_tmp
-            KernelAbstractions.synchronize(backend)   # ← attendre la fin du kernel avant de libérer
-            _unsafe_free!(tmp)
-        end
-    end
+    ndrange = Nblocks * p * workgroup
+    # phase 1: reduce src into partial_2d, one entry per block per column
+    vecmat_simple_kernel!(backend, workgroup, ndrange)(
+        f, op, identity, tmp.arrays.partial, x, src, Val(Nitem), Val(Nthreads), H, Val(warpsz)
+    )
+    KernelAbstractions.synchronize(backend)
+    workgroup = min(256, prevpow(2, Nblocks))
+    Nthreads = workgroup
+    _vecmat_impl_single!(identity, op, g, dst, nothing, tmp.arrays.partial, 1, Nthreads, workgroup, blocks, H, arch)
 end

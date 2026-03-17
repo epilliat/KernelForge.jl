@@ -1,42 +1,33 @@
 #=
 VecMat Performance Benchmarking Script
 ======================================
-Compares KernelForge.vecmat! against cuBLAS (via x' * A) for vector-matrix multiplication.
-Methodology:
-- 500ms warm-up phase (via bench_utils.jl `bench`)
-- 100 profiled trials for accurate kernel timing
-- benchmark + synchronization is used for full pipeline timing
-- Results saved to results/<gpu_short>/profiling_benchmarks/vecmat.csv
-- Final DataFrame printed at the end
 =#
 include("../init.jl")
-
-
-# n ranges from 10 to total÷10, powers of 10
-# e.g. total=10^6 → [10, 100, 1_000, 100_000]
-# recomputed per total in the loop below
 
 # ---------------------------------------------------------------------------
 # Benchmark runner
 # ---------------------------------------------------------------------------
-
 function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
-    x = AT{T}(1:n)
     A = fill!(AT{T}(undef, n, p), one(T))
-    dst = fill!(AT{T}(undef, 1, p), zero(T))
+    x = AT{T}(1:n)
+    dst = fill!(AT{T}(undef, p), zero(T))
+    tmp = KF.get_allocation(KF.VecMat, *, +, x, A)
 
     println("\n" * "="^60)
     println("VecMat: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
     rows = NamedTuple[]
-    for (name, method, call) in [
-        ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.vecmat(*, +, x, A)),
-        (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
-            has_cuda() ? "cuBLAS" : "LinearAlgebra",
-            () -> x' * A),
-    ]
-        s = bench(name, call; backend)
+    for (name, method, call, g) in [
+            ("KernelForge [n=$n, p=$p]", "KernelForge",
+             () -> KernelForge.vecmat!(dst, x, A; tmp),
+             @isdefined(AMDGPU) ? () -> KernelForge.vecmat!(dst, x, A; tmp) : () -> ()),
+            (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
+             has_cuda() ? "cuBLAS" : "LinearAlgebra",
+             () -> x' * A,
+             () -> ()),
+        ]
+        s = bench(name, call; backend, g)
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
@@ -44,38 +35,19 @@ function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
     return rows
 end
 
-
-# Simple profiling example (without warmup here which gives slower results.)
-
-n = 10000
-p = 10000
-x = AT{Float32}(undef, n)
-fill!(x, one(Float32))
-src = AT{Float32}(undef, n, p)
-fill!(src, one(Float32))
-
-x' * src
-KA.synchronize(backend)
-KernelForge.vecmat(*, +, x, src)
-KA.synchronize(backend)
-
-
-# CUDA.@profile x' * src
-# CUDA.@profile KernelForge.vecmat(*, +, x, src)
-# n = 10
-# p = 1000000
-# x = AT{Float32}(undef, n)
-# fill!(x, one(Float32))
-# src = AT{Float32}(undef, n, p)
-# fill!(src, one(Float32))
-# CUDA.@profile x' * src
-# CUDA.@profile KernelForge.vecmat(*, +, x, src)
-
+# warmup
+n = 10000000
+p = 10
+x = fill!(AT{Float32}(undef, n), one(Float32))
+src = fill!(AT{Float32}(undef, n, p), one(Float32))
+dst_warmup = fill!(AT{Float32}(undef, p), zero(Float32))
+tmp_warmup = KF.get_allocation(KF.VecMat, *, +, x, src)
+x' * src; KA.synchronize(backend)
 
 # ---------------------------------------------------------------------------
-# Configuration — edit these to control what gets benchmarked
+# Configuration
 # ---------------------------------------------------------------------------
-total_elements = [10^7, 10^8]
+total_elements = [10^7, 10^8, 10^9]
 types = [Float32]
 
 # ---------------------------------------------------------------------------
@@ -110,10 +82,4 @@ df_display.n_str = fmt_e.(df_display.n)
 df_display.p_str = fmt_e.(df_display.p)
 select!(df_display, :np_str, :n_str, :p_str, :)
 select!(df_display, Not([:n, :p]))
-
 println("=== VecMat Benchmark Results — GPU: $GPU_TAG ===")
-# hl = TextHighlighter(
-#     (data, i, j) -> data[i, :method] == "KernelForge",
-#     crayon"blue bold"
-# )
-# pretty_table(df_display; highlighters=[hl])

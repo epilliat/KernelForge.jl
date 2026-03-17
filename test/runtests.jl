@@ -11,7 +11,7 @@ TEST_BACKEND = get(ENV, "TEST_BACKEND") do
 end
 
 
-Pkg.activate("tests/envs/$TEST_BACKEND")
+Pkg.activate("test/envs/$TEST_BACKEND")
 Pkg.activate("envs/$TEST_BACKEND") # when running tests
 Pkg.instantiate()
 

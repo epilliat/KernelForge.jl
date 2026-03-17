@@ -1,1 +1,1 @@
-{"name":"AMD Instinct MI300X VF","rocm_version":"7.0.51831","total_memory_bytes":205822885888,"gpu_tag":"MI300X","wavefront_size":64}
+{"name":"AMD Instinct MI300X VF","rocm_version":"7.2.26015","total_memory_bytes":205822885888,"gpu_tag":"MI300X","wavefront_size":64}

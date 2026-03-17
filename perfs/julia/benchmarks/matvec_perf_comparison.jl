@@ -14,7 +14,7 @@ include("../init.jl")
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
-total_elements = [10^7, 10^8]
+total_elements = [10^7, 10^8, 10^9]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
@@ -25,15 +25,15 @@ types = [Float32]
 function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
     A = fill!(AT{T}(undef, n, p), one(T))
     x = AT{T}(1:p)
-    dst = fill!(AT{T}(undef, n, 1), zero(T))
-
+    dst = fill!(AT{T}(undef, n), zero(T))
+    tmp =KF.get_allocation(KF.MatVec, *, +, A, x)
     println("\n" * "="^60)
     println("MatVec: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
     rows = NamedTuple[]
     for (name, method, call) in [
-        ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.matvec(*, +, A, x)),
+        ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.matvec!(*, +, dst, A, x; tmp)),
         (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
             has_cuda() ? "cuBLAS" : "LinearAlgebra",
             () -> A * x),
@@ -53,10 +53,11 @@ n = 1000000
 T = Float32
 src = fill!(AT{T}(undef, n, p), one(T))
 x = fill!(AT{T}(undef, p), one(T))
+dst = similar(src, size(src,1))
+src * x;KA.synchronize(backend)
 
-src * x
-KA.synchronize(backend)
-KernelForge.matvec(*, +, src, x)
+tmp =KF.get_allocation(KF.MatVec, *, +, src, x)
+KernelForge.matvec!(*, +, dst,src, x; tmp)
 KA.synchronize(backend)
 
 
@@ -64,7 +65,7 @@ KA.synchronize(backend)
 # Collect all results
 # ---------------------------------------------------------------------------
 all_rows = NamedTuple[]
-total_elements = [10^7, 10^8]
+total_elements = [10^7, 10^8, 10^9]
 types = [Float32]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
