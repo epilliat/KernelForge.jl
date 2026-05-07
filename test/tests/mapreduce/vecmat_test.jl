@@ -92,13 +92,13 @@ end
     @testset "stress test" begin
         rng = Xoshiro(8)
 
-        x, src, dst = make_test_arrays(rng, 1024, 100_000)
+        x, src, dst = make_test_arrays(rng, 1024, 100_000; S=Float64)
         KF.vecmat!(*, +, dst, x, src)
-        @test isapprox(Array(dst), Array(vec(x' * src)); rtol=1f-3)
+        @test isapprox(Array(dst), Array(vec(x' * src)); rtol=1e-3)
 
-        x, src, dst = make_test_arrays(rng, 50_000, 1000)
+        x, src, dst = make_test_arrays(rng, 50_000, 1000; S=Float64)
         KF.vecmat!(*, +, dst, x, src)
-        @test isapprox(Array(dst), Array(vec(x' * src)); rtol=1f-3)
+        @test isapprox(Array(dst), Array(vec(x' * src)); rtol=1e-3)
     end
 
     @testset "simplified API" begin

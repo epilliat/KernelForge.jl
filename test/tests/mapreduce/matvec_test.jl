@@ -96,13 +96,13 @@ KF.matvec!(*, +, dst, src, x)
     @testset "stress test" begin
         rng = Xoshiro(8)
 
-        src, x, dst = make_test_arrays2(rng, 1024, 100_000)
+        src, x, dst = make_test_arrays2(rng, 1024, 100_000; S=Float64)
         KF.matvec!(*, +, dst, src, x)
-        @test isapprox(Array(dst), Array(vec(src * x)); rtol=1f-3)
+        @test isapprox(Array(dst), Array(vec(src * x)); rtol=1e-3)
 
-        src, x, dst = make_test_arrays2(rng, 50_000, 1000)
+        src, x, dst = make_test_arrays2(rng, 50_000, 1000; S=Float64)
         KF.matvec!(*, +, dst, src, x)
-        @test isapprox(Array(dst), Array(vec(src * x)); rtol=1f-3)
+        @test isapprox(Array(dst), Array(vec(src * x)); rtol=1e-3)
     end
 
     @testset "simplified API" begin

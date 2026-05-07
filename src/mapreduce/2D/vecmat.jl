@@ -3,18 +3,16 @@
 # ============================================================================
 
 """
-    vecmat([f, op,] x, src; kwargs...) -> GPU array
-    vecmat!([f, op,] dst, x, src; kwargs...)
+    vecmat([f, op,] x, src; kwargs...) -> GPU vector
 
-GPU parallel vector-matrix multiplication: `dst = g(op(f(x .* A), dims=1))`.
+GPU parallel vector-matrix multiplication. Returns a newly allocated result vector.
 
-For standard matrix-vector product: `vecmat!(dst, x, A)` computes `dst[j] = sum(x[i] * A[i,j])`.
-When `x = nothing`, computes column reductions: `dst[j] = sum(A[i,j])`.
+For the standard product, `vecmat(x, A)` computes `y[j] = sum(x[i] * A[i,j])`.
+When `x = nothing`, computes column reductions: `y[j] = sum(A[i,j])`.
 
 # Arguments
-- `f=*`: Element-wise transformation applied to `x[i] * A[i,j]` (or `A[i,j]` if `x=nothing`)
+- `f=*`: Element-wise transformation applied to `x[i]` and `A[i,j]` (or just `A[i,j]` if `x=nothing`)
 - `op=+`: Reduction operator
-- `dst`: Output vector of length `p` (number of columns)
 - `x`: Input vector of length `n` (number of rows), or `nothing` for pure column reduction
 - `src`: Input matrix of size `(n, p)`
 
@@ -37,16 +35,36 @@ y = vecmat(x, A)
 
 # Column-wise sum: y[j] = sum(A[:, j])
 y = vecmat(nothing, A)
+```
+
+See also: [`vecmat!`](@ref).
+"""
+function vecmat end
+
+"""
+    vecmat!([f, op,] dst, x, src; kwargs...)
+
+In-place form of [`vecmat`](@ref): writes `dst[j] = g(op_i(f(x[i], src[i,j])))`.
+
+# Examples
+```julia
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 1000)
+dst = CUDA.zeros(Float32, 500)
+
+# Standard vector-matrix multiply
+vecmat!(dst, x, A)
 
 # With pre-allocated buffer for repeated calls
 tmp = KernelForge.get_allocation(VecMat, *, +, x, A)
-dst = CUDA.zeros(Float32, 500)
 for i in 1:100
     vecmat!(dst, x, A; tmp)
 end
 ```
+
+See [`vecmat`](@ref) for the full keyword-argument list.
 """
-function vecmat end, function vecmat! end
+function vecmat! end
 
 # ============================================================================
 # Configuration helpers

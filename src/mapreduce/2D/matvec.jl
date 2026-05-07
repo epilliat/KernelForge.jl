@@ -100,22 +100,17 @@ end
 # ============================================================================
 
 """
-    matvec([f, op,] src::AbstractMatrix, x; kwargs...) -> GPU array
-    matvec!([f, op,] dst, src, x; kwargs...)
+    matvec([f, op,] src::AbstractMatrix, x; kwargs...) -> GPU vector
 
 Generalized matrix-vector operation with customizable element-wise and reduction operations.
 
-Computes `dst[i] = g(op_j(f(src[i,j], x[j])))` for each row `i`, where `op_j` denotes
+Computes `y[i] = g(op_j(f(src[i,j], x[j])))` for each row `i`, where `op_j` denotes
 reduction over columns. For standard matrix-vector multiplication, this is
-`dst[i] = sum_j(src[i,j] * x[j])`.
-
-The allocating version `matvec` returns a newly allocated result vector.
-The in-place version `matvec!` writes to `dst`.
+`y[i] = sum_j(src[i,j] * x[j])`. Returns a newly allocated result vector.
 
 # Arguments
 - `f`: Binary operation applied element-wise (default: `*`)
 - `op`: Reduction operation across columns (default: `+`)
-- `dst`: Output vector (in-place versions only)
 - `src`: Input matrix
 - `x`: Input vector, or `nothing` for row-wise reduction of `src` alone
 
@@ -148,9 +143,24 @@ y = matvec(identity, max, A, nothing)
 
 # Softmax numerator: y[i] = sum_j(exp(A[i,j] - x[j]))
 y = matvec((a, b) -> exp(a - b), +, A, x)
+```
 
-# In-place version
+See also: [`matvec!`](@ref).
+"""
+function matvec end
+
+"""
+    matvec!([f, op,] dst, src::AbstractMatrix, x; kwargs...)
+
+In-place form of [`matvec`](@ref): writes `dst[i] = g(op_j(f(src[i,j], x[j])))`.
+
+# Examples
+```julia
+A = CUDA.rand(Float32, 1000, 500)
+x = CUDA.rand(Float32, 500)
 dst = CUDA.zeros(Float32, 1000)
+
+# Standard matrix-vector multiply
 matvec!(dst, A, x)
 
 # With pre-allocated buffer for repeated calls
@@ -159,8 +169,10 @@ for i in 1:100
     matvec!(dst, A, x; tmp)
 end
 ```
+
+See [`matvec`](@ref) for the full keyword-argument list.
 """
-function matvec end, function matvec! end
+function matvec! end
 
 # ============================================================================
 # Buffer allocation

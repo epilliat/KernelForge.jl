@@ -11,8 +11,7 @@ TEST_BACKEND = get(ENV, "TEST_BACKEND") do
 end
 
 
-Pkg.activate("test/envs/$TEST_BACKEND")
-Pkg.activate("envs/$TEST_BACKEND") # when running tests
+Pkg.activate(joinpath(@__DIR__, "envs", TEST_BACKEND))
 Pkg.instantiate()
 
 using Test
