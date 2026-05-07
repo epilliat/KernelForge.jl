@@ -44,8 +44,7 @@
 using KernelAbstractions
 using KernelIntrinsics
 using Base.Cartesian: @nexprs
-using Atomix: @atomic
-import Atomix
+using KernelAbstractions: @atomic
 
 
 # Cache: (Nitem, Nchunks) → compiled @kernel function object.

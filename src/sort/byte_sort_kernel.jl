@@ -22,7 +22,7 @@
 using KernelAbstractions
 using KernelIntrinsics
 using Base.Cartesian: @nexprs
-using Atomix: @atomic
+using KernelAbstractions: @atomic
 
 
 # Cache: Nitem → compiled @kernel function object.

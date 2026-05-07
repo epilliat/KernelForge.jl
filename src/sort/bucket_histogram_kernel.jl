@@ -26,7 +26,7 @@
 using KernelAbstractions
 using KernelIntrinsics
 using KernelIntrinsics: vload
-using Atomix: @atomic
+using KernelAbstractions: @atomic
 using Base.Cartesian: @nexprs
 
 
