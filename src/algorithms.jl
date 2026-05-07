@@ -25,6 +25,7 @@ end
 @forge_algorithm FindFirst1D
 @forge_algorithm Argmax
 @forge_algorithm Argmax1D
+@forge_algorithm Sort1D
 
 function _type_to_symbol(T::DataType)
     return Symbol(lowercase(string(nameof(T))))

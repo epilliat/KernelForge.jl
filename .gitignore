@@ -11,6 +11,12 @@ perfs/_barplot_scripts_old/
 /perfs/figures
 /.claude
 
+# Experiments / dead-end variants — stays on disk but not tracked.
+/xp
+
+# Per-developer agent context (architecture, signatures, optimization notes).
+AGENTS.md
+**/AGENTS.md
 
 Manifest.toml
 docs/Manifest.toml

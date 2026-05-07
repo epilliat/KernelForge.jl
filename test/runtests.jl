@@ -46,8 +46,52 @@ else
     error("Unknown backend: $TEST_BACKEND")
 end
 include("helpers.jl")
-#%%
-include("general_routine.jl")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test target dispatch.
+#
+# - No ARGS                    → full suite (general_routine.jl), backwards-compat.
+# - ARGS = ["<dir>", ...]      → run all tests/<dir>/*_test.jl
+# - ARGS = ["<name>", ...]     → run a specific tests/*/<name>_test.jl file
+#
+# Examples:
+#   julia --project=test/envs/cuda test/runtests.jl sort
+#   Pkg.test("KernelForge"; test_args=["matvec"])
+#   Pkg.test("KernelForge"; test_args=["sort", "scan"])
+# ─────────────────────────────────────────────────────────────────────────────
+
+function _run_test_target(name::AbstractString)
+    dir = joinpath(@__DIR__, "tests", name)
+    if isdir(dir)
+        @testset "$name" begin
+            for f in sort(readdir(dir; join=true))
+                endswith(f, "_test.jl") && include(f)
+            end
+        end
+        return
+    end
+    for d in readdir(joinpath(@__DIR__, "tests"); join=true)
+        isdir(d) || continue
+        f = joinpath(d, "$(name)_test.jl")
+        if isfile(f)
+            @testset "$name" begin include(f) end
+            return
+        end
+    end
+    error("Unknown test target `$name`: no tests/$name/ directory and no " *
+          "tests/*/$(name)_test.jl. Try one of: " *
+          string(filter(isdir, readdir(joinpath(@__DIR__, "tests"); join=false))))
+end
+
+if isempty(ARGS)
+    include("general_routine.jl")
+else
+    @testset "selected ($(join(ARGS, ", ")))" begin
+        for name in ARGS
+            _run_test_target(name)
+        end
+    end
+end
 
 
 

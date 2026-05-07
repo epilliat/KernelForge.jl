@@ -1,0 +1,340 @@
+# Radix onesweep kernel factory (stable, multi-pass-correct, generic over T).
+#
+# The kernel body uses `@nexprs` for unrolled phase-1/phase-5a/phase-5b loops,
+# which requires the loop count as a literal at parse time. To make Nitem and
+# Nchunks tunable, we build the @kernel definition as an `Expr` with literal
+# numeric constants substituted into `@nexprs` counts and `@eval` it under a
+# uniquely-named function (one per (Nitem, Nchunks) spec). `get_radix_kernel(
+# Val(Nitem), Val(Nchunks))` caches the compiled function.
+#
+# Generic over T: src and dst hold arbitrary T values. The sort key is
+# computed as `uint_map(by(x))` — `by` extracts the field to sort by
+# (e.g. `first` for tuples), `uint_map` projects to an order-preserving
+# unsigned integer (UInt8/16/32/64). The kernel reads/scatters T values and
+# only computes the key for digit extraction. Number of byte passes is
+# `sizeof(K)` where K is the key type — scheduled by the wrapper, not the
+# kernel itself (the kernel just does ONE pass on the byte indicated by
+# `shift`).
+#
+# Stability: phase 1b uses STRIDED loads (lane L's i-th item = src[base +
+# (i-1)*warpsz + (L-1)]) instead of contiguous vload, so within a warp the
+# src-position order is (c, i, lane) — matching the @nexprs (c, i) time
+# order plus HW lane-order ranking inside each step. Per-(digit, warp)
+# ranks are src-position-stable, which is required for chained multi-pass
+# LSD radix sort.
+#
+# Memory layouts (must be preserved):
+#   partial1, partial2 :: (Nbuckets, nblocks) UInt32 — TRANSPOSED relative
+#       to the obvious (nblocks, Nbuckets). Threads write
+#       `partial[bucket=lid, gid]` so 256 threads coalesce into 8 cache
+#       lines per warp instead of 32 strided lines.
+#   global_excl_hist   :: AbstractVector{UInt32} of length Nbuckets — the
+#       exclusive prefix of the global byte-histogram for THIS pass's byte.
+#       Pass a view (e.g. `@view full_excl_hist[:, p]`) when calling.
+#   flag               :: AbstractVector{UInt8} of length nblocks
+#
+# Constraint: shared_sorted (= block_size_max * sizeof(T) bytes) +
+#   shared_hist (= Nbuckets * wpb * 4 bytes) must fit in 48 KB static
+#   shared. Wider T forces smaller block_size_max.
+#
+# Stable champions on RTX 1000 Ada Laptop (sm_89), UInt32 keys:
+#   N = 10M : (Nitem=16, Nchunks=2) ≈ 532 µs/pass
+#   N = 100M: (Nitem=16, Nchunks=2) ≈ 4830 µs/pass
+
+using KernelAbstractions
+using KernelIntrinsics
+using Base.Cartesian: @nexprs
+using Atomix: @atomic
+import Atomix
+
+
+# Cache: (Nitem, Nchunks) → compiled @kernel function object.
+const _onesweep_kernel_cache = Dict{Tuple{Int,Int},Any}()
+
+
+function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
+    # All numeric constants below get interpolated as LITERALS into @nexprs
+    # counts and Val(...) — so the @kernel macro sees plain @nexprs Nc/Ni
+    # forms, identical to a hand-written hardcoded body.
+    Niter_5b = Nchunks * Nitem
+
+    body = quote
+        @uniform begin
+            N = length(src)
+            digit_mask = UInt32(Nbuckets - 1)
+            T = eltype(dst)
+            block_size_max = wpb * $Nchunks * warpsz * $Nitem
+        end
+
+        lid = Int(@index(Local))
+        gid = Int(@index(Group))
+        warp_id = (lid - 1) ÷ warpsz + 1
+        lane = (lid - 1) % warpsz + 1
+        global_warp = (gid - 1) * wpb + warp_id
+
+        # Position-based addressing (strided load). Lane L's i-th item in
+        # chunk c is at src position:
+        #   pos = warp_first_pos + (c-1)*warpsz*Nitem + (i-1)*warpsz + (L-1)
+        warp_first_pos = (global_warp - 1) * $Nchunks * warpsz * $Nitem + 1
+
+        block_first_pos_1 = (gid - 1) * block_size_max + 1
+        block_last_pos_1 = min(gid * block_size_max, N)
+        block_size_actual = max(0, block_last_pos_1 - block_first_pos_1 + 1)
+
+        shared_hist = @localmem UInt32 (Nbuckets, wpb)
+        # shared_aux: scratch for warp_totals[1..wpb] and block_digit_start[1..Nbuckets].
+        # In v19/v22 these aliased into the front of shared_sorted (then UInt32),
+        # which broke once shared_sorted started carrying T-typed values (an
+        # InexactError if T is narrower than UInt32). Costs ~1 KB extra shared.
+        shared_aux = @localmem UInt32 (Nbuckets + wpb,)
+        shared_sorted = @localmem T (block_size_max,)
+
+        is_full_tile = gid * block_size_max <= N
+
+        # Phase 1a: zero shared_hist.
+        @nexprs 8 s -> begin
+            b_init_s = lane + (s - 1) * warpsz
+            shared_hist[b_init_s, warp_id] = UInt32(0)
+        end
+        @synchronize
+
+        # Phase 1b: STRIDED per-item load + atomic-add histogram.
+        # Each lane loads Nitem items at stride warpsz from `chunk_base`. Atomic
+        # OLD value gives rank, src-stable: within (digit, warp), items receive
+        # ranks in src-position order (= the @nexprs (c, i, lane) time order).
+        if is_full_tile
+            @nexprs $Nchunks c -> begin
+                chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
+                    item_c_i = src[pos_c_i]
+                    key_c_i = uint_map(by(item_c_i))
+                    d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
+                    # @atomic returns the NEW value; subtract 1 to get OLD = rank.
+                    rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
+                end
+            end
+        else
+            @nexprs $Nchunks c -> begin
+                chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
+                    in_bounds_c_i = pos_c_i <= N
+                    item_c_i = in_bounds_c_i ? src[pos_c_i] : src[N]
+                    if in_bounds_c_i
+                        key_c_i = uint_map(by(item_c_i))
+                        d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
+                        rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
+                    else
+                        rank_c_i = UInt32(0)
+                    end
+                end
+            end
+        end
+        @synchronize
+
+        # Phase 2: per-bucket exclusive scan over warps.
+        bucket = lid
+        prefix_acc = UInt32(0)
+        @nexprs 8 w -> begin
+            v_w = shared_hist[bucket, w]
+            shared_hist[bucket, w] = prefix_acc
+            prefix_acc += v_w
+        end
+        block_total_b = prefix_acc
+
+        # Phase 3a: publish aggregate (TRANSPOSED layout for coalescing).
+        @access partial1[bucket, gid] = block_total_b
+        @access partial2[bucket, gid] = block_total_b
+        @synchronize
+        if lid == 1
+            @access flag[gid] = 0x01
+        end
+
+        # Phase 4.5: warp-totals reduction. Uses shared_aux for cross-warp
+        # scratch (was aliased into shared_sorted in v19/v22).
+        val_inc = block_total_b
+        @warpreduce(val_inc, +, lane, warpsz)
+        val_exc_within = val_inc - block_total_b
+
+        if lane == warpsz
+            shared_aux[Nbuckets + warp_id] = val_inc
+        end
+        @synchronize
+
+        if warp_id == 1
+            wt = lane <= wpb ? shared_aux[Nbuckets + lane] : UInt32(0)
+            inc_v = wt
+            @warpreduce(inc_v, +, lane, wpb)
+            excl_v = inc_v - wt
+            if lane <= wpb
+                shared_aux[Nbuckets + lane] = excl_v
+            end
+        end
+        @synchronize
+
+        warp_prefix = shared_aux[Nbuckets + warp_id]
+        own_bds_reg = warp_prefix + val_exc_within
+        shared_aux[bucket] = own_bds_reg
+        @synchronize
+
+        # Phase 4 first: write warp_block_local_base into shared_hist.
+        @nexprs 8 s -> begin
+            b_seed_s = lane + (s - 1) * warpsz
+            my_excl_inline_s = shared_hist[b_seed_s, warp_id]
+            warp_block_local_base_s = shared_aux[b_seed_s] + my_excl_inline_s
+            shared_hist[b_seed_s, warp_id] = warp_block_local_base_s
+        end
+        @synchronize
+
+        # Phase 5a: shuffle to shared_sorted. Bounds check uses the same strided
+        # position formula as phase 1b.
+        if is_full_tile
+            @nexprs $Nchunks c -> begin
+                @nexprs $Nitem i -> begin
+                    key_5a_c_i = uint_map(by(item_c_i))
+                    d_5a_c_i = Int((key_5a_c_i >> shift) & digit_mask) + 1
+                    block_local_pos_c_i = shared_hist[d_5a_c_i, warp_id] + rank_c_i
+                    shared_sorted[Int(block_local_pos_c_i) + 1] = item_c_i
+                end
+            end
+        else
+            @nexprs $Nchunks c -> begin
+                chunk_base_5a_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_5a_c_i = chunk_base_5a_c + (i - 1) * warpsz + (lane - 1)
+                    if pos_5a_c_i <= N
+                        key_5a_c_i = uint_map(by(item_c_i))
+                        d_5a_c_i = Int((key_5a_c_i >> shift) & digit_mask) + 1
+                        block_local_pos_c_i = shared_hist[d_5a_c_i, warp_id] + rank_c_i
+                        shared_sorted[Int(block_local_pos_c_i) + 1] = item_c_i
+                    end
+                end
+            end
+        end
+        @synchronize
+
+        # Phase 3b: warp-specialized lookback (warp 1 spins, others wait at sync).
+        if lid == 1
+            shared_hist[1, 1] = UInt32(gid - 1) << 8
+        end
+        @synchronize
+
+        cross_block_prefix = UInt32(0)
+        if gid >= 2
+            contains_prefix = false
+            while !contains_prefix
+                if warp_id == 1 && lane == 1
+                    comb = shared_hist[1, 1]
+                    local_b = Int(comb >> 8)
+                    local_flg = UInt32(0)
+                    while local_flg == UInt32(0)
+                        @access tmp_flg = flag[local_b]
+                        local_flg = UInt32(tmp_flg)
+                    end
+                    shared_hist[1, 1] = (UInt32(local_b) << 8) | local_flg
+                end
+                @synchronize
+
+                comb = shared_hist[1, 1]
+                flg_val = comb & UInt32(0xFF)
+                b_val = Int(comb >> 8)
+
+                if flg_val == UInt32(0x02)
+                    @access pval = partial2[bucket, b_val]
+                    cross_block_prefix += pval
+                    contains_prefix = true
+                else
+                    @access pval = partial1[bucket, b_val]
+                    cross_block_prefix += pval
+                    if b_val == 1
+                        contains_prefix = true
+                    else
+                        if lid == 1
+                            shared_hist[1, 1] = UInt32(b_val - 1) << 8
+                        end
+                        @synchronize
+                    end
+                end
+            end
+        end
+
+        @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+        @synchronize
+        if lid == 1
+            @access flag[gid] = 0x02
+        end
+
+        # Phase 4 second: write block_global_offset[d] into shared_hist[d, 1].
+        shared_hist[bucket, 1] = global_excl_hist[bucket] + cross_block_prefix - own_bds_reg
+        @synchronize
+
+        # Phase 5b: stream-out. Recompute the key from the staged value
+        # (re-applying `by` and `uint_map`) — single bit-twiddle for the
+        # built-in `uint_map` definitions, negligible cost.
+        @nexprs $Niter_5b c -> begin
+            p_c = (c - 1) * (wpb * warpsz) + lid
+            if p_c <= block_size_actual
+                item_5b_c = shared_sorted[p_c]
+                key_5b_c = uint_map(by(item_5b_c))
+                d_5b_c = Int((key_5b_c >> shift) & digit_mask) + 1
+                dst[Int(shared_hist[d_5b_c, 1]) + p_c] = item_5b_c
+            end
+        end
+    end
+
+    return quote
+        @kernel inbounds = true unsafe_indices = true function $(name)(
+            dst::AbstractVector,
+            src::AbstractVector,
+            by::F,
+            uint_map::M,
+            shift::Int32,
+            global_excl_hist::AbstractVector{UInt32},
+            partial1::AbstractMatrix{UInt32},
+            partial2::AbstractMatrix{UInt32},
+            flag::AbstractVector{UInt8},
+            ::Val{Nbuckets},
+            ::Val{warpsz},
+            ::Val{wpb},
+        ) where {F,M,Nbuckets,warpsz,wpb}
+            $body
+        end
+    end
+end
+
+
+function _define_kernel!(Nitem::Int, Nchunks::Int)
+    name = Symbol("onesweep_kernel_", Nitem, "_", Nchunks, "!")
+    # Define the kernel AND retrieve it in the same Core.eval. The trailing
+    # `$name` evaluates the freshly-defined binding in the latest world,
+    # avoiding the world-age warning a separate `getfield` would trigger.
+    fn = Core.eval(@__MODULE__, quote
+        $(build_kernel_def(name, Nitem, Nchunks))
+        $name
+    end)
+    # Install a typed dispatch method whose body returns `fn` as a literal
+    # singleton — no global-binding access at any point in the call chain.
+    Core.eval(@__MODULE__,
+        :(@inline get_radix_kernel(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
+    _onesweep_kernel_cache[(Nitem, Nchunks)] = fn
+    return fn
+end
+
+
+# Generic fallback for exotic (Nitem, Nchunks). Dict short-circuit
+# prevents a second @eval if the typed method is not yet visible
+# (it was installed in a world that hasn't propagated to our caller).
+function get_radix_kernel(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
+    key = (Nitem, Nchunks)
+    haskey(_onesweep_kernel_cache, key) && return _onesweep_kernel_cache[key]
+    return _define_kernel!(Nitem, Nchunks)
+end
+
+
+# Pre-compile the two default specs at package load. We reuse
+# `_define_kernel!`, which both defines the @kernel and installs the
+# typed `Val` dispatch method, so the default code path needs neither
+# @eval nor invokelatest at runtime.
+_define_kernel!(16, 1)
+_define_kernel!(16, 2)

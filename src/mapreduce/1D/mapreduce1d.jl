@@ -1,4 +1,4 @@
-@inline default_workgroup(::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where T =default_workgroup(arch)
+@inline default_workgroup(arch::AbstractArch, ::Type{MapReduce1D}, n, ::Type{T}) where T = default_workgroup(arch)
 @inline function default_workgroup(::AMDArch, ::Type{MapReduce1D}, n, ::Type{T}) where T
     return 256
 end

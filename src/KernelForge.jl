@@ -53,6 +53,13 @@ include("search/argmax.jl")
 include("search/highlevel.jl")
 
 
+include("sort/uint_map.jl")
+include("sort/bucket_histogram_kernel.jl")
+include("sort/scan_histogram_kernel.jl")
+include("sort/onesweep_kernel.jl")
+include("sort/byte_sort_kernel.jl")
+include("sort/sort1d.jl")
+
 include("extras/unitfloats.jl")
 include("linear_algebra/reductions.jl")
 

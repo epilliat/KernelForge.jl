@@ -87,7 +87,7 @@ KF.matvec!(*, +, dst, src, x)
     @testset "non-power-of-2" begin
         rng = Xoshiro(7)
         for (n, p) in [(100, 100), (300, 500), (777, 333), (1234, 5678)]
-            src, x, dst = make_test_arrays2(rng, n, p)
+            src, x, dst = make_test_arrays2(rng, n, p; S=Float64)
             KF.matvec!(*, +, dst, src, x)
             @test isapprox(Array(dst), Array(vec(src * x)); rtol=1f-3)
         end

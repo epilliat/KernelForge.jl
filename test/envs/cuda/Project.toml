@@ -1,5 +1,6 @@
 [deps]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
+Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 KernelForge = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"

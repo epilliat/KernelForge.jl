@@ -14,6 +14,9 @@ end
 @testset "scan" begin
     include("tests/scan/scan_test.jl")
 end
+@testset "sort" begin
+    include("tests/sort/sort_test.jl")
+end
 @testset "views" begin
     include("tests/views/views_test.jl")
 end
