@@ -90,10 +90,14 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 
         is_full_tile = gid * block_size_max <= N
 
-        # Phase 1a: zero shared_hist.
-        @nexprs 8 s -> begin
-            b_init_s = lane + (s - 1) * warpsz
-            shared_hist[b_init_s, warp_id] = UInt32(0)
+        # Phase 1a: zero shared_hist. Iteration count is Nbuckets ÷ warpsz —
+        # 8 on NVIDIA (warpsz=32), 4 on AMD MI300X (warpsz=64). Hardcoding 8
+        # writes 8×warpsz=512 slots into a 256-slot tile on AMD and corrupts
+        # shared_aux/shared_sorted. The compiler unrolls this fully since
+        # both bounds are Val-known.
+        for s in 1:(Nbuckets ÷ warpsz)
+            b_init = lane + (s - 1) * warpsz
+            shared_hist[b_init, warp_id] = UInt32(0)
         end
         @synchronize
 
@@ -132,13 +136,14 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        # Phase 2: per-bucket exclusive scan over warps.
+        # Phase 2: per-bucket exclusive scan over warps. Iterates over wpb
+        # warps (8 on NVIDIA workgroup=256/warpsz=32, 4 on AMD warpsz=64).
         bucket = lid
         prefix_acc = UInt32(0)
-        @nexprs 8 w -> begin
-            v_w = shared_hist[bucket, w]
+        for w in 1:wpb
+            v = shared_hist[bucket, w]
             shared_hist[bucket, w] = prefix_acc
-            prefix_acc += v_w
+            prefix_acc += v
         end
         block_total_b = prefix_acc
 
@@ -178,11 +183,12 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         @synchronize
 
         # Phase 4 first: write warp_block_local_base into shared_hist.
-        @nexprs 8 s -> begin
-            b_seed_s = lane + (s - 1) * warpsz
-            my_excl_inline_s = shared_hist[b_seed_s, warp_id]
-            warp_block_local_base_s = shared_aux[b_seed_s] + my_excl_inline_s
-            shared_hist[b_seed_s, warp_id] = warp_block_local_base_s
+        # Same Nbuckets÷warpsz iteration count as Phase 1a.
+        for s in 1:(Nbuckets ÷ warpsz)
+            b_seed = lane + (s - 1) * warpsz
+            my_excl_inline = shared_hist[b_seed, warp_id]
+            warp_block_local_base = shared_aux[b_seed] + my_excl_inline
+            shared_hist[b_seed, warp_id] = warp_block_local_base
         end
         @synchronize
 
