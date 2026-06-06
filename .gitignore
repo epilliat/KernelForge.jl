@@ -15,6 +15,26 @@ perfs/_barplot_scripts_old/
 # Experiments / dead-end variants — stays on disk but not tracked.
 /xp
 
+# Benchmark result CSVs live in the sibling repo KernelForge-benchmarks.
+# Default expected location relative to this repo: ../KernelForge-benchmarks/
+# Override with KF_RESULTS_ROOT when invoking perfs/julia/plots_from_csv.jl.
+perfs/julia/results/
+
+# Autotune local artifacts — per-candidate diagnostics CSV, dev-mode smoke
+# output, JSON / JL snapshots (e.g. RTX1000.json.pass1_only), and the
+# hang-investigation scripts. Kept on disk for posterity; not shipped.
+# The `.json.*` / `.jl.*` / `_diag.csv.*` patterns catch anything beyond the
+# canonical RTX1000.json / RTX1000.jl deliverable.
+data/tuning/*_diag.csv
+data/tuning/*_diag.csv.*
+data/tuning/*_dev.json
+data/tuning/*_dev.jl
+data/tuning/*_dev_diag.csv
+data/tuning/*.json.*
+data/tuning/*.jl.*
+data/tuning/matvec/repro_hang.jl
+data/tuning/matvec/diag_hang.jl
+
 # Per-developer agent context (architecture, signatures, optimization notes).
 AGENTS.md
 **/AGENTS.md

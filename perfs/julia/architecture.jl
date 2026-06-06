@@ -18,7 +18,26 @@ backend = has_roc() ? ROCBackend() :
 
 dev = KI.device(backend)
 GPU_TAG = match(r"\.(\w+)\(\)", "$(KF.detect_arch(backend, Val(KI.deviceid(dev))))")[1]
-RESULT_DIR = joinpath(@__DIR__, "results", GPU_TAG)
+
+# Benchmark CSVs are kept in the sibling repo KernelForge-benchmarks so the
+# package's git history doesn't churn on every re-run. Default to the
+# canonical sibling-clone location; override with KF_RESULTS_ROOT=… if your
+# clone lives elsewhere. Falls back to an in-tree `results/` dir
+# (gitignored) when the sibling repo isn't present — that path still works
+# for one-off local runs, the user just has to copy the CSV over by hand.
+RESULTS_ROOT = let
+    explicit = get(ENV, "KF_RESULTS_ROOT", nothing)
+    sibling = normpath(joinpath(@__DIR__, "..", "..", "..", "KernelForge-benchmarks", "results"))
+    if explicit !== nothing
+        explicit
+    elseif isdir(sibling)
+        sibling
+    else
+        @info "KernelForge-benchmarks sibling repo not found at $sibling — writing locally (gitignored). Move the CSV into the sibling clone when you want to commit it."
+        joinpath(@__DIR__, "results")
+    end
+end
+RESULT_DIR = joinpath(RESULTS_ROOT, GPU_TAG)
 mkpath(RESULT_DIR)
 println("GPU         : $(KI.name(dev))  →  $GPU_TAG")
 println("Results dir : $RESULT_DIR")

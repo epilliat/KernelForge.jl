@@ -15,10 +15,29 @@ using Printf
 # Config
 # ---------------------------------------------------------------------------
 
+# Benchmark CSVs live in the sibling repo `KernelForge-benchmarks`
+# (https://github.com/epilliat/KernelForge-benchmarks). Default to the
+# canonical sibling-clone location relative to this file; override with
+# KF_RESULTS_ROOT=… if your clone lives elsewhere.
+function _resolve_results_root()
+    haskey(ENV, "KF_RESULTS_ROOT") && return ENV["KF_RESULTS_ROOT"]
+    sibling = normpath(joinpath(@__DIR__, "..", "..", "..", "KernelForge-benchmarks", "results"))
+    isdir(sibling) && return sibling
+    legacy = "./perfs/julia/results"   # pre-v0.2.0 in-tree fallback
+    isdir(legacy) && return legacy
+    error("""
+        Benchmark results not found.
+        Clone the sibling repo:
+            git clone git@github.com:epilliat/KernelForge-benchmarks.git ../KernelForge-benchmarks
+        or set KF_RESULTS_ROOT=/path/to/results.
+        """)
+end
+const RESULTS_ROOT = _resolve_results_root()
+
 const GPU_TAG = "A40"   # adjust or import from architectures.jl
 
-const CSV_PATH_MAPREDUCE = "./perfs/julia/results/$GPU_TAG/mapreduce.csv"
-const CSV_PATH_SCAN = "./perfs/julia/results/$GPU_TAG/scan.csv"
+const CSV_PATH_MAPREDUCE = joinpath(RESULTS_ROOT, GPU_TAG, "mapreduce.csv")
+const CSV_PATH_SCAN = joinpath(RESULTS_ROOT, GPU_TAG, "scan.csv")
 
 mkpath("perfs/figures/$GPU_TAG")
 
@@ -129,7 +148,7 @@ end
 # MatVec
 # ---------------------------------------------------------------------------
 
-let df = load_npdf("./perfs/julia/results/$GPU_TAG/matvec.csv")
+let df = load_npdf(joinpath(RESULTS_ROOT, GPU_TAG, "matvec.csv"))
     totals = filter_sizes(df.total_elements, TOTALS_MATVEC)
 
     figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (rows)",
@@ -151,7 +170,7 @@ end
 # VecMat
 # ---------------------------------------------------------------------------
 
-let df = load_npdf("./perfs/julia/results/$GPU_TAG/vecmat.csv")
+let df = load_npdf(joinpath(RESULTS_ROOT, GPU_TAG, "vecmat.csv"))
     totals = filter_sizes(df.total_elements, TOTALS_VECMAT)
 
     figures = Dict(total => plot_npbar(df, total; x_col=:n, xlabel="n (vector length)",
@@ -172,10 +191,10 @@ end
 # ---------------------------------------------------------------------------
 # Copy Bandwidth
 # ---------------------------------------------------------------------------
-const CSV_PATH_COPY = "./perfs/julia/results/$GPU_TAG/copy2.csv"
+const CSV_PATH_COPY = joinpath(RESULTS_ROOT, GPU_TAG, "copy2.csv")
 
 let df = load_df(CSV_PATH_COPY)
-    fig = plot_copy_bandwidth(df)
+    fig = plot_copy_bandwidth(df; results_dir = joinpath(RESULTS_ROOT, GPU_TAG))
     save("perfs/figures/$GPU_TAG/copy_$(GPU_TAG)_bandwidth.png", fig)
     @info "Copy bandwidth figure saved."
 end
