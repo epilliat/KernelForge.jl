@@ -193,7 +193,7 @@ end
 # Normalize dims to a sorted tuple of Ints
 @inline _normalize_dims(dims::Int, nd::Int) = (dims > 0 ? dims : nd + dims + 1,)
 @inline _normalize_dims(dims::NTuple{N,Int}, nd::Int) where {N} =
-    Tuple(sort!(collect(ntuple(i -> dims[i] > 0 ? dims[i] : nd + dims[i] + 1, Val(N)))))
+    Tuple(Base.sort!(collect(ntuple(i -> dims[i] > 0 ? dims[i] : nd + dims[i] + 1, Val(N)))))
 @inline _normalize_dims(dims::AbstractVector{<:Integer}, nd::Int) =
     _normalize_dims(Tuple(dims), nd)
 

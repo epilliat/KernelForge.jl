@@ -172,7 +172,7 @@
             offset <<= 1
         end
         if chunksz * Nblocks <= warpsz
-            if global_row <= nbatch && cld(lane, chunksz) == Nblocks
+            if global_row <= nbatch && cld(lid, chunksz) == Nblocks
                 gval = g.(val)
                 row_base = Nitem * (global_row - 1) + 1
                 if row_base + Nitem - 1 <= n
