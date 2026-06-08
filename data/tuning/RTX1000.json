@@ -1,0 +1,4837 @@
+{
+    "vecmat": {
+        "size_1": [
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nthreads": 4096,
+                "blocks": 4,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 4,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 64,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 16,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 2048,
+                "blocks": 8,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 2048,
+                "blocks": 2,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 8192,
+                "blocks": 128,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 16384,
+                "blocks": 32,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 32,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 8192,
+                "blocks": 1,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 512,
+                "blocks": 2,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 1024,
+                "blocks": 16,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 2048,
+                "blocks": 64,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 16384,
+                "blocks": 2,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 16,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 2048,
+                "blocks": 2,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 4096,
+                "blocks": 1,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nthreads": 256,
+                "blocks": 2,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 512,
+                "blocks": 32,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nthreads": 4096,
+                "blocks": 8,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nthreads": 16384,
+                "blocks": 4,
+                "p": 1,
+                "n": 1073741824
+            }
+        ],
+        "size_4": [
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 8,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 8,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 64,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 16,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 8,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 64,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 512,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nthreads": 8192,
+                "blocks": 64,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 8192,
+                "blocks": 8,
+                "p": 2,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 262144,
+                "Nthreads": 8192,
+                "blocks": 128,
+                "p": 4,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 8,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 64,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 512,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 4096,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nthreads": 1024,
+                "blocks": 16,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 16384,
+                "blocks": 8,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nthreads": 1024,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 8192,
+                "blocks": 64,
+                "p": 2,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 4,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 262144,
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 32,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 4,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 64,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 32768,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nthreads": 2048,
+                "blocks": 2,
+                "p": 64,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 16384,
+                "blocks": 4,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 8192,
+                "blocks": 16,
+                "p": 1,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 16384,
+                "blocks": 128,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 4096,
+                "blocks": 64,
+                "p": 2,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 2097152,
+                "Nthreads": 512,
+                "blocks": 2,
+                "p": 32,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 64,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 512,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 32768,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nthreads": 2048,
+                "blocks": 16,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 2097152,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 2048,
+                "blocks": 2,
+                "p": 8,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 1,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 16,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 1024,
+                "blocks": 8,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 4,
+                "workgroup": 128
+            }
+        ],
+        "size_8": [
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "n": 8,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 16,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 32,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 64,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 32768,
+                "Nthreads": 4096,
+                "blocks": 8,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 16,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 4096,
+                "blocks": 32,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 64,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 1024,
+                "blocks": 32,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 1,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 8192,
+                "blocks": 128,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 4096,
+                "blocks": 32,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 64,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 2048,
+                "blocks": 16,
+                "p": 8,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 2097152,
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "n": 16,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 262144,
+                "Nthreads": 4096,
+                "blocks": 128,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 4096,
+                "blocks": 128,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 262144,
+                "Nthreads": 4096,
+                "blocks": 64,
+                "p": 32,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 2048,
+                "blocks": 32,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 64,
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 262144,
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 64,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 2048,
+                "blocks": 16,
+                "p": 8,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 16777216,
+                "Nthreads": 16384,
+                "blocks": 2,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2097152,
+                "Nthreads": 1024,
+                "blocks": 128,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 16777216,
+                "Nthreads": 4096,
+                "blocks": 128,
+                "p": 2,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 32,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 2097152,
+                "Nthreads": 512,
+                "blocks": 2,
+                "p": 32,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 16777216,
+                "Nthreads": 2048,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 64,
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4096,
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 32768,
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 262144,
+                "Nthreads": 256,
+                "blocks": 16,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2097152,
+                "Nthreads": 256,
+                "blocks": 16,
+                "p": 64,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 16777216,
+                "Nthreads": 1024,
+                "blocks": 4,
+                "p": 8,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 134217728,
+                "Nthreads": 16384,
+                "blocks": 32,
+                "p": 1,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 2,
+                "n": 16,
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 16777216,
+                "Nthreads": 1024,
+                "blocks": 16,
+                "p": 16,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "n": 134217728,
+                "Nthreads": 4096,
+                "blocks": 64,
+                "p": 2,
+                "workgroup": 512
+            }
+        ]
+    },
+    "tuned_at": "2026-05-28",
+    "gpu_tag": "RTX1000",
+    "matvec": {
+        "size_1": [
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 8,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 8,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 4,
+                "chunksz": 2,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 16,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "chunksz": 64,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 32,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "chunksz": 32,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 8,
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 8,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 1073741824
+            }
+        ],
+        "size_4": [
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 8,
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "chunksz": 2,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 8,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 4,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 8,
+                "chunksz": 2,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 4,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 32,
+                "chunksz": 8,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 4,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 8,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 16,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 32,
+                "chunksz": 16,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 32,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 16,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 134217728
+            }
+        ],
+        "size_8": [
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 2,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 4,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 8,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 2,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 4,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 2,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "chunksz": 16,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 4,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 32,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 8,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 32,
+                "chunksz": 16,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 16,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 32,
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 4,
+                "chunksz": 2,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 8,
+                "chunksz": 4,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 32,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 16,
+                "chunksz": 64,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 4,
+                "chunksz": 16,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "chunksz": 16,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 2,
+                "chunksz": 2,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 16,
+                "chunksz": 64,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 64,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 32,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "chunksz": 128,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "chunksz": 256,
+                "p": 2,
+                "n": 134217728
+            }
+        ]
+    },
+    "schema_version": 1
+}
