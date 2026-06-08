@@ -13,6 +13,11 @@ include("../init.jl")
 
 const DEFAULT_CUB_EXE = joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_scan_benchmark")
 
+# Session-level GPU preheat — see comment in mapreduce_perf_comparison.jl.
+println("→ GPU preheat …")
+gpu_preheat(backend; duration_s = 1.0)
+println("  done.")
+
 # ---------------------------------------------------------------------------
 # Benchmark runner — returns a vector of NamedTuples
 # ---------------------------------------------------------------------------
@@ -46,7 +51,14 @@ function run_scan_benchmarks(src::AT{T}, dst::AT{T}, label_T::String, n::Int;
     end
 
     if has_cuda()
-        s = bench_cub_or_nan(cub_exe, n, cub_T; extra_flags="-m inclusive")
+        # Free Julia-side buffers before launching CUB subprocess (see OOM
+        # note in run_mapreduce_benchmarks). Scan holds 2 buffers (src,
+        # dst) + tmp_kf + temp_ak ≈ 4×n×sizeof(T).
+        src = nothing; dst = nothing
+        tmp_kf = nothing; temp_ak = nothing
+        GC.gc(true); CUDA.reclaim()
+        s = bench_cub_or_nan(cub_exe, n, cub_T; safety_factor=1.5,
+                             extra_flags="-m inclusive")
         push!(rows, (; n, type=label_T, method="CUB",
             s.mean_kernel_μs, s.std_kernel_μs,
             mean_total_μs=NaN, std_total_μs=NaN))
@@ -94,34 +106,49 @@ for n in sizes, T in types
     println("\n" * "="^60)
     println("Scan: n=$n, T=$T")
     println("="^60)
+    gpu_preheat(backend; duration_s = 0.3)
+    try
+        if T === QuaternionF64
+            src_cpu = [QuaternionF64((x ./ sqrt(sum(x .^ 2)))...) for x in eachcol(randn(4, n))]
+            src = AT(src_cpu)
+            dst = fill!(AT{T}(undef, n), zero(T))
 
-    if T === QuaternionF64
-        src_cpu = [QuaternionF64((x ./ sqrt(sum(x .^ 2)))...) for x in eachcol(randn(4, n))]
-        src = AT(src_cpu)
-        dst = fill!(AT{T}(undef, n), zero(T))
+            for (name, method, call) in [
+                (has_cuda() ? "CUDA [QuaternionF64]" : "Base [QuaternionF64]",
+                    has_cuda() ? "CUDA" : "Base",
+                    () -> accumulate!(*, dst, src)),
+                ("AcceleratedKernels [QuaternionF64]", "AK",
+                    () -> AcceleratedKernels.accumulate!(*, dst, src; init=one(T))),
+                ("KernelForge [QuaternionF64]", "KernelForge",
+                    () -> KernelForge.scan!(*, dst, src; Nitem=4)),
+            ]
+                s = bench(name, call; backend)
+                push!(all_rows, (; n, type="QuaternionF64", method,
+                    s.mean_kernel_μs, s.std_kernel_μs,
+                    s.mean_total_μs, s.std_total_μs))
+            end
+            push!(all_rows, (; n, type="QuaternionF64", method="CUB",
+                mean_kernel_μs=NaN, std_kernel_μs=NaN,
+                mean_total_μs=NaN, std_total_μs=NaN))
 
-        for (name, method, call) in [
-            (has_cuda() ? "CUDA [QuaternionF64]" : "Base [QuaternionF64]",
-                has_cuda() ? "CUDA" : "Base",
-                () -> accumulate!(*, dst, src)),
-            ("AcceleratedKernels [QuaternionF64]", "AK",
-                () -> AcceleratedKernels.accumulate!(*, dst, src; init=one(T))),
-            ("KernelForge [QuaternionF64]", "KernelForge",
-                () -> KernelForge.scan!(*, dst, src; Nitem=4)),
-        ]
-            s = bench(name, call; backend)
-            push!(all_rows, (; n, type="QuaternionF64", method,
-                s.mean_kernel_μs, s.std_kernel_μs,
-                s.mean_total_μs, s.std_total_μs))
+        else
+            src = fill!(AT{T}(undef, n), one(T))
+            dst = fill!(AT{T}(undef, n), zero(T))
+            append!(all_rows, run_scan_benchmarks(src, dst, string(T), n))
         end
-        push!(all_rows, (; n, type="QuaternionF64", method="CUB",
-            mean_kernel_μs=NaN, std_kernel_μs=NaN,
-            mean_total_μs=NaN, std_total_μs=NaN))
-
-    else
-        src = fill!(AT{T}(undef, n), one(T))
-        dst = fill!(AT{T}(undef, n), zero(T))
-        append!(all_rows, run_scan_benchmarks(src, dst, string(T), n))
+    catch err
+        msg = sprint(showerror, err)
+        if occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)
+            @warn "Skipping cell — out of GPU memory" n T
+            for m in (has_cuda() ? ("CUDA","AK","KernelForge","CUB") : ("Base","AK","KernelForge"))
+                push!(all_rows, (; n, type=string(T), method=m,
+                                  mean_kernel_μs=NaN, std_kernel_μs=NaN,
+                                  mean_total_μs=NaN,  std_total_μs=NaN))
+            end
+            GC.gc(true); has_cuda() && CUDA.reclaim()
+        else
+            rethrow(err)
+        end
     end
 end
 
