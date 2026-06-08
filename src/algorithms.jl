@@ -36,5 +36,9 @@ const KERNEL_TAGS = Dict{Symbol,DataType}(
     for T in _FORGE_ALGORITHM_TYPES
     for sym in (_type_to_symbol(T), Symbol(_type_to_symbol(T), :!))
 )
+# Public function-name aliases — the function for Sort1D is named `sort`,
+# so `@allocate sort(...)` looks up `:sort` and resolves to the Sort1D tag.
+KERNEL_TAGS[:sort]  = Sort1D
+KERNEL_TAGS[:sort!] = Sort1D
 
 

@@ -16,6 +16,7 @@ end
 end
 @testset "sort" begin
     include("tests/sort/sort_test.jl")
+    include("tests/sort/sort_keyval_test.jl")
 end
 @testset "views" begin
     include("tests/views/views_test.jl")

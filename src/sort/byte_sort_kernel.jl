@@ -9,7 +9,7 @@
 # no warp-specialized spin loop. ~25% faster than the 1-pass onesweep on
 # UInt8 inputs.
 #
-# Pipeline (drives from sort1d! with sizeof(K) == 1):
+# Pipeline (drives from sort! with sizeof(K) == 1):
 #   1. bucket_histogram_kernel! → hist :: (256, 1) UInt32
 #   2. scan_histogram_kernel!   → hist holds exclusive prefix
 #   3. byte_sort_kernel_<Nitem> → reads hist as `global_counter` (mutated to

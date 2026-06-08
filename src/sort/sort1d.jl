@@ -26,12 +26,25 @@
 @inline default_nchunks(::AMDArch,      ::Type{Sort1D}, n, ::Type{T}) where T = sizeof(T) <= 4 ? 2 : 1
 
 
+# Keyval (`sort(...; keys=k)`) defaults: shared_sorted (T) AND shared_keys
+# (KT) both occupy block_size_max * size bytes, so the budget is tighter.
+# Want block_size_max * (sizeof(T) + sizeof(KT)) ≤ ~32 KB after subtracting
+# shared_hist (8 KB) + shared_aux (~1 KB) from 48 KB.
+# At workgroup=256, Nitem=16:
+#   sizeof(T)+sizeof(KT) ≤ 8  → Nchunks=1 → tile 4096 → 32 KB
+#   sizeof(T)+sizeof(KT) ≤ 16 → Nitem=8, Nchunks=1 → tile 2048 → 32 KB
+@inline default_nitem_keyval(::AbstractArch, n, ::Type{T}, ::Type{KT}) where {T,KT} =
+    sizeof(T) + sizeof(KT) <= 8 ? 16 : 8
+@inline default_nchunks_keyval(::AbstractArch, n, ::Type{T}, ::Type{KT}) where {T,KT} = 1
+
+
 # ============================================================================
 # Public API
 # ============================================================================
 
 """
-    sort1d(src::AbstractVector; by=identity, uint_map=KernelForge.uint_map, kwargs...)
+    sort(src::AbstractVector; by=identity, uint_map=KernelForge.uint_map, kwargs...)
+    sort(src::AbstractVector; keys=k, ...) -> (sorted_src, sorted_keys)
 
 Stable LSD radix sort on the GPU. Sorts `src` ascending by
 `uint_map(by(x))`. Returns a new array with the sorted values; `src` is
@@ -39,10 +52,16 @@ not modified.
 
 # Keyword Arguments
 - `by=identity`: Field extractor. For tuples, e.g. `by=first` to sort by
-  the first element.
+  the first element. When `keys` is provided, `by` is applied to elements
+  of `keys`, not `src`.
 - `uint_map=KernelForge.uint_map`: Order-preserving projection of
   `by(x)` to an unsigned integer (UInt8/16/32/64). Defaults are provided
   for built-in numeric types.
+- `keys=nothing`: Optional key array of the same length as `src`. When
+  given, `src` and `keys` are sorted **together** using
+  `uint_map(by(keys[i]))` as the sort key for `src[i]`. The function
+  returns a tuple `(sorted_src, sorted_keys)`. Both arrays are newly
+  allocated.
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate
   automatically).
 - `Nitem=nothing`, `Nchunks=nothing`, `workgroup=nothing`,
@@ -51,36 +70,61 @@ not modified.
 # Examples
 ```julia
 x = CuArray(rand(Float64, 10_000_000))
-y = KernelForge.sort1d(x)
+y = KernelForge.sort(x)
 @assert Array(y) == sort(Array(x))
 
 # Sort tuples by the first element.
 pairs = CuArray([(rand(Float32), rand(UInt32)) for _ in 1:1_000_000])
-sorted_pairs = KernelForge.sort1d(pairs; by=first)
+sorted_pairs = KernelForge.sort(pairs; by=first)
+
+# Sort an array of values according to a parallel key array.
+vals = CuArray(rand(Float32, 1_000_000))
+keys = CuArray(rand(UInt32, 1_000_000))
+sorted_vals, sorted_keys = KernelForge.sort(vals; keys=keys)
+@assert issorted(Array(sorted_keys))
 ```
 
-See also: [`sort1d!`](@ref) for the in-place form.
+See also: [`sort!`](@ref) for the in-place form.
 """
-function sort1d end
+function sort end
 
 """
-    sort1d!(dst, src; by=identity, uint_map=KernelForge.uint_map, kwargs...)
+    sort!(dst, src; by=identity, uint_map=KernelForge.uint_map, kwargs...) -> dst
+    sort!(dst, src; keys=k[, keys_dst=kd], ...) -> (dst, keys_dst)
+    sort!(src; ...) -> src                                     # in-place
+    sort!(src; keys=k, ...) -> (src, keys)                      # in-place + keys
 
-In-place form of [`sort1d`](@ref): writes the sorted output into `dst`.
-`dst` and `src` may alias only if you don't mind `src` being clobbered.
+In-place form of [`sort`](@ref). The two-argument form writes sorted
+output into `dst`; `dst` and `src` may alias.
 
-See [`sort1d`](@ref) for keyword arguments.
+The single-argument form sorts `src` in place — no `dst` is allocated
+and no `src → dst` copy is issued. The implementation pings between
+`src` and an internal scratch buffer (in `tmp`) so that the final pass
+lands the sorted result back in `src`. When `npasses` is even (UInt16,
+UInt32, UInt64, Float32, Float64) the in-place form pays **zero**
+additional copies vs the algorithmic minimum; when `npasses` is odd or
+the byte-sort fast path applies (UInt8/Int8/Bool), one extra
+`scratch ↔ src` copy is needed.
+
+When `keys` is given, the function additionally returns the
+destination key buffer; if `keys_dst` is omitted, one is allocated
+automatically (or aliased to `keys` for the in-place form).
+
+See [`sort`](@ref) for keyword arguments.
 """
-function sort1d! end
+function sort! end
 
 """
     get_allocation(::Type{Sort1D}, src; Nitem=nothing, Nchunks=nothing,
                    workgroup=nothing, arch=nothing, by=identity,
-                   uint_map=KernelForge.uint_map)
+                   uint_map=KernelForge.uint_map, keys=nothing)
 
-Allocate a `KernelBuffer` for `sort1d!`. Holds the global byte-histogram,
+Allocate a `KernelBuffer` for `sort!`. Holds the global byte-histogram,
 the two `partial` buffers used by decoupled lookback, the per-block
 flag, and a same-size scratch ping-pong buffer.
+
+When `keys` is given, an additional `scratch_keys` buffer of `eltype(keys)`
+is included for the key-value sort path.
 """
 function get_allocation(
     ::Type{Sort1D},
@@ -91,16 +135,25 @@ function get_allocation(
     arch=nothing,
     by::F=identity,
     uint_map::M=uint_map,
+    keys=nothing,
 ) where {AT<:AbstractArray,F,M}
     T = eltype(AT)
     n = length(src)
     arch = something(arch, detect_arch(src))
     workgroup = something(workgroup, default_workgroup(arch, Sort1D, n, T))
-    Nitem = something(Nitem, default_nitem(arch, Sort1D, n, T))
-    Nchunks = something(Nchunks, default_nchunks(arch, Sort1D, n, T))
 
-    K = Base.promote_op(uint_map ∘ by, T)
-    K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
+    if keys === nothing
+        Nitem = something(Nitem, default_nitem(arch, Sort1D, n, T))
+        Nchunks = something(Nchunks, default_nchunks(arch, Sort1D, n, T))
+        K = Base.promote_op(uint_map ∘ by, T)
+        K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
+    else
+        KT = eltype(keys)
+        Nitem = something(Nitem, default_nitem_keyval(arch, n, T, KT))
+        Nchunks = something(Nchunks, default_nchunks_keyval(arch, n, T, KT))
+        K = Base.promote_op(uint_map ∘ by, KT)
+        K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
+    end
     npasses = sizeof(K)
 
     block_size_max = workgroup * Nchunks * Nitem
@@ -108,12 +161,23 @@ function get_allocation(
 
     backend = get_backend(src)
     Nbuckets = 256
+    # `partial1/partial2/flag` carry an extra `npasses` dimension so the
+    # whole tile gets zeroed in ONE `fill!` per buffer before the pass
+    # loop, rather than 3× per pass × npasses passes. Each pass takes a
+    # 2D / 1D view `[:, :, pass]` / `[:, pass]`. Memory overhead is
+    # `(npasses - 1) × old_partials_size` — small compared to scratch.
     hist     = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses)
-    partial1 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks)
-    partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks)
-    flag     = KernelAbstractions.allocate(backend, UInt8,  nblocks)
+    partial1 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
+    partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
+    flag     = KernelAbstractions.allocate(backend, UInt8,  nblocks, npasses)
     scratch  = KernelAbstractions.allocate(backend, T,      n)
-    return KernelBuffer((; hist, partial1, partial2, flag, scratch))
+    if keys === nothing
+        return KernelBuffer((; hist, partial1, partial2, flag, scratch))
+    else
+        KT = eltype(keys)
+        scratch_keys = KernelAbstractions.allocate(backend, KT, n)
+        return KernelBuffer((; hist, partial1, partial2, flag, scratch, scratch_keys))
+    end
 end
 
 
@@ -121,16 +185,29 @@ end
 # Allocating front-end
 # ============================================================================
 
-function sort1d(src::AT;
+function sort(src::AT;
+                algorithm::Symbol = :auto,
                 by::F=identity,
                 uint_map::M=uint_map,
+                lt=nothing, tmax=nothing, reverse::Bool=false,
+                keys=nothing,
                 tmp::TMP=nothing,
                 Nitem=nothing, Nchunks=nothing,
                 workgroup=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
-    dst = similar(src)
-    sort1d!(dst, src; by, uint_map, tmp, Nitem, Nchunks, workgroup, arch)
-    return dst
+    if keys === nothing
+        dst = similar(src)
+        sort!(dst, src; algorithm, by, uint_map, lt, tmax, reverse,
+              tmp, Nitem, Nchunks, workgroup, arch)
+        return dst
+    else
+        length(keys) == length(src) || error("`keys` must have the same length as `src`")
+        dst = similar(src)
+        keys_dst = similar(keys)
+        sort!(dst, src; algorithm, keys, keys_dst, by, uint_map,
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, arch)
+        return (dst, keys_dst)
+    end
 end
 
 
@@ -138,41 +215,134 @@ end
 # In-place entry
 # ============================================================================
 
-function sort1d!(dst::AbstractArray, src::AT;
+function sort!(dst::AbstractArray, src::AT;
+                 algorithm::Symbol = :auto,
                  by::F=identity,
                  uint_map::M=uint_map,
+                 lt=nothing, tmax=nothing, reverse::Bool=false,
+                 keys=nothing, keys_dst=nothing,
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
                  workgroup=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
-    K = Base.promote_op(uint_map ∘ by, T)
-    K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
+    algorithm in (:auto, :radix, :sample) ||
+        error("`algorithm` must be :auto, :radix, or :sample; got $algorithm")
 
-    n = length(src)
-    backend = get_backend(src)
-    arch = something(arch, detect_arch(src))
-    workgroup = something(workgroup, default_workgroup(arch, Sort1D, n, T))
-    Nitem_ = something(Nitem, default_nitem(arch, Sort1D, n, T))
-    Nchunks_ = something(Nchunks, default_nchunks(arch, Sort1D, n, T))
-    npasses = sizeof(K)
+    if keys === nothing
+        # ── algorithm selection ────────────────────────────────────────
+        # Radix is the fast path when:
+        #   • no custom comparator / pad sentinel,
+        #   • and `uint_map ∘ by` lands in `<:Unsigned`.
+        # Sample sort handles everything else (arbitrary `lt`, exotic
+        # bitstypes, user `tmax`, `reverse`).
+        K = Base.promote_op(uint_map ∘ by, T)
+        radix_eligible = (lt === nothing) && (tmax === nothing) &&
+                         !reverse && (K <: Unsigned)
 
-    # Dispatch to a Val-typed helper. For pre-compiled specs (Nitem=16 with
-    # Nchunks∈{1,2}, byte-sort Nitem=16), Julia statically resolves to a
-    # fast method that calls `_sort1d_impl!` directly with a typed kernel
-    # function — no Dict lookup, no invokelatest, no dynamic dispatch in
-    # the hot path. The generic fallbacks @eval the kernel and use
-    # invokelatest just on first call for that spec.
-    if npasses == 1
-        _dispatch_byte_sort!(Val(Nitem_),
-                             by, uint_map, dst, src, tmp,
-                             Nitem_, workgroup, K, backend, arch)
+        if algorithm === :sample || (algorithm === :auto && !radix_eligible)
+            # Sample-sort path.
+            sample_view = sample_sort(src; lt = lt, tmax = tmax, reverse = reverse)
+            copyto!(dst, sample_view)
+            return dst
+        end
+
+        # Radix path (either :radix explicit or :auto-eligible).
+        K <: Unsigned || error(
+            "`uint_map ∘ by` must return a UInt8/16/32/64 for the radix " *
+            "path; got $K. Use `algorithm = :sample` (or :auto with `lt=…`) " *
+            "to route through the general-comparator sample sort.")
+        (lt === nothing && tmax === nothing && !reverse) || error(
+            "`algorithm = :radix` does not support `lt`/`tmax`/`reverse`; " *
+            "use `algorithm = :sample` or `:auto`.")
+
+        n = length(src)
+        backend = get_backend(src)
+        arch_ = something(arch, detect_arch(src))
+        workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, T))
+        Nitem_ = something(Nitem, default_nitem(arch_, Sort1D, n, T))
+        Nchunks_ = something(Nchunks, default_nchunks(arch_, Sort1D, n, T))
+        npasses = sizeof(K)
+
+        if npasses == 1
+            _dispatch_byte_sort!(Val(Nitem_),
+                                 by, uint_map, dst, src, tmp,
+                                 Nitem_, workgroup_, K, backend, arch_)
+        else
+            _dispatch_onesweep!(Val(Nitem_), Val(Nchunks_),
+                                by, uint_map, dst, src, tmp,
+                                Nitem_, Nchunks_, workgroup_, npasses, K, backend, arch_)
+        end
+        return dst
     else
-        _dispatch_onesweep!(Val(Nitem_), Val(Nchunks_),
-                            by, uint_map, dst, src, tmp,
-                            Nitem_, Nchunks_, workgroup, npasses, K, backend, arch)
+        algorithm === :sample &&
+            error("`keys=...` (keyval sort) is radix-only; `algorithm = :sample` " *
+                  "is not supported with `keys`.")
+        # Key-value path: `keys` provides the sort key for each position; both
+        # `src` (values) and `keys` are permuted together so that
+        # `keys_dst` is sorted ascending under `uint_map(by(·))` and `dst[i]`
+        # corresponds to the same source position as `keys_dst[i]`.
+        KT = eltype(keys)
+        K = Base.promote_op(uint_map ∘ by, KT)
+        K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
+
+        n = length(src)
+        length(keys) == n || error("`keys` must have the same length as `src`")
+        # When `keys_dst` is omitted, allocate it transparently. The function
+        # returns `(dst, keys_dst)` whenever `keys` is provided so the caller
+        # can recover the allocated buffer.
+        keys_dst_ = keys_dst === nothing ? similar(keys) : keys_dst
+        length(keys_dst_) == n || error("`keys_dst` must have the same length as `src`")
+
+        backend = get_backend(src)
+        arch_ = something(arch, detect_arch(src))
+        workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, T))
+        Nitem_ = something(Nitem, default_nitem_keyval(arch_, n, T, KT))
+        Nchunks_ = something(Nchunks, default_nchunks_keyval(arch_, n, T, KT))
+        npasses = sizeof(K)
+
+        _dispatch_keyval!(Val(Nitem_), Val(Nchunks_),
+                          by, uint_map,
+                          dst, src, keys_dst_, keys, tmp,
+                          Nitem_, Nchunks_, workgroup_, npasses, K, backend, arch_)
+        return (dst, keys_dst_)
     end
-    return dst
+end
+
+
+# ----------------------------------------------------------------------------
+# In-place entry (no dst; `src` is sorted into itself).
+# ----------------------------------------------------------------------------
+
+"""
+    sort!(src; ...) -> src
+    sort!(src; keys=k, ...) -> (src, keys)
+
+In-place sort. Routes through `sort!(src, src; ...)` (with `keys_dst
+=== keys` for the keyval form). The implementation detects this
+aliasing and skips the redundant `src → dst` copy that the two-argument
+form does when `dst` and `src` are distinct buffers.
+"""
+function sort!(src::AT;
+                 algorithm::Symbol = :auto,
+                 by::F=identity,
+                 uint_map::M=uint_map,
+                 lt=nothing, tmax=nothing, reverse::Bool=false,
+                 keys=nothing,
+                 tmp::TMP=nothing,
+                 Nitem=nothing, Nchunks=nothing,
+                 workgroup=nothing, arch=nothing) where
+        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
+    if keys === nothing
+        sort!(src, src; algorithm, by, uint_map, lt, tmax, reverse,
+              tmp, Nitem, Nchunks, workgroup, arch)
+        return src
+    else
+        # Keys also sorted in-place: keys_dst === keys.
+        sort!(src, src; algorithm, keys, keys_dst=keys, by, uint_map,
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, arch)
+        return (src, keys)
+    end
 end
 
 
@@ -227,6 +397,32 @@ function _dispatch_onesweep!(::Val{Nitem}, ::Val{Nchunks},
     ker_fn = get_radix_kernel(Val(Nitem), Val(Nchunks))
     Base.invokelatest(_sort1d_impl!, ker_fn,
                       by, uint_map, dst, src, tmp,
+                      Nitem_int, Nchunks_int, workgroup, npasses, K, backend, arch)
+end
+
+
+# --- Keyval dispatch ---------------------------------------------------------
+# Default specs pre-compiled in keyval_onesweep_kernel.jl: (16, 1) and (8, 1).
+@inline _dispatch_keyval!(::Val{16}, ::Val{1},
+        by, uint_map, dst, src, dst_keys, src_keys, tmp,
+        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+    _sort1d_keyval_impl!(get_keyval_kernel(Val(16), Val(1)),
+                         by, uint_map, dst, src, dst_keys, src_keys, tmp,
+                         Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+
+@inline _dispatch_keyval!(::Val{8}, ::Val{1},
+        by, uint_map, dst, src, dst_keys, src_keys, tmp,
+        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+    _sort1d_keyval_impl!(get_keyval_kernel(Val(8), Val(1)),
+                         by, uint_map, dst, src, dst_keys, src_keys, tmp,
+                         Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+
+function _dispatch_keyval!(::Val{Nitem}, ::Val{Nchunks},
+        by, uint_map, dst, src, dst_keys, src_keys, tmp,
+        Nitem_int, Nchunks_int, workgroup, npasses, ::Type{K}, backend, arch) where {Nitem,Nchunks,K}
+    ker_fn = get_keyval_kernel(Val(Nitem), Val(Nchunks))
+    Base.invokelatest(_sort1d_keyval_impl!, ker_fn,
+                      by, uint_map, dst, src, dst_keys, src_keys, tmp,
                       Nitem_int, Nchunks_int, workgroup, npasses, K, backend, arch)
 end
 
@@ -291,7 +487,16 @@ function _sort1d_impl_byte!(
     byte_nblocks = cld(n, byte_block_size)
     global_counter = @view hist[:, 1]
     inst = ker(backend, workgroup, byte_nblocks * workgroup)
-    inst(dst, src, by, uint_map, global_counter, Val(Nbuckets), Val(warpsz))
+    if dst === src
+        # byte_sort_kernel writes to dst at positions determined by byte
+        # values (not src indices), so dst === src has a write-after-read
+        # race across blocks. Use scratch as intermediate, then copy back.
+        scratch = tmp.arrays.scratch
+        inst(scratch, src, by, uint_map, global_counter, Val(Nbuckets), Val(warpsz))
+        copyto!(src, scratch)
+    else
+        inst(dst, src, by, uint_map, global_counter, Val(Nbuckets), Val(warpsz))
+    end
     return dst
 end
 
@@ -340,26 +545,153 @@ function _sort1d_impl!(
                       Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend)
 
     # Ping-pong between dst and scratch so the final write lands in dst
-    # regardless of parity.
+    # regardless of parity. Avoid all upfront copies when possible:
+    #   * dst === src + even npasses: ping (src, scratch); result back in src.
+    #   * dst === src + odd  npasses: one src → scratch copy, then ping
+    #     (scratch, src); result back in src.
+    #   * dst !== src + even npasses: pass 1 reads src directly into scratch,
+    #     then ping (dst, scratch) for passes 2..n; result in dst.
+    #     This saves a full N-element src → dst memcpy (the common case for
+    #     `sort` / `sort!(dst, src)` on UInt16/UInt32/UInt64/Float32/Float64).
+    #   * dst !== src + odd  npasses: one src → scratch copy, ping
+    #     (scratch, dst); result in dst.
     inst = ker(backend, workgroup, nblocks * workgroup)
 
-    if iseven(npasses)
-        copyto!(dst, src)
-        a, b = dst, scratch
+    if dst === src
+        if iseven(npasses)
+            a, b = src, scratch
+        else
+            copyto!(scratch, src)
+            a, b = scratch, src
+        end
+    elseif iseven(npasses)
+        # Pass 1 reads from src; the loop reroutes to (scratch, dst)
+        # after pass 1 completes (see the trailing `if pass == 1` below).
+        a, b = src, scratch
     else
         copyto!(scratch, src)
         a, b = scratch, dst
     end
 
+    # Zero ALL pass partials/flag in three launches before the pass loop
+    # (was 3 launches per pass = 3·npasses launches; saves 9 at npasses=4).
+    fill!(partial1, UInt32(0))
+    fill!(partial2, UInt32(0))
+    fill!(flag, UInt8(0))
+
     for pass in 1:npasses
-        fill!(partial1, UInt32(0))
-        fill!(partial2, UInt32(0))
-        fill!(flag, UInt8(0))
+        p1_view = @view partial1[:, :, pass]
+        p2_view = @view partial2[:, :, pass]
+        fl_view = @view flag[:, pass]
         excl_col = @view hist[:, pass]
         inst(b, a, by, uint_map, Int32(8 * (pass - 1)),
-             excl_col, partial1, partial2, flag,
+             excl_col, p1_view, p2_view, fl_view,
              Val(Nbuckets), Val(warpsz), Val(wpb))
         a, b = b, a
+        # No-copy `dst !== src` + even npasses path: pass 1 reads src
+        # directly into scratch, then ping-pong (scratch, dst) so the
+        # final pass writes to dst. The standard swap above would
+        # otherwise leave `b = src` and clobber the user's input.
+        if pass == 1 && dst !== src && iseven(npasses)
+            a, b = scratch, dst
+        end
+    end
+    return dst
+end
+
+
+# --- Keyval onesweep path (any npasses ≥ 1) ----------------------------------
+
+# Nothing-dispatch: allocate buffer (with scratch_keys) then forward.
+function _sort1d_keyval_impl!(
+    ker::KER, by::F, uint_map::M,
+    dst::DS, src::AT, dst_keys::DKS, src_keys::KAT,
+    ::Nothing,
+    Nitem::Int, Nchunks::Int,
+    workgroup::Int,
+    npasses::Int, ::Type{K},
+    backend, arch,
+) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,DKS<:AbstractArray,KAT<:AbstractArray,K}
+    tmp = get_allocation(Sort1D, src;
+                         Nitem, Nchunks, workgroup, arch, by, uint_map,
+                         keys=src_keys)
+    _sort1d_keyval_impl!(ker, by, uint_map,
+                         dst, src, dst_keys, src_keys, tmp,
+                         Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+end
+
+function _sort1d_keyval_impl!(
+    ker::KER, by::F, uint_map::M,
+    dst::DS, src::AT, dst_keys::DKS, src_keys::KAT,
+    tmp::KernelBuffer,
+    Nitem::Int, Nchunks::Int,
+    workgroup::Int,
+    npasses::Int, ::Type{K},
+    backend, arch,
+) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,DKS<:AbstractArray,KAT<:AbstractArray,K}
+    n = length(src)
+    Nbuckets = 256
+    warpsz = get_warpsize(arch)
+    wpb = workgroup ÷ warpsz
+    block_size_max = workgroup * Nchunks * Nitem
+    nblocks = cld(n, block_size_max)
+
+    hist         = tmp.arrays.hist
+    partial1     = tmp.arrays.partial1
+    partial2     = tmp.arrays.partial2
+    flag         = tmp.arrays.flag
+    scratch      = tmp.arrays.scratch
+    scratch_keys = tmp.arrays.scratch_keys
+
+    # Histogram is built from the KEYS (digits come from `uint_map(by(keys))`).
+    _sort_histograms!(by, uint_map, src_keys, hist,
+                      Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend)
+
+    # Ping-pong between (dst, dst_keys) and (scratch, scratch_keys) so that
+    # the final write lands in (dst, dst_keys) regardless of parity.
+    # When dst === src and dst_keys === src_keys (in-place form), skip
+    # the redundant src → src and keys → keys self-copies.
+    inst = ker(backend, workgroup, nblocks * workgroup)
+
+    in_place = (dst === src) && (dst_keys === src_keys)
+    if in_place
+        if iseven(npasses)
+            a_v, b_v = src, scratch
+            a_k, b_k = src_keys, scratch_keys
+        else
+            copyto!(scratch, src)
+            copyto!(scratch_keys, src_keys)
+            a_v, b_v = scratch, src
+            a_k, b_k = scratch_keys, src_keys
+        end
+    elseif iseven(npasses)
+        copyto!(dst, src)
+        copyto!(dst_keys, src_keys)
+        a_v, b_v = dst, scratch
+        a_k, b_k = dst_keys, scratch_keys
+    else
+        copyto!(scratch, src)
+        copyto!(scratch_keys, src_keys)
+        a_v, b_v = scratch, dst
+        a_k, b_k = scratch_keys, dst_keys
+    end
+
+    # Zero ALL pass partials/flag in three launches before the pass loop
+    # (was 3 launches per pass = 3·npasses launches; saves 9 at npasses=4).
+    fill!(partial1, UInt32(0))
+    fill!(partial2, UInt32(0))
+    fill!(flag, UInt8(0))
+
+    for pass in 1:npasses
+        p1_view = @view partial1[:, :, pass]
+        p2_view = @view partial2[:, :, pass]
+        fl_view = @view flag[:, pass]
+        excl_col = @view hist[:, pass]
+        inst(b_v, a_v, b_k, a_k, by, uint_map, Int32(8 * (pass - 1)),
+             excl_col, p1_view, p2_view, fl_view,
+             Val(Nbuckets), Val(warpsz), Val(wpb))
+        a_v, b_v = b_v, a_v
+        a_k, b_k = b_k, a_k
     end
     return dst
 end
