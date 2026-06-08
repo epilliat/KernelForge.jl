@@ -190,11 +190,23 @@ function resolve_parameters(
     blocks=nothing
 ) where {T}
     n, p = size(src)
-    workgroup = something(workgroup, default_workgroup(arch, VecMat, n, p, T))
-    blocks = something(blocks, default_blocks(arch, VecMat, n, p, T))
-    Nitem = something(Nitem, default_nitem(arch, VecMat, n, p, T))
-    Nthreads = something(Nthreads, default_nthreads(arch, VecMat, n, p, T, Nitem, workgroup, blocks))
-    #@show Nthreads
+    # Tuning lookup: returns (; Nitem, Nthreads, workgroup, blocks) if this
+    # arch has a `data/tuning/<arch>.jl` entry covering (T, n, p), else
+    # nothing. Fills any knob the caller didn't override; falls through to
+    # default_* heuristics if there's no tuning data.
+    tuned = lookup_vecmat(arch, T, n, p)
+    workgroup = something(workgroup,
+                          tuned === nothing ? nothing : tuned.workgroup,
+                          default_workgroup(arch, VecMat, n, p, T))
+    blocks = something(blocks,
+                       tuned === nothing ? nothing : tuned.blocks,
+                       default_blocks(arch, VecMat, n, p, T))
+    Nitem = something(Nitem,
+                      tuned === nothing ? nothing : tuned.Nitem,
+                      default_nitem(arch, VecMat, n, p, T))
+    Nthreads = something(Nthreads,
+                         tuned === nothing ? nothing : tuned.Nthreads,
+                         default_nthreads(arch, VecMat, n, p, T, Nitem, workgroup, blocks))
     Nitem = min(Nitem, prevpow(2, n))
     Nthreads = min(Nthreads, prevpow(2, max(fld(n, Nitem), 1)))
     workgroup = min(workgroup, prevpow(2, n * p))
@@ -429,8 +441,9 @@ function _vecmat_impl_single!(
     backend = get_backend(src)
     ndrange = Nthreads * p
     warpsz = get_warpsize(arch)
-    vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H, Val(warpsz)
+    vecmat_kernel!(backend, workgroup)(
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H, Val(warpsz);
+        ndrange = ndrange,
     )
 end
 
@@ -454,8 +467,9 @@ function _vecmat_impl_multi!(
     local_tmp = isnothing(tmp)
     fill!(tmp.arrays.flag, 0x00)
     warpsz = get_warpsize(arch)
-    vecmat_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
+    vecmat_kernel!(backend, workgroup)(
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz);
+        ndrange = ndrange,
     )
 end
 
@@ -481,8 +495,9 @@ function _vecmat_impl_multi_simple!(
 
     ndrange = Nblocks * p * workgroup
     # phase 1: reduce src into partial_2d, one entry per block per column
-    vecmat_simple_kernel!(backend, workgroup, ndrange)(
-        f, op, identity, tmp.arrays.partial, x, src, Val(Nitem), Val(Nthreads), H, Val(warpsz)
+    vecmat_simple_kernel!(backend, workgroup)(
+        f, op, identity, tmp.arrays.partial, x, src, Val(Nitem), Val(Nthreads), H, Val(warpsz);
+        ndrange = ndrange,
     )
     KernelAbstractions.synchronize(backend)
     workgroup = min(256, prevpow(2, Nblocks))

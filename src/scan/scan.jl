@@ -289,10 +289,11 @@ function _scan_impl!(
     dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
     Alignment = src_align == dst_align ? src_align : -1
     warpsz = get_warpsize(arch)
-    scan_kernel!(backend, workgroup, ndrange)(
+    scan_kernel!(backend, workgroup)(
         f, op, g, dst, src, Val(Nitem),
         tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
-        Val(Alignment), Val(warpsz)
+        Val(Alignment), Val(warpsz);
+        ndrange = ndrange,
     )
     return dst
 end

@@ -253,10 +253,23 @@ function resolve_parameters(
     n, p = size(src)
     warpsz = get_warpsize(arch)
     blocks_row = something(blocks_row, default_blocks(arch))
-    workgroup = something(workgroup, default_workgroup(arch, MatVec, n, p, T))
-    Nblocks = something(Nblocks, default_nblocks(arch, MatVec, n, p, T))
-    Nitem = something(Nitem, default_nitem(arch, MatVec, n, p, T))
-    chunksz = something(chunksz, default_chunksz(arch, MatVec, n, p, T, Nitem, workgroup))
+    # Tuning lookup: returns (; Nitem, chunksz, Nblocks, workgroup) if this
+    # arch has a `data/tuning/<arch>.jl` entry covering (T, n, p), else nothing.
+    # Used to fill any knob the caller didn't explicitly override; falls
+    # through to default_* heuristics if there's no tuning data.
+    tuned = lookup_matvec(arch, T, n, p)
+    workgroup = something(workgroup,
+                          tuned === nothing ? nothing : tuned.workgroup,
+                          default_workgroup(arch, MatVec, n, p, T))
+    Nblocks = something(Nblocks,
+                        tuned === nothing ? nothing : tuned.Nblocks,
+                        default_nblocks(arch, MatVec, n, p, T))
+    Nitem = something(Nitem,
+                      tuned === nothing ? nothing : tuned.Nitem,
+                      default_nitem(arch, MatVec, n, p, T))
+    chunksz = something(chunksz,
+                        tuned === nothing ? nothing : tuned.chunksz,
+                        default_chunksz(arch, MatVec, n, p, T, Nitem, workgroup))
 
     workgroup = max(min(workgroup, prevpow(2, n * p)), warpsz)
     Nblocks = min(Nblocks, prevpow(2, max(fld(p, cld(workgroup, chunksz)), 1)))
@@ -438,8 +451,9 @@ function _matvec_impl_single!(
     backend = get_backend(src)
     warpsz = get_warpsize(arch)
     ndrange = cld(n, chunksz * Nitem) * workgroup
-    matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(1), Val(Nitem), nothing, nothing, H, Val(warpsz)
+    matvec_kernel!(backend, workgroup)(
+        f, op, g, dst, src, x, Val(chunksz), Val(1), Val(Nitem), nothing, nothing, H, Val(warpsz);
+        ndrange = ndrange,
     )
     # else
     #     ndrange = cld(n, Nitem)
@@ -468,7 +482,8 @@ function _matvec_impl_multi!(
     ndrange = cld(n, chunksz * Nitem) * Nblocks * workgroup
     fill!(tmp.arrays.flag, 0x00)
     warpsz = get_warpsize(arch)
-    matvec_kernel!(backend, workgroup, ndrange)(
-        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), Val(Nitem), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz)
+    matvec_kernel!(backend, workgroup)(
+        f, op, g, dst, src, x, Val(chunksz), Val(Nblocks), Val(Nitem), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz);
+        ndrange = ndrange,
     )
 end
