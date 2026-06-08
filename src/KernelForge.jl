@@ -66,6 +66,7 @@ include("sort/batched_radix.jl")          # batched LSD radix for K × M matrice
 include("sort/oem_warp.jl")               # warp-level column-batched bitonic
 include("sort/oem_shared.jl")             # shared-mem column-batched bitonic (uses oem_warp)
 include("sort/sort_columns.jl")           # public batched column-sort dispatcher
+include("sort/sample_sort.jl")            # general-comparator GPU sample sort
 include("sort/sort1d.jl")
 
 include("extras/unitfloats.jl")
