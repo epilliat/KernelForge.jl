@@ -549,6 +549,168 @@ x = CuArray(Float32[5, 5, 5, 5, 5])
 @assert KernelForge.argmin(x) == 1
 ```
 
+## Sort
+
+KernelForge ships four sort variants. The right choice depends on what
+you have and what you need:
+
+| API                         | Use when                                                                          |
+|-----------------------------|-----------------------------------------------------------------------------------|
+| `sort` / `sort!`            | 1D radix on `BitwiseType` (Ints, Floats, Bool, UnitFloat8). Fastest path.        |
+| `sort!(src; keys=vals)`     | Keyval radix — reorder `vals` in parallel with `src`. Use for key/value pairs.   |
+| `sortperm` / `sortperm!`    | You want the permutation indices, not the sorted values.                          |
+| `sample_sort`               | General `lt` comparator (custom orderings, structs, non-radix types).             |
+| `sort_columns` / `sort_columns!` | Sort each column of a `K × M` matrix in parallel.                              |
+
+### 1D radix sort
+
+```julia
+using KernelForge
+using CUDA
+
+src = CUDA.rand(Float32, 10^6)
+
+# In-place — fastest; no extra copy when the radix pass count is odd
+KernelForge.sort!(src)
+
+# Out-of-place — leaves src untouched
+src   = CUDA.rand(Float32, 10^6)
+dst   = similar(src)
+KernelForge.sort!(dst, src)
+
+# Allocate + return — convenience form
+out = KernelForge.sort(CUDA.rand(Float32, 10^6))
+```
+
+### Keyval sort
+
+Sort `vals` by the corresponding entries of `keys` — handy for
+ordering payloads (e.g., particle indices) by a per-element score:
+
+```julia
+using KernelForge, CUDA
+
+scores  = CUDA.rand(Float32, 10^6)
+indices = CuArray(UInt32.(1:10^6))
+
+KernelForge.sort!(scores; keys=indices)
+# indices is now reordered so that scores[i] is non-decreasing
+```
+
+### Sortperm
+
+When you want the permutation rather than the sorted values:
+
+```julia
+using KernelForge, CUDA
+
+src  = CUDA.rand(Float32, 10^6)
+perm = KernelForge.sortperm(src)
+# src[perm] is sorted
+
+# In-place form
+perm = similar(src, UInt32)
+KernelForge.sortperm!(perm, src)
+```
+
+### General-comparator sample sort
+
+`sample_sort` accepts an arbitrary `lt` comparator and works on any
+bitstype — including types the radix path can't handle (e.g., tuples,
+custom structs, reverse order):
+
+```julia
+using KernelForge, CUDA
+
+src = CUDA.rand(Float32, 10^6)
+
+# Descending order
+out = KernelForge.sample_sort(src; lt = >)
+
+# Sort tuples by their 2nd element
+pairs = CuArray([(Float32(i), Float32(rand())) for i in 1:10^5])
+sorted = KernelForge.sample_sort(pairs; lt = (a, b) -> a[2] < b[2])
+```
+
+### Batched per-column sort
+
+`sort_columns!` sorts each column of a `K × M` matrix in parallel —
+the workhorse for batched-prefix-work over column-major data:
+
+```julia
+using KernelForge, CUDA
+
+A = CUDA.rand(Float32, 4096, 64)          # 64 vectors of length 4096
+KernelForge.sort_columns!(A)
+# Each column A[:, k] is now sorted independently
+```
+
+## Random
+
+KernelForge.Random is a counter-based RNG: `out[i]` is a pure
+function of `(seed, i)`, so results are byte-identical across runs,
+vector lengths, and devices (CPU ↔ CUDA ↔ AMDGPU). There is **no
+mutable RNG state object** — the seed (a `UInt64`) is everything you
+need.
+
+### Uniform draws
+
+```julia
+import KernelForge.Random as KFR
+using CUDA
+
+out = CUDA.zeros(Float32, 10^6)
+
+KFR.rand!(out, UInt64(42))                       # Uniform[0, 1)
+KFR.rand!(out, KFR.Uniform(-1f0, 1f0), UInt64(42))  # Uniform[-1, 1)
+```
+
+### Normal draws
+
+```julia
+KFR.randn!(out, UInt64(42))                      # Normal(0, 1)
+KFR.rand!(out, KFR.Normal(2.0f0, 0.5f0), UInt64(42))  # Normal(2, 0.25)
+```
+
+### Other distributions
+
+```julia
+# Exponential(λ = 2)
+KFR.rand!(out, KFR.Exponential(2f0), UInt64(42))
+
+# Bernoulli — emits Bool vector
+b = CUDA.zeros(Bool, 10^6)
+KFR.rand!(b, KFR.Bernoulli(0.3f0), UInt64(42))
+
+# Categorical — cum_p is the cumulative CDF (last entry == 1)
+cum_p = cu(Float32[0.2, 0.5, 1.0])               # P = [0.2, 0.3, 0.5]
+labels = CUDA.zeros(Int32, 10^6)
+KFR.rand!(labels, KFR.Categorical(cum_p), UInt64(42))
+```
+
+### Reproducibility
+
+Reusing the same `(seed, length)` always yields the same draws —
+useful when you want byte-equal results across runs or to debug
+divergent behaviour:
+
+```julia
+a = CUDA.zeros(Float32, 1000); KFR.rand!(a, UInt64(7))
+b = CUDA.zeros(Float32, 1000); KFR.rand!(b, UInt64(7))
+@assert Array(a) == Array(b)
+```
+
+### Random permutations
+
+`randperm!` populates a Float32 key buffer with uniforms and routes
+through `sortperm!` from the sort family:
+
+```julia
+perm = CUDA.zeros(UInt32, 10^6)
+KFR.randperm!(perm, UInt64(42))
+# perm is now a uniform random permutation of 1:10^6
+```
+
 ## Pre-allocating Temporary Buffers
 
 For repeated operations, pre-allocate temporary buffers to avoid allocation overhead:

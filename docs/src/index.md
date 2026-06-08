@@ -31,8 +31,17 @@ Pkg.add("KernelForge")
   multidimensional arrays including non-contiguous dimension reduction via `mapreducedims`
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
+- **Sort** — 1D radix `sort`/`sort!` with optional `keys=` keyval form, `sortperm`
+  for permutation indices, `sample_sort` accepting an arbitrary `lt` comparator, and
+  `sort_columns` for batched per-column sort of `K × M` matrices
+- **Random** — Philox4x32-10 counter-based GPU RNG (deterministic across CPU and GPU
+  for a given seed); `rand!`, `randn!`, `randperm!`, plus `Uniform`, `Normal`,
+  `Exponential`, `Bernoulli`, `Categorical` distribution drivers
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays
 - **Vectorized copy** with configurable load/store widths
+- **Per-arch tuning** — runtime lookup of pre-tuned kernel parameters from
+  `data/tuning/<Arch>.{json,jl}`; graceful fallback to heuristic defaults when
+  no tuning ships for the detected arch
 - Views and strided arrays supported throughout, enabled by KernelIntrinsics.jl's
   vectorized memory access primitives which correctly handle non-contiguous memory layouts
 - Supports CUDA (NVIDIA) and AMDGPU (AMD) backends via weak dependencies
@@ -67,6 +76,18 @@ total_view = KernelForge.mapreduce(abs2, +, v)
 # Search
 i = KernelForge.findfirst(>(0.99f0), src)
 j = KernelForge.argmax(src)
+
+# Sort (1D radix; ~CUB throughput on Turing)
+keys = CUDA.rand(Float32, 10^6)
+KernelForge.sort!(keys)                              # in-place
+perm = KernelForge.sortperm(CUDA.rand(Float32, 10^6))  # permutation indices
+
+# Random — counter-based RNG; (seed, i) → byte-identical CPU ↔ CUDA ↔ AMDGPU
+import KernelForge.Random as KFR
+draws = CUDA.zeros(Float32, 10^6)
+KFR.rand!(draws, UInt64(42))                          # Uniform[0, 1)
+KFR.randn!(draws, UInt64(42))                         # Normal(0, 1)
+KFR.rand!(draws, KFR.Exponential(2f0), UInt64(42))    # Exponential(2)
 ```
 
 ## Acknowledgments

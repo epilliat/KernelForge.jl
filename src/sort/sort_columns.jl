@@ -53,9 +53,9 @@ into a fresh matrix (`sort_columns`).
 
 `algorithm=:auto` (default):
 - Custom `lt`/`tmax`/`reverse=true` or non-`uint_map`-eligible `T`:
-  routed to [`oem_sort_columns!`](@ref). Requires `K ≤ 4096`.
+  routed to `oem_sort_columns!`. Requires `K ≤ 4096`.
 - Otherwise: picks OEM or batched LSD radix per the per-type threshold
-  in [`default_sort_columns_threshold`](@ref).
+  in `default_sort_columns_threshold`.
 
 Both batched-radix paths bounds-check OOB tile slots and never reference
 `typemax(T)` — user-defined bitstypes with `uint_map` (and no `typemax`)
@@ -137,3 +137,6 @@ function sort_columns(A::AbstractMatrix; kwargs...)
     sort_columns!(B; kwargs...)
     return B
 end
+
+# Both names share the docstring above sort_columns.
+@doc (@doc sort_columns) sort_columns!

@@ -1,3 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 KernelForge = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
+
+[compat]
+Documenter = "1"

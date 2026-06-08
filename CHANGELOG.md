@@ -22,8 +22,10 @@ under **Breaking changes** below.
   for matching CPU-side reference streams in tests.
 - `KernelForge.sortperm!` — returns the permutation index vector
   that sorts a 1D source array. Built on the keyval one-sweep radix.
-- `KernelForge.sample_sort!` — GPU sample sort accepting an
+- `KernelForge.sample_sort` — GPU sample sort accepting an
   arbitrary `lt` comparator, for bitstypes outside the radix path.
+  Allocates its own workspace internally (no bang form — pass a
+  `SampleSortWorkspace` for the pre-allocated variant).
 - `KernelForge.sort_columns!` — batched per-column sort for K × M
   matrices (OEM + batched-radix dispatch).
 - `KernelForge.sort!(src; keys=...)` — keyval radix sort variant.

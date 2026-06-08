@@ -626,7 +626,7 @@ _define_batch_radix_onesweep!(BATCH_RADIX_NITEM, 2)
 """
     get_allocation(SortColumns, A::AbstractMatrix; by=identity, uint_map=KF.uint_map)
 
-Pre-allocate the workspace used by [`batched_radix_sort_columns!`](@ref).
+Pre-allocate the workspace used by `batched_radix_sort_columns!`.
 Sized for `A`'s shape and `uint_map ∘ by`'s output type.
 Workspace fields (NamedTuple):
 

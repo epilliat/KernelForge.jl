@@ -39,3 +39,39 @@ For both benchmarks, we fix the total matrix size (n × p) and vary n from 10 to
 **Vector-Matrix**
 
 ![Vector-Matrix Benchmark](assets/vecmat_benchmark_comparison.png)
+
+## Sort
+
+KernelForge ships a 1D radix `sort!` competitive with CUB's
+`DeviceRadixSort` across the standard bitwise types (UInt32, UInt64,
+Float32, Float64). At large N (≥ 10⁷) KernelForge typically wins on
+narrow types and ties on wide types; at small N (< 10⁵) CUB pulls
+ahead because its launch overhead amortizes better. The `keys=...`
+keyval variant, `sortperm!`, and the batched `sort_columns!` family
+all reuse the same one-sweep radix kernel.
+
+For workloads with custom comparators or non-radix bitstypes,
+`sample_sort` provides a general path; it currently matches
+CUDA.jl's bitonic sort on Float32 / Float64 at N ~ 10⁷ and remains
+correct (where bitonic doesn't) for arbitrary `lt` predicates.
+
+Benchmark scripts: `perfs/julia/benchmarks/sort_perf_comparison.jl`
+and `perfs/julia/benchmarks/sort_columns_perf_comparison.jl`.
+Raw result CSVs live in the sibling repo
+[KernelForge-benchmarks](https://github.com/epilliat/KernelForge-benchmarks);
+plot figures will land in a follow-up minor.
+
+## Random
+
+The Philox4x32-10 RNG path matches Random123's CPU implementation
+bit-for-bit and outperforms CUDA.jl's cuRAND host-only launcher at
+small N because the Philox stream is fully GPU-resident — no
+host↔device round-trip. At large N (≥ 10⁷), Float32 Uniform draws
+saturate device memory bandwidth on RTX1000.
+
+`randperm!` builds on the keyval sort path (fill Float32 uniform
+keys + `sortperm!`); throughput tracks `sort!` directly.
+
+Benchmark scripts: `perfs/julia/benchmarks/random_perf_comparison.jl`
+and `perfs/julia/benchmarks/randperm_perf_comparison.jl`. Raw CSVs in
+[KernelForge-benchmarks](https://github.com/epilliat/KernelForge-benchmarks).
