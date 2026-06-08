@@ -4,6 +4,7 @@ version = "0.1.4"
 authors = ["Emmanuel Pilliat <epilliat@gmail.com>"]
 
 [deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
@@ -18,6 +19,7 @@ KernelForgeAMDGPUExt = "AMDGPU"
 KernelForgeCUDAExt = "CUDA"
 
 [compat]
+Adapt = "4"
 CUDA = "5"
 AMDGPU = "1"
 ArgCheck = "2.5.0"

@@ -102,6 +102,16 @@ struct UnknownArch <: AbstractArch end
 function arch_tag end
 function detect_arch end
 
+"""
+    num_sms(backend) -> Int
+
+Number of streaming multiprocessors (NVIDIA) / compute units (AMD) on the
+active device of `backend`. Implemented per backend in the KernelForge
+extensions; used by the mapreduce1d/scan autotune scripts to size
+hardware-relative candidate grids (e.g. `blocks = K × num_sms`).
+"""
+function num_sms end
+
 # ---------------------------------------------------------------------------
 # detect_arch: CuDevice / ROCmDevice / AbstractArray / Val → AbstractArch
 # ---------------------------------------------------------------------------

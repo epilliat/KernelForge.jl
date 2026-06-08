@@ -20,6 +20,9 @@ include("helpers.jl")
 include("algorithms.jl")
 include("allocations.jl")
 
+include("tuning/loader.jl")     # process-global tuning table; populated by extensions
+include("tuning/precompile.jl") # compile_kernel_only stub; implemented in backend exts
+
 include("copy/copy_kernel.jl")
 include("copy/copy.jl")
 
