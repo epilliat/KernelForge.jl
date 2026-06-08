@@ -68,6 +68,7 @@ include("sort/oem_shared.jl")             # shared-mem column-batched bitonic (u
 include("sort/sort_columns.jl")           # public batched column-sort dispatcher
 include("sort/sample_sort.jl")            # general-comparator GPU sample sort
 include("sort/sort1d.jl")
+include("sort/sortperm.jl")
 
 include("extras/unitfloats.jl")
 include("linear_algebra/reductions.jl")

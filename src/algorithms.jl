@@ -27,6 +27,7 @@ end
 @forge_algorithm Argmax1D
 @forge_algorithm Sort1D
 @forge_algorithm SortColumns
+@forge_algorithm Sortperm
 
 function _type_to_symbol(T::DataType)
     return Symbol(lowercase(string(nameof(T))))
