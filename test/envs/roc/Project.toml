@@ -6,6 +6,8 @@ KernelForge = "d2e71dfc-f0f5-4b9d-8de2-a66a4c724860"
 KernelIntrinsics = "f9588fbb-d238-4998-b15a-468e8766d49a"
 Quaternions = "94ee1d12-ae83-5a48-8b1c-48b8ff168ae0"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Random123 = "74087812-796a-5b5d-8853-05524746bad3"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
 [sources]
 KernelForge = {path = "../../.."}

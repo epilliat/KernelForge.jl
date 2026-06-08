@@ -21,10 +21,14 @@ end
 
 _unsafe_free!(arr::ROCArray) = AMDGPU.unsafe_free!(arr)
 
-# Compute-Unit count for the active AMD device. Used by the
-# mapreduce1d/scan autotune to size hardware-relative `blocks` grids.
+# Compute-Unit / Multiprocessor count for the active AMD device.
+#  - `KernelForge.num_sms` (public): used by mapreduce1d/scan autotune to
+#    size hardware-relative `blocks` grids.
+#  - `KernelForge.Random._n_sms` (internal): sizes the persistent thread
+#    pool; delegates to `num_sms`.
 KernelForge.num_sms(::ROCBackend) =
     Int(AMDGPU.HIP.properties(AMDGPU.device()).multiProcessorCount)
+KernelForge.Random._n_sms(be::ROCBackend) = KernelForge.num_sms(be)
 
 # Compile-only path for the autotune script. Mirrors the prelude of KA's
 # ROC functor (AMDGPU.jl `src/ROCKernels.jl:99-102`) but stops at the

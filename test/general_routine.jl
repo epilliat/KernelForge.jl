@@ -17,9 +17,16 @@ end
 @testset "sort" begin
     include("tests/sort/sort_test.jl")
     include("tests/sort/sort_keyval_test.jl")
-    include("tests/sort/sort_columns_test.jl")
-    include("tests/sort/sample_sort_test.jl")
     include("tests/sort/sortperm_test.jl")
+    include("tests/sort/sample_sort_test.jl")
+    include("tests/sort/sort_columns_test.jl")
+end
+@testset "random" begin
+    include("tests/random/philox_core_test.jl")
+    include("tests/random/uniforms_test.jl")
+    include("tests/random/distributions_test.jl")
+    include("tests/random/randperm_test.jl")
+    include("tests/random/reproducibility_test.jl")
 end
 @testset "views" begin
     include("tests/views/views_test.jl")

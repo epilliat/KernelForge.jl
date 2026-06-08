@@ -73,5 +73,7 @@ include("sort/sortperm.jl")
 include("extras/unitfloats.jl")
 include("linear_algebra/reductions.jl")
 
+include("random/Random.jl")
+
 
 end # module KernelForge

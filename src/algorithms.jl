@@ -28,6 +28,7 @@ end
 @forge_algorithm Sort1D
 @forge_algorithm SortColumns
 @forge_algorithm Sortperm
+@forge_algorithm Random1D
 
 function _type_to_symbol(T::DataType)
     return Symbol(lowercase(string(nameof(T))))

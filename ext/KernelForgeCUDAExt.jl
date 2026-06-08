@@ -23,10 +23,14 @@ end
 
 _unsafe_free!(arr::CuArray) = CUDA.unsafe_free!(arr)
 
-# Multiprocessor (SM) count for the active CUDA device. Used by the
-# mapreduce1d/scan autotune to size hardware-relative `blocks` grids.
+# Multiprocessor (SM) count for the active CUDA device.
+#  - `KernelForge.num_sms` (public): used by mapreduce1d/scan autotune to
+#    size hardware-relative `blocks` grids.
+#  - `KernelForge.Random._n_sms` (internal): sizes the persistent thread
+#    pool; delegates to `num_sms`.
 KernelForge.num_sms(::CUDABackend) =
     Int(CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT))
+KernelForge.Random._n_sms(be::CUDABackend) = KernelForge.num_sms(be)
 
 # Compile-only path for the autotune script. Mirrors the prelude of KA's
 # CUDA functor (CUDA.jl `src/CUDAKernels.jl:115-129`) but stops at the
