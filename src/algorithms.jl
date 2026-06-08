@@ -26,6 +26,7 @@ end
 @forge_algorithm Argmax
 @forge_algorithm Argmax1D
 @forge_algorithm Sort1D
+@forge_algorithm SortColumns
 
 function _type_to_symbol(T::DataType)
     return Symbol(lowercase(string(nameof(T))))
@@ -40,5 +41,8 @@ const KERNEL_TAGS = Dict{Symbol,DataType}(
 # so `@allocate sort(...)` looks up `:sort` and resolves to the Sort1D tag.
 KERNEL_TAGS[:sort]  = Sort1D
 KERNEL_TAGS[:sort!] = Sort1D
+KERNEL_TAGS[:sort_columns]  = SortColumns
+KERNEL_TAGS[:sort_columns!] = SortColumns
+KERNEL_TAGS[:batched_radix_sort_columns!] = SortColumns
 
 
