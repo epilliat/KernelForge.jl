@@ -135,8 +135,17 @@ else # :roc
         # pure kernel time. Dividing by `inner` also shrinks the CPU-side
         # variance (much noisier than kernel time) by the same factor.
         # Median over `trials` blocks rejects the occasional slow block.
+        #
+        # `inner` is ADAPTIVE: amortizing host dispatch (~µs) only matters when
+        # the kernel itself is µs-scale. The giant-p cells (e.g. n=8, p=2^27)
+        # have candidates running 100-500 ms/launch — a fixed inner=20 makes
+        # each candidate cost 2-10 s (× hundreds per cell × 109 cells × 2
+        # dtypes). A single probe launch sizes inner to ~a few ms of timed work:
+        # inner=1 for ms-scale kernels (already pure kernel time, no accuracy
+        # loss), up to 20 for µs-scale. Ranking stays self-consistent per cell.
         function _bench_us(f; trials::Int = 5)
-            inner = 20
+            probe_us = Float64(AMDGPU.@elapsed f()) * 1e6
+            inner = probe_us <= 0 ? 20 : clamp(round(Int, 3000.0 / probe_us), 1, 20)
             samples = Float64[]
             for _ in 1:trials
                 t = Float64(AMDGPU.@elapsed begin
@@ -213,7 +222,19 @@ end
 const CHUNKSZ_GRID   = (1, 2, 4, 8, 16, 32, 64, 128, 256)
 const NBLOCKS_GRID   = (1, 2, 4, 8, 16, 32, 64, 128, 256)
 const WORKGROUP_GRID = (128, 256, 512)
-const WARPSZ         = 32
+# Wave/warp width of the *target* device — drives the candidate pruning and the
+# @localmem element-count estimate below (lines using cld(workgroup, WARPSZ)).
+# Must match what the launched kernel actually uses: matvec.jl passes
+# `Val(get_warpsize(arch))`. Hardcoding 32 (NVIDIA) on a wave64 device (CDNA /
+# MI300X) over-estimates `cld(wg, warpsz)` by 2× → SHARED_ELEM/MEM caps prune
+# large-chunksz candidates too aggressively and under-explore the wave64 sweet
+# spot. Detect it from the device instead: CDNA→64, RDNA→32 (wave32 mode),
+# NVIDIA→32. Falls back to 32 if detection fails.
+const WARPSZ = try
+    KF.get_warpsize(KF.detect_arch(_gpu_zeros(Float32, 1)))
+catch
+    32
+end
 
 # Dev param grid — smaller subset (~10 valid combos per cell after asserts).
 const DEV_CHUNKSZ    = (4, 16, 64)

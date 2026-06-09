@@ -258,10 +258,12 @@ elseif _AMD_LOADED
                     reset()
                     KA.synchronize(backend)
                 end
-                kms = Float64(AMDGPU.@elapsed begin
+                # AMDGPU.@elapsed returns SECONDS (like Base/CUDA.@elapsed),
+                # so → µs is ×1e6 (matches the CUDA branch's `* 1e6`).
+                ksec = Float64(AMDGPU.@elapsed begin
                     for _ in 1:inner; f(); end
                 end)
-                push!(k_samples, kms * 1e3 / inner)
+                push!(k_samples, ksec * 1e6 / inner)
                 _enough_trials(k_samples, min_trials, target_cv, deadline) && break
             end
             dispatch_samples = Float64[]
@@ -271,9 +273,9 @@ elseif _AMD_LOADED
                     KA.synchronize(backend)
                 end
                 t0 = time_ns()
-                kms = Float64(AMDGPU.@elapsed f())
+                ksec = Float64(AMDGPU.@elapsed f())
                 wall_us = (time_ns() - t0) / 1000.0
-                push!(dispatch_samples, max(0.0, wall_us - kms * 1e3))
+                push!(dispatch_samples, max(0.0, wall_us - ksec * 1e6))
             end
             k_med = median(k_samples)
             w_samples = k_med .+ dispatch_samples
