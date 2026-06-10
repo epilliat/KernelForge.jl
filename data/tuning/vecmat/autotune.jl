@@ -150,9 +150,17 @@ function nitems_for(::Type{T}) where T
     return Tuple(1 << k for k in 0:floor(Int, log2(cap)))
 end
 
-const NTHREADS_GRID  = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384)
+# Extended upward for MI300X: large reductions (tall-skinny, p small, n huge)
+# want far more parallelism than the original NVIDIA-era 16384 ceiling — the
+# default heuristic uses Nthreads=131072 there, and 17/109 winners pressed the
+# old ceiling. The validity filters (`Nthreads*Nitem<=n`, per-thread cap
+# `cld(n,Nthreads)<=2^18`) self-restrict the high values to large-n cells, so
+# small cells are unaffected. (262144 only activates if the Nblocks_runtime<=256
+# cap below is also raised; kept here so the search reaches it once that lifts.)
+const NTHREADS_GRID  = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144)
 const WORKGROUP_GRID = (128, 256, 512)
-const BLOCKS_GRID    = (1, 2, 4, 8, 16, 32, 64, 128)
+# 256 added: multi-block reductions win there on MI300X (default uses blocks=256).
+const BLOCKS_GRID    = (1, 2, 4, 8, 16, 32, 64, 128, 256)
 const WARPSZ         = 32
 
 # Dev grid — small Cartesian for the ~30 s smoke.
