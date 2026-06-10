@@ -35,16 +35,37 @@ function run_scan_benchmarks(src::AT{T}, dst::AT{T}, label_T::String, n::Int;
     rows = NamedTuple[]
     tmp_kf = KF.@allocate scan1d(identity, +, src)
     temp_ak = similar(src)
+    # AK DecoupledLookback needs a `temp_flags` integer buffer (length >= num_blocks).
+    # Sized cld(n,256)+1 ≥ num_blocks (AK's num_blocks ~ cld(n, 2*block_size)); the kernel
+    # initializes the flags itself each call (AK's own fallback uses uninitialized
+    # `similar`), so reusing it across trials is safe and keeps the alloc out of the
+    # timed region — apples-to-apple with KF's pre-allocated tmp.
+    temp_flags_ak = similar(src, Int32, cld(n, 256) + 1)
     for (name, method, call) in [
         (has_cuda() ? "CUDA [$label_T]" : "Base [$label_T]",
             has_cuda() ? "CUDA" : "Base",
             () -> accumulate!(+, dst, src)),
         ("AcceleratedKernels [$label_T]", "AK",
             () -> AcceleratedKernels.accumulate!(+, dst, src; init, temp=temp_ak)),
+        ("AcceleratedKernels-DL [$label_T]", "AK-DL",
+            () -> AcceleratedKernels.accumulate!(+, dst, src; init, temp=temp_ak,
+                temp_flags=temp_flags_ak, alg=AcceleratedKernels.DecoupledLookback())),
         ("KernelForge [$label_T]", "KernelForge",
             () -> KernelForge.scan!(+, dst, src; tmp=tmp_kf)),
     ]
-        s = bench(name, call; backend)
+        # Per-method fault tolerance: a single library being unsupported on this
+        # backend shouldn't crash the whole sweep. AK's DecoupledLookback, for
+        # example, fails to compile on the CUDA/UnsafeAtomics toolchain
+        # ("Cannot select: AtomicFence") — record NaN for that method and go on.
+        # OOM is rethrown so the outer handler fills every method NaN uniformly.
+        s = try
+            bench(name, call; backend)
+        catch err
+            msg = sprint(showerror, err)
+            (occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)) && rethrow(err)
+            @warn "scan bench: method failed — recording NaN" name method exception=(err,)
+            (; mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
+        end
         push!(rows, (; n, type=label_T, method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
@@ -140,7 +161,7 @@ for n in sizes, T in types
         msg = sprint(showerror, err)
         if occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)
             @warn "Skipping cell — out of GPU memory" n T
-            for m in (has_cuda() ? ("CUDA","AK","KernelForge","CUB") : ("Base","AK","KernelForge"))
+            for m in (has_cuda() ? ("CUDA","AK","AK-DL","KernelForge","CUB") : ("Base","AK","AK-DL","KernelForge"))
                 push!(all_rows, (; n, type=string(T), method=m,
                                   mean_kernel_μs=NaN, std_kernel_μs=NaN,
                                   mean_total_μs=NaN,  std_total_μs=NaN))
