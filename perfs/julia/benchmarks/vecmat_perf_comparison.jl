@@ -18,16 +18,14 @@ function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
     println("="^60)
 
     rows = NamedTuple[]
-    for (name, method, call, g) in [
+    for (name, method, call) in [
             ("KernelForge [n=$n, p=$p]", "KernelForge",
-             () -> KernelForge.vecmat!(dst, x, A; tmp),
-             @isdefined(AMDGPU) ? () -> KernelForge.vecmat!(dst, x, A; tmp) : () -> ()),
+             () -> KernelForge.vecmat!(dst, x, A; tmp)),
             (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
              has_cuda() ? "cuBLAS" : "LinearAlgebra",
-             () -> x' * A,
-             () -> ()),
+             () -> x' * A),
         ]
-        s = bench(name, call; backend, g)
+        s = bench(name, call; backend)
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))

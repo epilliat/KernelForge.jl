@@ -88,7 +88,13 @@ else # :roc
         _gpu_zeros(::Type{T}, dims...) where T  = AMDGPU.zeros(T, dims...)
 
         function _bench_us(f; trials::Int = 5, reducer::Function = median)
-            inner = 20
+            # `inner` is ADAPTIVE (mirrors matvec/autotune.jl): amortizing host
+            # dispatch (~µs) only matters for µs-scale kernels. Giant-p cells run
+            # 100-500 ms/launch — a fixed inner=20 made each candidate cost
+            # 2-10 s. A probe launch sizes inner to ~a few ms: inner=1 for
+            # ms-scale kernels (already pure kernel time, no accuracy loss).
+            probe_us = Float64(AMDGPU.@elapsed f()) * 1e6
+            inner = probe_us <= 0 ? 20 : clamp(round(Int, 3000.0 / probe_us), 1, 20)
             samples = Float64[]
             for _ in 1:trials
                 t = Float64(AMDGPU.@elapsed begin
@@ -304,10 +310,29 @@ function tune_cell(n::Int, p::Int, ::Type{T};
                    correctness::Bool = false,
                    top_k::Int = 10,
                    coarse_k::Int = 20,
+                   arch = nothing,
                    cell_idx::Int = 0, n_cells::Int = 0,
                    diag_csv::Union{Nothing,AbstractString} = nothing) where T
     cands = param_candidates(T, n, p; dev)
     isempty(cands) && return nothing
+
+    # Never-worse-than-default guard. The autotuner ranks only among its swept
+    # candidate grid; on tall-skinny (small-p) cells the runtime default
+    # heuristic out-parallelizes that grid, so without this guard the "tuned"
+    # winner regressed vs the default (e.g. vecmat (1e8,1): 839µs / 476 GB/s
+    # tuned vs ~212µs / ~1900 GB/s default). Force the default params into the
+    # candidate set (last index) and protect them into the fine pass below, so
+    # the winner is benched against the default with full trials and can never
+    # be slower than it. Needs `arch` (passed from autotune()); skipped if absent.
+    default_ci = 0
+    if arch !== nothing
+        wg0 = KF.default_workgroup(arch, KF.VecMat, n, p, T)
+        bl0 = KF.default_blocks(arch, KF.VecMat, n, p, T)
+        ni0 = KF.default_nitem(arch, KF.VecMat, n, p, T)
+        nt0 = KF.default_nthreads(arch, KF.VecMat, n, p, T, ni0, wg0, bl0)
+        push!(cands, (; Nitem = ni0, Nthreads = nt0, workgroup = wg0, blocks = bl0))
+        default_ci = length(cands)
+    end
 
     A = try
         _gpu_rand(T, n, p)
@@ -366,6 +391,11 @@ function tune_cell(n::Int, p::Int, ::Type{T};
 
     valid = sort!([c for c in coarse if c.ok], by = c -> c.coarse_us)
     survivors = first(valid, min(coarse_k, length(valid)))
+    # Protect the default candidate into the fine pass even if its single
+    # coarse trial fluked slow (see never-worse-than-default guard above).
+    if default_ci > 0 && coarse[default_ci].ok && !any(c -> c.ci == default_ci, survivors)
+        survivors = vcat(survivors, [coarse[default_ci]])
+    end
 
     fine_us     = Dict{Int,Float64}()
     fine_relerr = Dict{Int,Float64}()
@@ -712,7 +742,7 @@ function autotune(::Type{T} = Float32;
         t_cell = time_ns()
         result = tune_cell(n, p, T;
                            trials=fine_eff, dev, correctness,
-                           top_k=top_k, coarse_k=coarse_k,
+                           top_k=top_k, coarse_k=coarse_k, arch,
                            cell_idx=i, n_cells=length(shapes),
                            diag_csv=diag_csv)
         wall = (time_ns() - t_cell) / 1e9
