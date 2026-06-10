@@ -431,13 +431,14 @@ end
         -> NamedTuple{mean_kernel_μs, std_kernel_μs, mean_total_μs, std_total_μs}
 """
 function bench_cub(exe::String, n::Int, ::Type{T}; trials::Int=100,
-                   warmup_ms::Real=500, extra_flags::String="") where T
-    println("=== CUB ===")
+                   warmup_ms::Real=500, extra_flags::String="",
+                   label::String="CUB") where T
+    println("=== $label ===")
     results = run_cub_benchmark(exe; N=n, iterations=trials, warmup_ms=warmup_ms,
                                   dtype=T, extra_flags)
 
     if isempty(results)
-        @warn "CUB returned empty results for dtype=$T, n=$n — returning NaN"
+        @warn "$label returned empty results for dtype=$T, n=$n — returning NaN"
         return (; mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
     end
 
@@ -480,6 +481,28 @@ function bench_cub_or_nan(exe::String, n::Int, ::Type{T};
         return bench_cub(exe, n, T; kw...)
     catch err
         @warn "CUB subprocess failed — substituting NaN" exception=(err, catch_backtrace()) n T
+        return (; mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
+    end
+end
+
+"""
+    bench_rocprim_or_nan(exe, n, T; kw...) -> NamedTuple
+
+AMD analogue of `bench_cub_or_nan`: runs the hipCUB/rocPRIM benchmark binary (same
+CLI + JSON contract as the CUB binaries, parsed by `run_cub_benchmark`) and returns
+NaN stats if the executable is missing or the subprocess fails. Reports under the
+`rocPRIM` label. No GPU free-memory guard — the MI300X has 192 GB so the OOM-killer
+concern that motivates `bench_cub_or_nan`'s `safety_factor` check does not apply.
+"""
+function bench_rocprim_or_nan(exe::String, n::Int, ::Type{T}; kw...) where T
+    if isempty(exe) || !isfile(exe)
+        isempty(exe) || @warn "rocPRIM executable not found: $exe"
+        return (; mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
+    end
+    try
+        return bench_cub(exe, n, T; label="rocPRIM", kw...)
+    catch err
+        @warn "rocPRIM subprocess failed — substituting NaN" exception=(err, catch_backtrace()) n T
         return (; mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
     end
 end

@@ -16,6 +16,7 @@ include("../init.jl")
 
 
 const DEFAULT_CUB_EXE = joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_sum_benchmark")
+const DEFAULT_ROCPRIM_EXE = joinpath(@__DIR__, "../../rocm_cpp/hipcub_hipcc/bin/rocprim_sum_benchmark")
 
 # Session-level GPU preheat — see comment in sort_perf_comparison.jl.
 println("→ GPU preheat …")
@@ -71,6 +72,15 @@ function run_mapreduce_benchmarks(src::AT{T}, label_T::String, n::Int;
     # CUB subprocess would not fit (safety_factor=1.5 once we've freed).
     s = bench_cub_or_nan(cub_exe, n, cub_T; safety_factor=1.5)
     push!(rows, (; n, type=label_T, method="CUB",
+      s.mean_kernel_μs, s.std_kernel_μs,
+      mean_total_μs=NaN, std_total_μs=NaN))
+  end
+
+  if has_roc()
+    # AMD vendor baseline — rocPRIM (via hipCUB) sum reduction. Mirror of the CUB
+    # block above; no free-mem guard (MI300X has 192 GB).
+    s = bench_rocprim_or_nan(DEFAULT_ROCPRIM_EXE, n, cub_T)
+    push!(rows, (; n, type=label_T, method="rocPRIM",
       s.mean_kernel_μs, s.std_kernel_μs,
       mean_total_μs=NaN, std_total_μs=NaN))
   end
@@ -145,6 +155,12 @@ for n in sizes, T in types
         s.mean_kernel_μs, s.std_kernel_μs,
         mean_total_μs=NaN, std_total_μs=NaN))
     end
+    if has_roc()
+      s = bench_rocprim_or_nan(DEFAULT_ROCPRIM_EXE, n, UInt8)
+      push!(all_rows, (; n, type=label, method="rocPRIM",
+        s.mean_kernel_μs, s.std_kernel_μs,
+        mean_total_μs=NaN, std_total_μs=NaN))
+    end
   else
     src = fill!(AT{T}(undef, n), one(T))
     append!(all_rows, run_mapreduce_benchmarks(src, string(T), n))
@@ -153,7 +169,7 @@ for n in sizes, T in types
     msg = sprint(showerror, err)
     if occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)
       @warn "Skipping cell — out of GPU memory" n T
-      for m in (has_cuda() ? ("CUDA","AK","KernelForge","CUB") : ("Base","AK","KernelForge"))
+      for m in (has_cuda() ? ("CUDA","AK","KernelForge","CUB") : ("Base","AK","KernelForge","rocPRIM"))
         push!(all_rows, (; n, type=string(T), method=m,
                           mean_kernel_μs=NaN, std_kernel_μs=NaN,
                           mean_total_μs=NaN,  std_total_μs=NaN))
