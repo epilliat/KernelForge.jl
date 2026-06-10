@@ -82,7 +82,10 @@ else # :roc
         _gpu_rand(::Type{T}, dims...) where T = AMDGPU.rand(T, dims...)
         _gpu_zeros(::Type{T}, dims...) where T = AMDGPU.zeros(T, dims...)
         function _bench_us(f; trials::Int = 30, reducer::Function = median)
-            inner = 20
+            # Adaptive inner (mirrors matvec/vecmat): fixed 20 made giant-N cells
+            # cost 20× per candidate. Probe once, size inner to ~3ms of work.
+            probe_us = Float64(AMDGPU.@elapsed f()) * 1e6
+            inner = probe_us <= 0 ? 20 : clamp(round(Int, 3000.0 / probe_us), 1, 20)
             samples = Float64[]
             for _ in 1:trials
                 t = Float64(AMDGPU.@elapsed begin
@@ -141,8 +144,8 @@ end
 # Per-N tune: full sweep at one N, return winner triple + bench.
 # -----------------------------------------------------------------------------
 
-function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid, bl_grid; trials::Int = 30,
-                     verbose::Bool = true) where T_ref
+function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid, bl_grid; arch = nothing,
+                     trials::Int = 30, verbose::Bool = true) where T_ref
     A = _gpu_rand(T_ref, N)
     runs = NamedTuple[]
     for Ni in NITEM_GRID, wg in wg_grid, bl in bl_grid
@@ -153,6 +156,23 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid, bl_grid; trials::Int = 30,
             _warmup(f)
             us = _bench_us(f; trials)
             push!(runs, (; Nitem=Ni, workgroup=wg, blocks=bl, us))
+        catch
+        end
+    end
+    # Never-worse-than-default guard: bench the handwritten default heuristic as
+    # a candidate so the per-N winner can never regress it (the wave64 wg grid
+    # can't reach the smaller workgroups the default may use).
+    if arch !== nothing
+        try
+            dni = KF.default_nitem(arch, KF.MapReduce1D, N, T_ref)
+            dwg = KF.default_workgroup(arch, KF.MapReduce1D, N, T_ref)
+            dbl = KF.default_blocks(arch, KF.MapReduce1D, N, T_ref)
+            if dni * dwg <= N
+                f = () -> KF.mapreduce1d(*, +, A; Nitem=dni, workgroup=dwg,
+                                          blocks=dbl, to_cpu=false)
+                _warmup(f)
+                push!(runs, (; Nitem=dni, workgroup=dwg, blocks=dbl, us=_bench_us(f; trials)))
+            end
         catch
         end
     end
@@ -245,7 +265,7 @@ function _emit_nitem_func_generic(io, arch_tag, op_sym,
             println(io, "        nb < ", thr_nb, " ? ", val, " :")
         end
     end
-    println(io, "    return clamp(nitem_f32 * 4 ÷ sizeof(T), 1, 16)")
+    println(io, "    return clamp(nitem_f32 * 4 ÷ sizeof(T), 1, 32)")
     println(io, "end")
     println(io)
 end
@@ -403,7 +423,7 @@ function autotune(::Type{T_ref} = Float32;
     for k in TUNED_N_LOG2
         N = 1 << k
         result = try
-            _tune_per_n(N, T_ref, wg_grid, bl_grid; trials, verbose)
+            _tune_per_n(N, T_ref, wg_grid, bl_grid; arch, trials, verbose)
         catch e
             msg = sprint(showerror, e)
             if occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)

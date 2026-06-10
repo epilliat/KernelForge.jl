@@ -57,7 +57,10 @@ else # :roc
         _gpu_rand(::Type{T}, dims...) where T = AMDGPU.rand(T, dims...)
         _gpu_zeros(::Type{T}, dims...) where T = AMDGPU.zeros(T, dims...)
         function _bench_us(f; trials::Int = 30, reducer::Function = median)
-            inner = 20
+            # Adaptive inner (mirrors matvec/vecmat): fixed 20 made giant-N cells
+            # cost 20× per candidate. Probe once, size inner to ~3ms of work.
+            probe_us = Float64(AMDGPU.@elapsed f()) * 1e6
+            inner = probe_us <= 0 ? 20 : clamp(round(Int, 3000.0 / probe_us), 1, 20)
             samples = Float64[]
             for _ in 1:trials
                 t = Float64(AMDGPU.@elapsed begin
@@ -75,8 +78,9 @@ end
 # Tuning N grid + param grids.
 # -----------------------------------------------------------------------------
 
-# N ≥ 1M only. Cap at 2^28 for scan (256M F32 + dst = 2 GB, fits 6 GB GPU).
-const TUNED_N_LOG2 = (20, 22, 24, 26, 28)
+# N ≥ 1M only. Extended to 2^30 for MI300X (192 GB; 1G F32 + dst = 8 GB) — also
+# matches the bench's top size (1e9). OOM-guarded per-N, so small-VRAM cards skip.
+const TUNED_N_LOG2 = (20, 22, 24, 26, 28, 30)
 
 const NITEM_GRID = (1, 2, 4, 8, 16)
 const WG_WAVES   = (8, 16, 32)
@@ -98,7 +102,7 @@ end
 # -----------------------------------------------------------------------------
 
 function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
-                     trials::Int = 30, verbose::Bool = true) where T_ref
+                     arch = nothing, trials::Int = 30, verbose::Bool = true) where T_ref
     A = _gpu_rand(T_ref, N); dst = similar(A)
     runs = NamedTuple[]
     for Ni in NITEM_GRID, wg in wg_grid
@@ -108,6 +112,21 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
             _warmup(f)
             us = _bench_us(f; trials)
             push!(runs, (; Nitem=Ni, workgroup=wg, us))
+        catch
+        end
+    end
+    # Never-worse-than-default guard: bench the handwritten default heuristic as
+    # a candidate so the per-N winner can never regress it. The wave64 wg grid
+    # ({512,1024}) can't reach the 128/256 workgroups the default may use.
+    if arch !== nothing
+        try
+            dni = KF.default_nitem(arch, KF.Scan1D, N, T_ref)
+            dwg = KF.default_workgroup(arch, KF.Scan1D, N, T_ref)
+            if dni * dwg <= N
+                f = () -> KF.scan!(*, dst, A; Nitem=dni, workgroup=dwg)
+                _warmup(f)
+                push!(runs, (; Nitem=dni, workgroup=dwg, us=_bench_us(f; trials)))
+            end
         catch
         end
     end
@@ -181,7 +200,7 @@ function _emit_nitem_func_generic(io, arch_tag, op_sym,
             println(io, "        nb < ", thr_nb, " ? ", val, " :")
         end
     end
-    println(io, "    return clamp(nitem_f32 * 4 ÷ sizeof(T), 1, 16)")
+    println(io, "    return clamp(nitem_f32 * 4 ÷ sizeof(T), 1, 32)")
     println(io, "end")
     println(io)
 end
@@ -318,7 +337,7 @@ function autotune(::Type{T_ref} = Float32;
     for k in TUNED_N_LOG2
         N = 1 << k
         result = try
-            _tune_per_n(N, T_ref, wg_grid; trials, verbose)
+            _tune_per_n(N, T_ref, wg_grid; arch, trials, verbose)
         catch e
             msg = sprint(showerror, e)
             if occursin("Out of GPU memory", msg) || occursin("hipErrorOutOfMemory", msg)
