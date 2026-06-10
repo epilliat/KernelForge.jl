@@ -150,6 +150,12 @@ function get_allocation(
     T = eltype(AT)
     H = Base.promote_op(f, T)
     backend = get_backend(src)
+    if scan_packable(H)
+        # Packed path: one UInt64 status+value descriptor per tile (see
+        # scan_kernel.jl). Zeroed buffer = STATUS_INVALID, the valid init state.
+        desc = KernelAbstractions.allocate(backend, UInt64, blocks)
+        return KernelBuffer((; desc))
+    end
     partial1 = KernelAbstractions.allocate(backend, H, blocks)
     partial2 = KernelAbstractions.allocate(backend, H, blocks)
     flag = KernelAbstractions.allocate(backend, UInt8, blocks)
@@ -282,18 +288,29 @@ function _scan_impl!(
     backend,
     arch
 ) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
-    fill!(tmp.arrays.flag, 0x00)
     T = eltype(AT)
     S = eltype(DS)
+    H = Base.promote_op(f, T)
     src_align = (Int(pointer(src)) ÷ sizeof(T)) % Nitem + 1
     dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
     Alignment = src_align == dst_align ? src_align : -1
     warpsz = get_warpsize(arch)
-    scan_kernel!(backend, workgroup)(
-        f, op, g, dst, src, Val(Nitem),
-        tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
-        Val(Alignment), Val(warpsz);
-        ndrange = ndrange,
-    )
+    if scan_packable(H)
+        fill!(tmp.arrays.desc, UInt64(0))
+        scan_kernel_packed!(backend, workgroup)(
+            f, op, g, dst, src, Val(Nitem),
+            tmp.arrays.desc,
+            Val(Alignment), Val(warpsz);
+            ndrange = ndrange,
+        )
+    else
+        fill!(tmp.arrays.flag, 0x00)
+        scan_kernel!(backend, workgroup)(
+            f, op, g, dst, src, Val(Nitem),
+            tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
+            Val(Alignment), Val(warpsz);
+            ndrange = ndrange,
+        )
+    end
     return dst
 end
