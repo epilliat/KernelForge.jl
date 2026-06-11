@@ -25,8 +25,13 @@ const SCAN_STATUS_INVALID = UInt32(0)
 const SCAN_STATUS_PARTIAL = UInt32(1)
 const SCAN_STATUS_PREFIX  = UInt32(2)
 
+# Restrict to PRIMITIVE types: `reinterpret(UInt32, v)` for a composite (tuple /
+# struct) aggregate compiles on the host but is not GPU-codegen-able, so 4-byte
+# composites (e.g. NTuple{2,Int16}, ComplexF16) must take the split path, which
+# handles any isbits H. Primitive ≤4-byte types (Float32/Int32/UInt32/Float16/
+# Int16/Int8/…) keep the packed fast path.
 @inline scan_packable(::Type{H}) where {H} =
-    isbitstype(H) && (sizeof(H) == 1 || sizeof(H) == 2 || sizeof(H) == 4)
+    isprimitivetype(H) && (sizeof(H) == 1 || sizeof(H) == 2 || sizeof(H) == 4)
 
 # Bits of an H value (1/2/4 bytes) carried in the low 32 bits of the descriptor.
 # @generated so only the size-correct `reinterpret` is emitted (a dead branch
