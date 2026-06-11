@@ -114,6 +114,7 @@ end
     if gid >= 2 && warp_id == nwarps
         lookback = 0
         contains_prefix = false
+        backoff = UInt32(1)
         while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
             idx_lookback = max(gid - lookback - lane, 1)
             @access flg = flag[idx_lookback]
@@ -143,6 +144,12 @@ end
                     prefix = op(val, prefix)
                 end
                 lookback += warpsz
+                backoff = UInt32(1)
+            else
+                # Producers not ready: back off so the spinning warp stops
+                # hammering cross-block coherence while the producers commit.
+                @sleep backoff
+                backoff = min(backoff << 1, UInt32(64))
             end
         end
         if lane == 1
@@ -282,6 +289,10 @@ end
     if gid >= 2 && warp_id == nwarps
         lookback = 0
         contains_prefix = false
+        # No backoff on the packed path: 32-bit aggregates have short lookback
+        # chains (producers commit quickly), so sleeping only adds latency and
+        # measurably regressed F32 on MI300X (1e8 277→314 µs). Backoff is applied
+        # only on the split path (scan_kernel!), where waits are longer.
         while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
             idx_lookback = max(gid - lookback - lane, 1)
             d = KI.atomic_load(desc, idx_lookback, KI.Device, KI.Relaxed)
