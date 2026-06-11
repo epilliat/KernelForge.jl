@@ -82,7 +82,11 @@ end
 # matches the bench's top size (1e9). OOM-guarded per-N, so small-VRAM cards skip.
 const TUNED_N_LOG2 = (20, 22, 24, 26, 28, 30)
 
-const NITEM_GRID = (1, 2, 4, 8, 16)
+# Ni=32 added 2026-06: now that the vload/vstore alignment overflow is fixed
+# (KI), 32-item blocks compile for 8-byte aggregates (32xFloat64 = 256 B). F64
+# scan is ~22% faster at Ni=32 (halves the tile/block count → less lookback
+# protocol). Ni=64 (512 B) over-spills and regresses, so 32 is the ceiling.
+const NITEM_GRID = (1, 2, 4, 8, 16, 32)
 # Extended down to 2/4 waves (2026-06: 128/256 threads on wave64) so the sweep
 # can reach the smaller ~16 KB tiles (e.g. 256 threads × 16 items × 4 B for F32)
 # that vendor scans (rocPRIM/CUB) favour on MI300X — the post-packed-descriptor
