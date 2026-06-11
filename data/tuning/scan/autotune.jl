@@ -83,7 +83,11 @@ end
 const TUNED_N_LOG2 = (20, 22, 24, 26, 28, 30)
 
 const NITEM_GRID = (1, 2, 4, 8, 16)
-const WG_WAVES   = (8, 16, 32)
+# Extended down to 2/4 waves (2026-06: 128/256 threads on wave64) so the sweep
+# can reach the smaller ~16 KB tiles (e.g. 256 threads × 16 items × 4 B for F32)
+# that vendor scans (rocPRIM/CUB) favour on MI300X — the post-packed-descriptor
+# kernel may prefer them. The `wp*m <= 1024` filter caps per arch.
+const WG_WAVES   = (2, 4, 8, 16, 32)
 
 function _wg_grid(arch)
     wp = KF.get_warpsize(arch)
