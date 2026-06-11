@@ -127,7 +127,12 @@ Allocate a `KernelBuffer` for `scan!`. Useful for repeated scans.
 - `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Returns
-A `KernelBuffer` with named fields `partial1`, `partial2`, and `flag` (flags are `UInt8`).
+A `KernelBuffer` whose fields depend on the aggregate type `H = promote_op(f, eltype(src))`:
+- packable `H` (primitive, `sizeof ∈ {1,2,4}`, e.g. `Float32`/`Int32`): a single
+  `desc::Vector{UInt64}` packed status+value tile descriptor;
+- otherwise (e.g. `Float64`, complex/tuple/struct aggregates): `partial1`,
+  `partial2` (eltype `H`) and `flag` (`UInt8`).
+Either way the buffer is sized for `blocks` tiles; pass the same `tmp` to `scan!`.
 
 # Examples
 ```julia
