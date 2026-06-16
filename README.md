@@ -6,15 +6,15 @@ libraries.
 
 <table>
   <tr>
-    <td align="center"><img src="perfs/figures/A40/matvec_A40_comparison.png" alt="matvec — A40" width="100%"></td>
-    <td align="center"><img src="perfs/figures/A40/vecmat_A40_comparison.png" alt="vecmat — A40" width="100%"></td>
+    <td align="center"><img src="docs/src/assets/matvec_A40_comparison.png" alt="matvec — A40" width="100%"></td>
+    <td align="center"><img src="docs/src/assets/vecmat_A40_comparison.png" alt="vecmat — A40" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><img src="perfs/figures/A40/scan_A40_comparison.png" alt="scan — A40" width="100%"></td>
-    <td align="center"><img src="perfs/figures/A40/mapreduce_A40_comparison.png" alt="mapreduce — A40" width="100%"></td>
+    <td align="center"><img src="docs/src/assets/scan_A40_comparison.png" alt="scan — A40" width="100%"></td>
+    <td align="center"><img src="docs/src/assets/mapreduce_A40_comparison.png" alt="mapreduce — A40" width="100%"></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="perfs/figures/A40/copy_A40_bandwidth.png" alt="copy bandwidth — A40" width="50%"></td>
+    <td align="center" colspan="2"><img src="docs/src/assets/copy_A40_bandwidth.png" alt="copy bandwidth — A40" width="50%"></td>
   </tr>
 </table>
 
