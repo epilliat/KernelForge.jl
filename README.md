@@ -37,6 +37,29 @@ using Pkg
 Pkg.add("KernelForge")
 ```
 
+## Quick start
+
+```julia
+using KernelForge, CUDA   # or AMDGPU
+
+x = CUDA.rand(Float32, 10^6)
+
+# Reduction with a custom map + operator
+total = KernelForge.mapreduce(abs2, +, x)      # sum of squares
+
+# Prefix scan (supports non-commutative ops)
+dst = similar(x)
+KernelForge.scan!(+, dst, x)                    # cumulative sum
+
+# Matrix–vector product
+A = CUDA.rand(Float32, 1000, 500)
+v = CUDA.rand(Float32, 500)
+y = KernelForge.matvec(A, v)                    # y ≈ A * v
+
+# Radix sort, in place
+KernelForge.sort!(x)
+```
+
 ## Features
 
 - **Map-reduce** with custom functions and operators, supporting arbitrary dimensions and multidimensional arrays
@@ -51,6 +74,16 @@ Pkg.add("KernelForge")
 CUDA (NVIDIA) and AMDGPU (AMD) via weak dependencies; the backend is selected
 through KernelAbstractions extensions. Tested on NVIDIA A40, RTX 1000, and AMD
 MI300X.
+
+## Sponsors
+
+KernelForge.jl is an open-source project maintained in my personal time.
+If this package is useful to you — especially in a production or HPC setting —
+you can support its development and maintenance via
+[GitHub Sponsors](https://github.com/sponsors/epilliat).
+
+Corporate sponsors receive priority support on issues and an acknowledgment
+in the documentation.
 
 ## License
 

@@ -97,5 +97,12 @@ This package builds on the foundation provided by
 several packages in the Julia ecosystem. Development of the API and documentation was
 assisted by [Claude](https://claude.ai) (Anthropic).
 
+## Sponsors
+KernelForge.jl is an open-source project maintained on personal time. If it is
+useful to you — especially in a production or HPC setting — you can support its
+development via [GitHub Sponsors](https://github.com/sponsors/epilliat).
+Corporate sponsors receive priority support on issues and an acknowledgment here
+in the documentation.
+
 ## License
 MIT
