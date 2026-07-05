@@ -123,14 +123,14 @@ function lookup_matvec(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
     # Tier 1: dtype-specific override (e.g. "Float32"). Use Nitem as-is.
     if haskey(mv, type_key)
         cell = _nearest_cell(mv[type_key], n, p)
-        cell !== nothing && return _cell_nt(cell)
+        cell !== nothing && return _adapt_matvec_shape(_cell_nt(cell), n)
     end
     # Tier 2: same-size default. Scale Nitem by ref_size / sizeof(T) (a no-op
     # in this case but keeps the code path uniform).
     if haskey(mv, size_key)
         cell = _nearest_cell(mv[size_key], n, p)
         if cell !== nothing
-            return _cell_nt_scaled(cell, T, sizeof(T))
+            return _adapt_matvec_shape(_cell_nt_scaled(cell, T, sizeof(T)), n)
         end
     end
     # Tier 3: cross-size adaptation. If only one size has been tuned (e.g.
@@ -151,10 +151,31 @@ function lookup_matvec(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
     if best_key !== nothing
         cell = _nearest_cell(mv[best_key], n, p)
         if cell !== nothing
-            return _cell_nt_scaled(cell, T, _parse_size_key(best_key))
+            return _adapt_matvec_shape(_cell_nt_scaled(cell, T, _parse_size_key(best_key)), n)
         end
     end
     return nothing
+end
+
+# True if this arch's loaded matvec tuning contains ≥1 row-thread cell. Used by
+# `_matvec_entry!` to decide whether to trust the table's kernel choices fully
+# (arch re-tuned for both families) or to let the wide/square heuristic override
+# stale generic-only cells (pre-rowthread tuning still on disk). Self-resolving:
+# once the arch is re-tuned, its cells carry `kernel=:rowthread` and the
+# heuristic goes quiet.
+function _arch_has_rowthread_tuning(arch::AbstractArch)
+    tag = nameof(typeof(arch))
+    haskey(TUNING_TABLE[], tag) || return false
+    payload = TUNING_TABLE[][tag]
+    haskey(payload, "matvec") || return false
+    mv = payload["matvec"]
+    mv isa AbstractDict || return false
+    for (_, cells) in pairs(mv)
+        for c in cells
+            _cell_kernel(c) === :rowthread && return true
+        end
+    end
+    return false
 end
 
 # Find the cell with the smallest log2-distance to (n,p), tie-broken to
@@ -178,14 +199,34 @@ function _nearest_cell(cells, n::Int, p::Int)
     return best
 end
 
-@inline _cell_nt(c) = (Nitem=Int(c.Nitem), chunksz=Int(c.chunksz),
-                       Nblocks=Int(c.Nblocks), workgroup=Int(c.workgroup))
+# A cell records which kernel FAMILY the autotune picked for its (n,p):
+#   :generic   → (Nitem, chunksz, Nblocks, workgroup)  [the shuffle-reduction kernel]
+#   :rowthread → (U, ncb, workgroup)                   [the coalesced row-thread kernel]
+# The `kernel` field is optional; a cell without it is a legacy generic cell.
+@inline _cell_kernel(c) = hasproperty(c, :kernel) ? Symbol(c.kernel) : :generic
+
+# Decode a tuned cell into a params NamedTuple. Always carries a `kernel` field
+# so downstream dispatch (`_matvec_entry!`, `resolve_parameters`) can route.
+@inline function _cell_nt(c)
+    if _cell_kernel(c) === :rowthread
+        return (; kernel = :rowthread, U = Int(c.U), ncb = Int(c.ncb),
+                  workgroup = Int(c.workgroup))
+    end
+    return (; kernel = :generic, Nitem = Int(c.Nitem), chunksz = Int(c.chunksz),
+              Nblocks = Int(c.Nblocks), workgroup = Int(c.workgroup))
+end
 
 # Scale Nitem so the `@localmem NTuple{Nitem,H}` aggregate stays roughly the
 # same byte size when switching from the reference dtype to T. chunksz,
 # Nblocks, workgroup carry over unchanged — first-cut hypothesis; see
 # verification in docs/RFC. The clamp uses the same cap autotune used.
 function _cell_nt_scaled(c, ::Type{T}, ref_size::Int) where T
+    # Row-thread cells: U (col-unroll count) and ncb (column-split) are
+    # dtype-agnostic launch knobs — carry them across sizes unchanged.
+    if _cell_kernel(c) === :rowthread
+        return (; kernel = :rowthread, U = Int(c.U), ncb = Int(c.ncb),
+                  workgroup = Int(c.workgroup))
+    end
     sz = sizeof(T)
     Nitem_ref = Int(c.Nitem)
     # Cap matches `autotune.jl:nitems_for`: `cld(32, sz)` controls LLVM
@@ -193,7 +234,7 @@ function _cell_nt_scaled(c, ::Type{T}, ref_size::Int) where T
     # `vload` misalignment for `sizeof(T) == 1` (Int8 at Nitem=32 trips
     # ERROR_MISALIGNED_ADDRESS — see autotune.jl:nitems_for note).
     Nitem = clamp(max(1, Nitem_ref * ref_size ÷ sz), 1, min(cld(32, sz), 16))
-    return (; Nitem,
+    return (; kernel = :generic, Nitem,
               chunksz   = Int(c.chunksz),
               Nblocks   = Int(c.Nblocks),
               workgroup = Int(c.workgroup))
@@ -202,6 +243,29 @@ end
 function _parse_size_key(s::AbstractString)
     startswith(s, "size_") || error("tuning: malformed size key: $s")
     return parse(Int, @view s[6:end])
+end
+
+# Batch-packing-aware `Nitem` adaptation for a tuned cell applied to a query `n`
+# that differs from the cell's tuned n. `Nitem` = rows-per-thread: a cell tuned
+# where n packs perfectly into Nitem (0 waste) idles ~60% of the vector lanes
+# at a nearby n it does not divide (e.g. Nitem=8 at n=10 → nbatch=cld(10,8)=2,
+# capacity 16 for 10 rows). Shrink Nitem (pow2) until it no longer exceeds n and
+# batch-packing waste ≤ 1/8. NO-OP when Nitem already fits n well — so with the
+# denser autotune n-grid (intermediate non-pow2 levels), the nearest cell is
+# usually same-regime and this only trims a residual mismatch; it never touches
+# tall/square shapes that sit on a matching cell. Nblocks/chunksz/workgroup are
+# NOT adapted here — an earlier Nblocks p-rescale regressed single-row/mid shapes
+# by starving split parallelism, and `resolve_parameters` already clamps Nblocks
+# down to what p supports.
+function _adapt_matvec_shape(nt, n::Int)
+    # Row-thread cells have no Nitem (1 thread = 1 row); nothing to adapt.
+    nt.kernel === :rowthread && return nt
+    Nitem = min(Int(nt.Nitem), max(1, prevpow(2, max(1, n))))
+    while Nitem > 1 && 8 * (cld(n, Nitem) * Nitem - n) > n
+        Nitem >>= 1
+    end
+    return (; kernel = :generic, Nitem, chunksz = Int(nt.chunksz),
+              Nblocks = Int(nt.Nblocks), workgroup = Int(nt.workgroup))
 end
 
 """

@@ -258,6 +258,10 @@ function resolve_parameters(
     # Used to fill any knob the caller didn't explicitly override; falls
     # through to default_* heuristics if there's no tuning data.
     tuned = lookup_matvec(arch, T, n, p)
+    # Only GENERIC tuned cells fill the generic knobs below. A row-thread cell
+    # is consumed earlier in `_matvec_entry!`; if we reach here with one (e.g.
+    # the caller forced an explicit knob), ignore it and use the heuristics.
+    tuned = (tuned !== nothing && tuned.kernel === :generic) ? tuned : nothing
     workgroup = something(workgroup,
                           tuned === nothing ? nothing : tuned.workgroup,
                           default_workgroup(arch, MatVec, n, p, T))
@@ -282,6 +286,53 @@ function resolve_parameters(
     @assert cld(workgroup, chunksz) * Nblocks <= p
     @assert ispow2(Nblocks) || chunksz * Nblocks >= workgroup || chunksz * Nblocks <= warpsz
     return (; chunksz, Nblocks, workgroup, blocks_row, Nitem)
+end
+
+# ============================================================================
+# Row-thread fast path (small-n..square-band, large-p) — dispatch + launch.
+# ============================================================================
+# See the "Row-thread path" note in matvec_kernel.jl (matvec_rowthread_kernel! /
+# matvec_rowthread_reduce!). The tiled kernel maps 1 thread = 1 row and streams
+# coalesced columns; the grid tiles both dims (row_tiles × ncb column-splits).
+#
+# `_matvec_use_rowthread` is the UNTUNED-ARCH fallback heuristic (used only when
+# there's no autotune cell selecting a kernel): fire for the wide/square band
+# where the row-thread kernel was validated to beat the generic one — n ≥ 64 to
+# fill ≥2 warps, p wide enough to amortize the split reduce. On a tuned arch the
+# autotune's per-cell `kernel` tag decides instead (see _matvec_entry!). Default
+# heuristic OFF for every arch except A100 (measured 49%→76% of peak,
+# 2.28×→1.05× cuBLAS at n=100,p=1e7; square/middle at parity). The `ncb` formula
+# here is a rough fill-the-GPU estimate; the autotune finds the true per-shape
+# optimum (spans a 256× range, non-monotonic → not formula-friendly).
+_matvec_use_rowthread(::AbstractArch, n::Int, p::Int, ::Type{T}) where {T} = false
+_matvec_use_rowthread(::A100, n::Int, p::Int, ::Type{T}) where {T} =
+    n >= 64 && p >= 65536 && p >= 8n
+
+# Rough fallback column-split for the untuned heuristic path: enough row_tiles ×
+# ncb blocks to fill the GPU, clamped so partial[ncb·n] stays modest. ~512 at
+# small n down to a few at n≈1e5.
+_rowthread_default_ncb(n::Int, p::Int) = clamp(cld(3 * 10^5, n), 1, 512)
+
+function _matvec_rowthread_impl!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    src::AbstractMatrix{T},
+    x::Union{AbstractArray,Nothing},
+    ::Type{H}, n::Int, p::Int, arch::AbstractArch;
+    U::Int=16, wg::Int=256, ncb::Int=_rowthread_default_ncb(n, p)
+) where {S,T,F,O,G,H}
+    backend = get_backend(src)
+    warpsz  = get_warpsize(arch)
+    wg      = clamp(cld(min(wg, n), warpsz) * warpsz, warpsz, 1024)  # warp-multiple, ≥ enough for n
+    ncol    = cld(p, ncb)
+    ncbe    = cld(p, ncol)                                  # active column-blocks (each ≥1 column)
+    rtiles  = cld(n, wg)                                    # row-tiles to cover all n rows
+    partial = KernelAbstractions.allocate(backend, H, ncbe * n)
+    matvec_rowthread_kernel!(backend, wg)(
+        f, op, partial, src, x, n, Val(U), ncol, p, wg, ncbe; ndrange = wg * rtiles * ncbe)
+    rwg = clamp(cld(min(n, 256), warpsz) * warpsz, warpsz, 256)
+    matvec_rowthread_reduce!(backend, rwg)(op, g, dst, partial, n, ncbe; ndrange = n)
+    return dst
 end
 
 # ============================================================================
@@ -398,6 +449,27 @@ function _matvec_entry!(
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
     arch = something(arch, detect_arch(src))::AbstractArch
+
+    # Row-thread fast path — only when the caller left the launch knobs at their
+    # defaults (explicit knobs mean "use the generic kernel"). Two sources:
+    #   (1) a tuned cell whose autotune-picked family is :rowthread — use its
+    #       (U, ncb, workgroup) directly (data-driven, per exact shape);
+    #   (2) no tuned rowthread cell, but the fallback heuristic fires for the
+    #       wide/square band on an untuned arch.
+    if isnothing(chunksz) && isnothing(Nblocks) && isnothing(workgroup) &&
+       isnothing(Nitem)
+        tuned = lookup_matvec(arch, T, n, p)
+        if tuned !== nothing && tuned.kernel === :rowthread
+            return _matvec_rowthread_impl!(f, op, g, dst, src, x, H, n, p, arch;
+                                           U = tuned.U, wg = tuned.workgroup, ncb = tuned.ncb)
+        elseif !_arch_has_rowthread_tuning(arch) && _matvec_use_rowthread(arch, n, p, T)
+            # Transition / untuned-arch fallback: the arch has no row-thread cells
+            # yet, so the wide/square heuristic overrides any stale generic cell
+            # in that band (validated to beat it). Goes quiet once re-tuned.
+            return _matvec_rowthread_impl!(f, op, g, dst, src, x, H, n, p, arch)
+        end
+    end
+
     params = resolve_parameters(
         arch, MatVec, src, chunksz, Nblocks, workgroup, blocks_row, Nitem
     )

@@ -170,6 +170,54 @@ const LOG2_LEVELS = (0, 1, 2, 3, 4, 5, 6,
                      9, 12, 15, 18, 21, 24, 27, 30)
 const MIN_DIM     = 100   # skip cells where n < MIN_DIM AND p < MIN_DIM
 
+# Intermediate (non-pow2) n-levels for the wide (small-n, large-p) corner.
+# The per-shape optimum flips at pow-2 batch-packing boundaries — n=8 packs
+# into Nitem=8 with zero waste, but n=10 wants Nitem=1 (Nitem=8 idles ~60% of
+# the vector lanes). Tuning ONLY pow-2 n therefore makes the lookup
+# systematically OVER-estimate Nitem for the far-more-common non-pow2 n
+# (A100: shipped 2.9× vs achievable 1.24× on n=10,p=1e6).
+#
+# GEOMETRIC log-midpoints round(2^(k+0.5)) between pow-2 rows, restricted to the
+# SMALL-n regime {3,6,11,23,45}. Two reasons for the restriction:
+#  (1) The pow-2 Nitem-packing bias bites HARDEST at small n — n=8 packs Ni=8
+#      with 0 waste but n=10 wants Ni=1 (60% idle lanes); at n≈100 the relative
+#      waste is small (cld(100,8)=13 → 4/104), so Ni is a weaker lever there.
+#  (2) Empirically (A100): adding the LARGE intermediate levels (91,181,…)
+#      REGRESSED n=100,p=1e5 (1.79→2.03×) — the n=91 cell tuned to worse
+#      chunksz/workgroup than the pow-2 n=64 cell, and n=100 sits between grid
+#      points on BOTH axes so a "closer" n-cell isn't a better cell. Keeping
+#      only n≤45 lets n≈100 fall back to its (better) pow-2 n=64 cell — no
+#      regression — while n≈10 still lands on the n=11 cell (2.96→1.11× win).
+# None here is divisible by 8, so each has genuine Ni=8 packing waste and tunes
+# to the lower-Nitem regime the common small-n query shapes need.
+const INTERMEDIATE_N = (3, 6, 11, 23, 45)
+
+# Wide/upper-mid corner cells the pow-2 n-grid MISSES. Two grid holes conspire
+# here: (1) the n-axis jumps 64→512 (LOG2_LEVELS skips exponents 7,8), and
+# (2) the diagonal cap kn+kp ≤ maximum(LOG2_LEVELS)=30 keeps n=128,256 from
+# reaching the largest p. Without cells here, common wide queries (n≈100..500,
+# p≈1e6..1e7) map to the n=64 cell → generic → 40% peak / 2× cuBLAS (the wide bug).
+#
+# CRITICAL: these tuning n MUST be non-multiples-of-8. The generic kernel's
+# `vload` of Nitem elements needs the column stride (n·sizeof(T)) 32-byte
+# aligned; when 8 ∤ n every other column's vload misaligns → ~2× BW loss. So a
+# cell tuned at n=96 (=8·12, aligned) picks high-Nitem generic at ~74% peak, but
+# the SAME config serving the common query n=100 (8 ∤ 100) collapses to ~35%.
+# Tuning at non-8-multiple n (100,150,250,500) exposes that penalty, so the
+# autotune correctly prefers the row-thread kernel (1 elem/thread, always
+# coalesced, no Nitem-alignment dependence) — ~66% at n=100 vs generic's ~40%
+# ceiling. The nearest-cell lookup then serves arbitrary wide-corner n from a
+# robust row-thread cell instead of an alignment-fragile generic one.
+const WIDE_CORNER_N = (100, 150, 250, 500)
+const WIDE_CORNER_P = (1_000_000, 10_000_000)
+
+# The representative wide-corner (n, p) cells that fit this dtype's memory
+# budget. Reused by both `pow28_shapes` (full sweep) and the targeted merge run.
+function wide_corner_shapes(::Type{T} = Float32; safety::Int = 4) where T
+    budget_np = (_total_memory() ÷ safety) ÷ sizeof(T)     # max n*p that fits
+    return [(n, p) for n in WIDE_CORNER_N, p in WIDE_CORNER_P if n * p <= budget_np] |> vec
+end
+
 """
     max_log2_np(::Type{T}; safety=4) -> Int
 
@@ -193,7 +241,19 @@ function pow28_shapes(::Type{T} = Float32; safety::Int = 4) where T
         (n >= MIN_DIM || p >= MIN_DIM) || continue
         push!(out, (n, p))
     end
-    return out
+    # Intermediate non-pow2 n × large-p (the wide corner) — see INTERMEDIATE_N.
+    # Only paired with p large enough that n*p is a genuine wide reduction
+    # (MIN_DIM guard already forces p ≥ 512 for these small n).
+    for n in INTERMEDIATE_N, kp in LOG2_LEVELS
+        p = 1 << kp
+        log2(n) + kp <= cap || continue
+        (n >= MIN_DIM || p >= MIN_DIM) || continue
+        push!(out, (n, p))
+    end
+    # Wide/upper-mid corner (n=96..256 × large p) — fills the 64→512 n-grid hole
+    # and breaks the diagonal cap where memory permits. See WIDE_CORNER_N.
+    append!(out, wide_corner_shapes(T; safety))
+    return unique!(out)
 end
 
 # Dev shape grid — one per regime, ~30 s budget.
@@ -293,9 +353,59 @@ function param_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
         sh_elems = Nitem * chunksz * cld(workgroup, WARPSZ)
         sh_elems <= SHARED_ELEM_LIMIT          || continue
         sh_elems * szH <= SHARED_MEM_LIMIT     || continue
-        push!(out, (; Nitem, chunksz, Nblocks, workgroup))
+        push!(out, (; kernel = :generic, Nitem, chunksz, Nblocks, workgroup))
     end
     return out
+end
+
+# -----------------------------------------------------------------------------
+# Row-thread candidate family (matvec_rowthread_kernel!): 1 thread = 1 row,
+# coalesced column streaming, grid tiled (row_tiles × ncb column-splits). Three
+# knobs: U (col-unroll/MLP), workgroup (row-tile height, stored as the effective
+# warp-multiple ≤ 1024), ncb (column-split — the key parallelism knob). The
+# kernel type is parametrized ONLY by Val(U) (wg/ncb are runtime args), so the
+# whole grid compiles to just |U| kernels per dtype — cheap to sweep.
+# -----------------------------------------------------------------------------
+const RT_U_GRID   = (8, 16)
+const RT_WG_GRID   = (128, 256, 512)
+const RT_NCB_GRID  = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512)
+const DEV_RT_NCB   = (4, 32, 256)
+
+# Row-thread only competes for wide/square/middle-band shapes with real column
+# parallelism; skip tiny/tall-thin cells where the generic kernel always wins
+# (few columns → nothing to split, few rows → too few warps per block).
+_rowthread_applicable(n::Int, p::Int) = n >= 64 && p >= 4096
+
+function rowthread_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
+    _rowthread_applicable(n, p) || return NamedTuple[]
+    Us   = dev ? (16,)      : RT_U_GRID
+    wgs  = dev ? (256,)     : RT_WG_GRID
+    ncbs = dev ? DEV_RT_NCB : RT_NCB_GRID
+    seen = Set{NamedTuple}()
+    out  = NamedTuple[]
+    for U in Us, wg0 in wgs
+        # Effective row-tile height: warp-multiple, ≥ enough to cover a warp,
+        # ≤ 1024. wg0 candidates that exceed n collapse to the same effective
+        # wg (deduped below) — no redundant compiles.
+        wg = clamp(cld(min(wg0, n), WARPSZ) * WARPSZ, WARPSZ, 1024)
+        rtiles = cld(n, wg)
+        # Cap ncb so total blocks (rtiles·ncb) stay ≲ 4096 and never exceed p
+        # (can't split into more column-blocks than there are columns).
+        ncb_cap = clamp(min(p, 4096 ÷ max(1, rtiles)), 1, 512)
+        for ncb in ncbs
+            (ncb <= ncb_cap && ncb <= p) || continue
+            cand = (; kernel = :rowthread, U, ncb, workgroup = wg)
+            cand in seen && continue
+            push!(seen, cand); push!(out, cand)
+        end
+    end
+    return out
+end
+
+# Combined candidate list across BOTH kernel families for a cell. The autotune
+# ranks all of them together and stores the winning family's params + tag.
+function all_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
+    return vcat(param_candidates(T, n, p; dev), rowthread_candidates(T, n, p; dev))
 end
 
 # -----------------------------------------------------------------------------
@@ -342,6 +452,27 @@ end
 # is paid up-front instead of inside the bench loop).
 # -----------------------------------------------------------------------------
 
+# Build a zero-arg closure that runs one candidate (either family) and leaves
+# the result in `dst`. Generic → `matvec!` with the tuned knobs (+ reused tmp);
+# row-thread → `_matvec_rowthread_impl!` (self-allocates its small partial each
+# call — a host-side pool alloc that doesn't perturb device-time measurement).
+function _run_closure(params::NamedTuple, A, x, dst, ::Type{H}, arch) where H
+    n, p = size(A)
+    if params.kernel === :rowthread
+        return () -> (KF._matvec_rowthread_impl!(*, +, identity, dst, A, x, H, n, p, arch;
+                        U = params.U, wg = params.workgroup, ncb = params.ncb); dst)
+    else
+        tmp = params.Nblocks > 1 ?
+            KF.get_allocation(KF.MatVec, *, +, A, x,
+                              params.chunksz, params.Nblocks, params.workgroup,
+                              nothing, params.Nitem, nothing) :
+            nothing
+        return () -> (KF.matvec!(*, +, dst, A, x;
+                        Nitem = params.Nitem, chunksz = params.chunksz,
+                        Nblocks = params.Nblocks, workgroup = params.workgroup, tmp); dst)
+    end
+end
+
 function _precompile_one(params::NamedTuple, ::Type{T}) where T
     # Allocate-launch-sync per spec. Populates the in-process GPUCompiler
     # cache so the bench loop sees `compile_ms < 1ms`. NOTE: lever 1 (compile
@@ -351,21 +482,22 @@ function _precompile_one(params::NamedTuple, ::Type{T}) where T
     # speedup vs single-threaded), not the GPU launch+sync (~8 ms/spec on
     # cached specs). Kept this simpler path; `KF.compile_kernel_only` is
     # retained as infrastructure for future autotunes that may benefit.
-    min_n = params.Nitem * params.chunksz
-    min_p = cld(params.workgroup, params.chunksz) * params.Nblocks
-    n = nextpow(2, max(min_n, 1))
-    p = nextpow(2, max(min_p, 1))
+    if params.kernel === :rowthread
+        n = clamp(params.workgroup, 64, 4096)
+        p = max(params.ncb * 8, 4096)
+    else
+        min_n = params.Nitem * params.chunksz
+        min_p = cld(params.workgroup, params.chunksz) * params.Nblocks
+        n = nextpow(2, max(min_n, 1))
+        p = nextpow(2, max(min_p, 1))
+    end
     A = _gpu_rand(T, n, p)
     x = _gpu_rand(T, p)
     backend = get_backend(A)
     H = Base.promote_op(*, T, T)
     dst = KA.allocate(backend, H, n)
-    tmp = params.Nblocks > 1 ?
-        KF.get_allocation(KF.MatVec, *, +, A, x,
-                          params.chunksz, params.Nblocks, params.workgroup,
-                          nothing, params.Nitem, nothing) :
-        nothing
-    KF.matvec!(*, +, dst, A, x; params..., tmp)
+    arch = KF.detect_arch(A)
+    _run_closure(params, A, x, dst, H, arch)()
     KA.synchronize(backend)
     return
 end
@@ -378,7 +510,7 @@ function _precompile_specs(shapes, ::Type{T};
     specs_set = Set{NamedTuple}()
     for (n, p) in shapes
         (n, p) in skip_done && continue
-        for params in param_candidates(T, n, p; dev)
+        for params in all_candidates(T, n, p; dev)
             push!(specs_set, params)
         end
     end
@@ -443,9 +575,17 @@ function _diag_init(csv_path::AbstractString)
     end
 end
 
+# Map either family's params into the fixed (Nitem,chunksz,Nblocks,workgroup)
+# diag columns. Row-thread has no such knobs — encode (U, ncb, 0, workgroup)
+# so the diag CSV stays parseable (it's diagnostic only, not read at runtime).
+_diag_params(p) = p.kernel === :rowthread ?
+    (Nitem = p.U, chunksz = p.ncb, Nblocks = 0, workgroup = p.workgroup) :
+    (Nitem = p.Nitem, chunksz = p.chunksz, Nblocks = p.Nblocks, workgroup = p.workgroup)
+
 function _diag_row(io, cell_idx, n, p, cand_idx, n_cands, params, compile_ms, bench_us, wall_ms, ok, is_first)
+    dp = _diag_params(params)
     println(io, cell_idx, ",", n, ",", p, ",", cand_idx, ",", n_cands, ",",
-            params.Nitem, ",", params.chunksz, ",", params.Nblocks, ",", params.workgroup, ",",
+            dp.Nitem, ",", dp.chunksz, ",", dp.Nblocks, ",", dp.workgroup, ",",
             compile_ms, ",", bench_us, ",", wall_ms, ",", ok ? 1 : 0, ",", is_first ? 1 : 0)
 end
 
@@ -456,7 +596,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
                    coarse_k::Int = 20,
                    cell_idx::Int = 0, n_cells::Int = 0,
                    diag_csv::Union{Nothing,AbstractString} = nothing) where T
-    cands = param_candidates(T, n, p; dev)
+    cands = all_candidates(T, n, p; dev)
     isempty(cands) && return nothing
 
     A = try
@@ -469,6 +609,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
     backend = get_backend(A)
     H = Base.promote_op(*, T, T)
     dst = KA.allocate(backend, H, n)
+    arch = KF.detect_arch(A)
     # GPU-side Float64 reference (only built if `correctness=true`).
     ref_gpu = ref_max = nothing
     if correctness
@@ -492,12 +633,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         t_wall0 = time_ns()
         compile_ms, coarse_us, ok_c = NaN, NaN, false
         try
-            tmp = params.Nblocks > 1 ?
-                KF.get_allocation(KF.MatVec, *, +, A, x,
-                                  params.chunksz, params.Nblocks, params.workgroup,
-                                  nothing, params.Nitem, nothing) :
-                nothing
-            f = () -> (KF.matvec!(*, +, dst, A, x; params..., tmp); dst)
+            f = _run_closure(params, A, x, dst, H, arch)
             t_c0 = time_ns()
             f(); KA.synchronize(backend)
             compile_ms = (time_ns() - t_c0) / 1e6
@@ -526,10 +662,22 @@ function tune_cell(n::Int, p::Int, ::Type{T};
 
     # =========================================================================
     # FINE PHASE — full bench protocol (warmup + `trials`-trial bench +
-    # correctness check) on the top `coarse_k` survivors only.
+    # correctness check) on the top `coarse_k` survivors PER FAMILY.
+    #
+    # Stratify survivors by kernel family. The coarse rank is a single noisy
+    # trial; a family with many mediocre candidates (generic: hundreds) can
+    # crowd the other family's genuine winner (rowthread: tens) out of a
+    # global top-k, so it never gets an accurate fine measurement and loses by
+    # default. Taking the top-k of EACH family guarantees both are fine-benched,
+    # and the final pick is decided by the accurate multi-trial fine numbers.
+    # Measured impact: without this, n=128/256 large-p cells mis-picked generic
+    # (74% peak) over the faster rowthread (80%); with it they pick rowthread.
     # =========================================================================
     valid = sort!([c for c in coarse if c.ok], by = c -> c.coarse_us)
-    survivors = first(valid, min(coarse_k, length(valid)))
+    gen_valid = [c for c in valid if c.params.kernel === :generic]
+    rt_valid  = [c for c in valid if c.params.kernel === :rowthread]
+    survivors = vcat(first(gen_valid, min(coarse_k, length(gen_valid))),
+                     first(rt_valid,  min(coarse_k, length(rt_valid))))
 
     # ci → fine bench/relerr/wall, only populated for survivors that benched OK.
     fine_us     = Dict{Int,Float64}()
@@ -540,12 +688,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         params = c.params
         f_us, f_re, f_ok = NaN, NaN, false
         try
-            tmp = params.Nblocks > 1 ?
-                KF.get_allocation(KF.MatVec, *, +, A, x,
-                                  params.chunksz, params.Nblocks, params.workgroup,
-                                  nothing, params.Nitem, nothing) :
-                nothing
-            f = () -> (KF.matvec!(*, +, dst, A, x; params..., tmp); dst)
+            f = _run_closure(params, A, x, dst, H, arch)
             _warmup_for(f, 5)
             f_us = _bench_us(f; trials)
             if correctness
@@ -647,12 +790,8 @@ function _bench_shape(params::NamedTuple, n::Int, p::Int, ::Type{T};
     backend = get_backend(A)
     H   = Base.promote_op(*, T, T)
     dst = KA.allocate(backend, H, n)
-    tmp = params.Nblocks > 1 ?
-        KF.get_allocation(KF.MatVec, *, +, A, x,
-                          params.chunksz, params.Nblocks, params.workgroup,
-                          nothing, params.Nitem, nothing) :
-        nothing
-    f = () -> (KF.matvec!(*, +, dst, A, x; params..., tmp); dst)
+    arch = KF.detect_arch(A)
+    f = _run_closure(params, A, x, dst, H, arch)
     try
         # first call warms; per-iter sync inside _warmup_for
         f(); KA.synchronize(backend)
@@ -701,10 +840,10 @@ function robust_refine_cells!(cells::Vector{Dict{String,Any}},
         kbest = argmin(scores)
         if kbest != 1
             winner = top[kbest]
-            cell["Nitem"]     = winner.params.Nitem
-            cell["chunksz"]   = winner.params.chunksz
-            cell["Nblocks"]   = winner.params.Nblocks
-            cell["workgroup"] = winner.params.workgroup
+            # The robust winner may switch families vs pass 1, so rebuild the
+            # cell's param keys wholesale (clear the old family's fields first).
+            empty!(cell)
+            merge!(cell, _cell_dict(n, p, winner.params))
             n_changed += 1
             verbose && @printf("  [%3d] (n=%-10d p=%-10d) robust winner #%d %s (mean=%.1fµs vs pass1 %.1fµs)\n",
                                i, n, p, kbest,
@@ -720,6 +859,19 @@ end
 # -----------------------------------------------------------------------------
 # JSON I/O — merge-on-write so multiple runs accumulate in one arch JSON.
 # -----------------------------------------------------------------------------
+
+# Serialize one cell's winning params (either family) to the mutable Dict the
+# writers consume. Always stamps `kernel` so lookups are unambiguous.
+function _cell_dict(n::Int, p::Int, params::NamedTuple)
+    if params.kernel === :rowthread
+        return Dict{String,Any}("n" => n, "p" => p, "kernel" => "rowthread",
+            "U" => params.U, "ncb" => params.ncb, "workgroup" => params.workgroup)
+    else
+        return Dict{String,Any}("n" => n, "p" => p, "kernel" => "generic",
+            "Nitem" => params.Nitem, "chunksz" => params.chunksz,
+            "Nblocks" => params.Nblocks, "workgroup" => params.workgroup)
+    end
+end
 
 function _default_json_out(arch_tag::AbstractString; dev::Bool = false)
     base = joinpath(pkgdir(KernelForge), "data", "tuning")
@@ -782,25 +934,52 @@ end
 
 function _write_jl_companion(path::AbstractString, payload::AbstractDict)
     open(path, "w") do io
-        println(io, "# Auto-generated by data/tuning/matvec/autotune.jl — do not edit.")
+        println(io, "# Auto-generated by data/tuning/{matvec,vecmat}/autotune.jl — do not edit.")
         println(io, "# Read at runtime by src/tuning/loader.jl via `Base.include`.")
         println(io, "Dict{String,Any}(")
         println(io, "    \"schema_version\" => ", payload["schema_version"], ",")
         println(io, "    \"gpu_tag\"        => ", repr(String(payload["gpu_tag"])), ",")
         println(io, "    \"tuned_at\"       => ", repr(String(payload["tuned_at"])), ",")
-        println(io, "    \"matvec\" => Dict{String,Any}(")
-        mv = payload["matvec"]
-        for (k, cells) in pairs(mv)
-            println(io, "        ", repr(String(k)), " => [")
-            for c in cells
-                @printf(io, "            (n=%d, p=%d, Nitem=%d, chunksz=%d, Nblocks=%d, workgroup=%d),\n",
-                        Int(c["n"]), Int(c["p"]),
-                        Int(c["Nitem"]), Int(c["chunksz"]),
-                        Int(c["Nblocks"]), Int(c["workgroup"]))
+        # Serialize BOTH sections if present. `_load_existing` seeds `payload`
+        # with the whole file, so a matvec-only re-tune must still re-emit any
+        # existing `vecmat` section — else it silently drops vecmat from the
+        # `.jl` the loader reads. (Mirrors vecmat/autotune.jl's writer.)
+        if haskey(payload, "matvec")
+            println(io, "    \"matvec\" => Dict{String,Any}(")
+            for (k, cells) in pairs(payload["matvec"])
+                println(io, "        ", repr(String(k)), " => [")
+                for c in cells
+                    # Per-cell kernel family decides the field set. Legacy cells
+                    # with no "kernel" key are generic.
+                    if get(c, "kernel", "generic") == "rowthread"
+                        @printf(io, "            (n=%d, p=%d, kernel=\"rowthread\", U=%d, ncb=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]),
+                                Int(c["U"]), Int(c["ncb"]), Int(c["workgroup"]))
+                    else
+                        @printf(io, "            (n=%d, p=%d, kernel=\"generic\", Nitem=%d, chunksz=%d, Nblocks=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]),
+                                Int(c["Nitem"]), Int(c["chunksz"]),
+                                Int(c["Nblocks"]), Int(c["workgroup"]))
+                    end
+                end
+                println(io, "        ],")
             end
-            println(io, "        ],")
+            println(io, "    ),")
         end
-        println(io, "    ),")
+        if haskey(payload, "vecmat")
+            println(io, "    \"vecmat\" => Dict{String,Any}(")
+            for (k, cells) in pairs(payload["vecmat"])
+                println(io, "        ", repr(String(k)), " => [")
+                for c in cells
+                    @printf(io, "            (n=%d, p=%d, Nitem=%d, Nthreads=%d, workgroup=%d, blocks=%d),\n",
+                            Int(c["n"]), Int(c["p"]),
+                            Int(c["Nitem"]), Int(c["Nthreads"]),
+                            Int(c["workgroup"]), Int(c["blocks"]))
+                end
+                println(io, "        ],")
+            end
+            println(io, "    ),")
+        end
         println(io, ")")
     end
     return path
@@ -938,20 +1117,21 @@ function autotune(::Type{T} = Float32;
             continue
         end
 
-        push!(cells, Dict{String,Any}(
-            "n"         => n,
-            "p"         => p,
-            "Nitem"     => result.params.Nitem,
-            "chunksz"   => result.params.chunksz,
-            "Nblocks"   => result.params.Nblocks,
-            "workgroup" => result.params.workgroup,
-        ))
+        push!(cells, _cell_dict(n, p, result.params))
         push!(cell_tops, result.top)
-        verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) Ni=%-2d csz=%-3d Nb=%-3d wg=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
-                           i, length(shapes), n, p,
-                           result.params.Nitem, result.params.chunksz,
-                           result.params.Nblocks, result.params.workgroup,
-                           result.median_us, result.n_candidates, wall)
+        if result.params.kernel === :rowthread
+            verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) [RT] U=%-2d ncb=%-3d wg=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
+                               i, length(shapes), n, p,
+                               result.params.U, result.params.ncb,
+                               result.params.workgroup,
+                               result.median_us, result.n_candidates, wall)
+        else
+            verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) Ni=%-2d csz=%-3d Nb=%-3d wg=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
+                               i, length(shapes), n, p,
+                               result.params.Nitem, result.params.chunksz,
+                               result.params.Nblocks, result.params.workgroup,
+                               result.median_us, result.n_candidates, wall)
+        end
 
         # Checkpoint after every cell — a stall-kill / crash then loses zero
         # tuned cells (the JSON is small, the write is sub-millisecond).

@@ -431,7 +431,7 @@ end
     n, p = size(src)
     workgroup = Int(@groupsize()[1])
     lid = Int(@index(Local, Linear))
-    gid = Int(@index(Group, Linear))
+    gid = Int(@index(Group))
     I = (gid - 1) * workgroup + lid
     row_base = (I - 1) * Nitem + 1
 
@@ -476,5 +476,95 @@ end
                 dst[row] = g(vals[i])
             end
         end
+    end
+end
+
+# ============================================================================
+# Row-thread path — tiled over both dims (small-n..square-band, large-p).
+# ============================================================================
+# For wide/square matrices the generic kernel's small `chunksz` scatters a warp
+# across many columns (sub-cacheline reads), capping BW at ~48% of A100 peak.
+# This kernel instead maps ONE THREAD PER ROW with a register accumulator, so a
+# warp reads `warpsz` CONTIGUOUS rows of one column (a fully-coalesced 128-B
+# transaction) and streams down the columns. The per-thread column loop is
+# U-way unrolled for memory-level parallelism.
+#
+# The launch grid tiles BOTH dims: grid = (row_tiles × col_blocks). A block's
+# linear id `gid` decodes to `rtile = (gid-1)÷ncb` (which row-tile of height
+# `wg`) and `cblock = (gid-1)%ncb` (which of `ncb` column-splits). The thread's
+# global row is `r = rtile*wg + lid`; row-tiling lets `n` exceed a single block.
+# Each column-block writes its partial reduction to `partial[cblock*n + r]`,
+# combined across the `ncb` blocks by `matvec_rowthread_reduce!`. The earlier
+# "wide" kernel is the special case ncb-only (1 row-tile). Measured A100:
+# n=100,p=1e7 49%→76% peak (2.28×→1.05× cuBLAS); square/middle-band (10000² etc.)
+# reaches parity or beats cuBLAS. The three tuned knobs (U, wg, ncb) are
+# shape-dependent and data-driven via the autotune — see `_matvec_rowthread_impl!`
+# and `_matvec_use_rowthread` in matvec.jl.
+
+# U independent column contributions issued together (→ MLP), then folded into
+# `acc` with `op`. `@generated` so the unroll count U and the x-vs-nothing
+# branch are resolved at compile time (`col` is 0-based here).
+@inline @generated function _rowthread_chunk(f::F, op::O, acc, src, x, col::Int, ::Val{U}, r::Int) where {F,O,U}
+    load(u) = x === Nothing ? :(f(@inbounds src[r, col+$u])) :
+                              :(f(@inbounds(src[r, col+$u]), @inbounds(x[col+$u])))
+    body = Expr(:block)
+    for u in 1:U
+        push!(body.args, :($(Symbol(:v_, u)) = $(load(u))))
+    end
+    ex = :acc
+    for u in 1:U
+        ex = :(op($ex, $(Symbol(:v_, u))))
+    end
+    push!(body.args, ex)
+    body
+end
+
+@kernel inbounds = true unsafe_indices = true function matvec_rowthread_kernel!(
+    f::F, op::O,
+    partial::AbstractVector{H},
+    src::AbstractArray{T},
+    x,
+    n::Int, ::Val{U},
+    ncol::Int, p::Int, wg::Int, ncb::Int
+) where {F<:Function,O<:Function,T,H,U}
+    gid = Int(@index(Group))
+    lid = Int(@index(Local))
+    rtile  = (gid - 1) ÷ ncb                    # which row-tile (height wg)
+    cblock = (gid - 1) % ncb                    # which column-split (0-based)
+    r      = rtile * wg + lid                   # global row (1-based)
+    c0   = cblock * ncol                        # 0-based first column of this block
+    cend = min(c0 + ncol, p)
+    if r <= n && c0 < cend
+        col = c0                               # 0-based
+        acc = isnothing(x) ? f(src[r, col+1]) : f(src[r, col+1], x[col+1])
+        col += 1
+        while col + U <= cend
+            acc = _rowthread_chunk(f, op, acc, src, x, col, Val(U), r)
+            col += U
+        end
+        while col < cend
+            v = isnothing(x) ? f(src[r, col+1]) : f(src[r, col+1], x[col+1])
+            acc = op(acc, v)
+            col += 1
+        end
+        @inbounds partial[cblock * n + r] = acc
+    end
+end
+
+# Combine the `ncb` per-column-block partials for each row and apply `g`. Block
+# 0 is always active (c0=0 < p), so it seeds the reduction — no op-identity.
+@kernel inbounds = true unsafe_indices = true function matvec_rowthread_reduce!(
+    op::O, g::G,
+    dst::AbstractArray{S},
+    partial::AbstractVector{H},
+    n::Int, ncb::Int
+) where {O<:Function,G<:Function,S,H}
+    r = Int(@index(Global))
+    if r <= n
+        acc = @inbounds partial[r]
+        for b in 1:ncb-1
+            acc = op(acc, @inbounds partial[b * n + r])
+        end
+        @inbounds dst[r] = g(acc)
     end
 end
