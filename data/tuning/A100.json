@@ -3,584 +3,651 @@
     "vecmat": {
         "size_1": [
             {
-                "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 512,
-                "n": 1
-            },
-            {
-                "Nitem": 4,
-                "workgroup": 128,
-                "Nthreads": 128,
-                "blocks": 1,
-                "p": 1,
-                "n": 512
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 256,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 512,
-                "n": 2
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 256,
-                "Nthreads": 256,
-                "blocks": 1,
-                "p": 2,
-                "n": 512
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 128,
-                "Nthreads": 2,
-                "blocks": 1,
-                "p": 512,
-                "n": 4
-            },
-            {
-                "Nitem": 4,
-                "workgroup": 128,
-                "Nthreads": 128,
-                "blocks": 1,
-                "p": 4,
-                "n": 512
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 4096,
-                "n": 1
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 128,
-                "Nthreads": 4,
-                "blocks": 1,
-                "p": 512,
-                "n": 8
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 512,
-                "Nthreads": 64,
-                "blocks": 1,
-                "p": 8,
-                "n": 512
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 512,
-                "Nthreads": 512,
-                "blocks": 1,
-                "p": 1,
-                "n": 4096
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 2,
-                "blocks": 1,
-                "p": 4096,
-                "n": 2
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 128,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 512,
-                "n": 16
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 128,
-                "Nthreads": 128,
-                "blocks": 1,
-                "p": 16,
-                "n": 512
-            },
-            {
                 "Nitem": 16,
-                "workgroup": 256,
-                "Nthreads": 256,
-                "blocks": 1,
-                "p": 2,
-                "n": 4096
-            },
-            {
-                "Nitem": 4,
-                "workgroup": 128,
+                "n": 1,
+                "kernel": "generic",
                 "Nthreads": 1,
-                "blocks": 1,
-                "p": 4096,
-                "n": 4
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 8,
-                "blocks": 1,
-                "p": 512,
-                "n": 32
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 256,
-                "Nthreads": 512,
                 "blocks": 128,
-                "p": 32,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
                 "n": 512
             },
             {
-                "Nitem": 16,
-                "workgroup": 512,
-                "Nthreads": 256,
-                "blocks": 1,
-                "p": 4,
-                "n": 4096
-            },
-            {
                 "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 32768,
-                "n": 1
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 512,
+                "n": 2,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
-                "p": 4096,
-                "n": 8
+                "p": 512,
+                "workgroup": 128
             },
             {
                 "Nitem": 4,
-                "workgroup": 128,
+                "n": 512,
+                "kernel": "generic",
                 "Nthreads": 16,
                 "blocks": 1,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 4,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
                 "p": 512,
-                "n": 64
+                "workgroup": 128
+            },
+            {
+                "Nitem": 2,
+                "n": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 16,
+                "n": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 16,
+                "n": 4096,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 2,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 16,
+                "n": 16,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 128,
+                "p": 512,
+                "workgroup": 256
             },
             {
                 "Nitem": 8,
-                "workgroup": 128,
+                "n": 512,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 16,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 16,
+                "n": 4096,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "n": 512,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 4096,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 16,
+                "n": 8,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 128,
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "n": 64,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 512,
+                "kernel": "generic",
                 "Nthreads": 64,
                 "blocks": 1,
                 "p": 64,
-                "n": 512
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 256,
-                "Nthreads": 256,
-                "blocks": 1,
-                "p": 8,
-                "n": 4096
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 256,
-                "Nthreads": 32768,
-                "blocks": 128,
-                "p": 1,
-                "n": 32768
-            },
-            {
-                "Nitem": 2,
-                "workgroup": 256,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 32768,
-                "n": 2
+                "workgroup": 512
             },
             {
                 "Nitem": 4,
-                "workgroup": 128,
+                "n": 4096,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 8,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "n": 2,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 128,
+                "p": 32768,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
                 "p": 4096,
                 "n": 16
             },
             {
-                "Nitem": 8,
-                "workgroup": 512,
-                "Nthreads": 512,
+                "Nitem": 16,
+                "n": 4096,
+                "kernel": "generic",
+                "Nthreads": 128,
                 "blocks": 1,
                 "p": 16,
-                "n": 4096
+                "workgroup": 512
             },
             {
                 "Nitem": 16,
-                "workgroup": 512,
+                "n": 32768,
+                "kernel": "generic",
                 "Nthreads": 512,
                 "blocks": 1,
                 "p": 2,
-                "n": 32768
+                "workgroup": 512
             },
             {
-                "Nitem": 1,
-                "workgroup": 128,
+                "Nitem": 4,
+                "n": 4,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 32768,
-                "n": 4
+                "workgroup": 256
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 16,
+                "n": 32,
+                "kernel": "generic",
+                "Nthreads": 4,
                 "blocks": 1,
                 "p": 4096,
-                "n": 32
+                "workgroup": 512
             },
             {
-                "Nitem": 16,
+                "Nitem": 4,
                 "workgroup": 512,
+                "kernel": "generic",
                 "Nthreads": 256,
                 "blocks": 1,
                 "p": 32,
                 "n": 4096
             },
             {
-                "Nitem": 2,
-                "workgroup": 128,
-                "Nthreads": 16384,
-                "blocks": 256,
+                "Nitem": 4,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 4,
-                "n": 32768
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
+                "n": 1,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 262144,
-                "n": 1
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "n": 8,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 128,
+                "p": 32768,
+                "workgroup": 256
             },
             {
                 "Nitem": 2,
-                "workgroup": 256,
-                "Nthreads": 1,
+                "n": 64,
+                "kernel": "generic",
+                "Nthreads": 8,
                 "blocks": 1,
-                "p": 32768,
-                "n": 8
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "n": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 128
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 32,
-                "blocks": 1,
-                "p": 4096,
-                "n": 64
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 256,
+                "n": 4096,
+                "kernel": "generic",
                 "Nthreads": 256,
-                "blocks": 128,
-                "p": 512,
-                "n": 512
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 512,
-                "Nthreads": 512,
                 "blocks": 1,
                 "p": 64,
-                "n": 4096
+                "workgroup": 256
             },
             {
                 "Nitem": 16,
-                "workgroup": 512,
+                "n": 32768,
+                "kernel": "generic",
                 "Nthreads": 512,
                 "blocks": 1,
                 "p": 8,
-                "n": 32768
+                "workgroup": 512
             },
             {
-                "Nitem": 8,
-                "workgroup": 256,
-                "Nthreads": 16384,
-                "blocks": 8,
+                "Nitem": 16,
+                "n": 262144,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 1,
-                "n": 262144
+                "workgroup": 512
             },
             {
-                "Nitem": 1,
-                "workgroup": 128,
+                "Nitem": 2,
+                "n": 2,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 262144,
-                "n": 2
+                "workgroup": 128
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
+                "n": 16,
+                "kernel": "generic",
                 "Nthreads": 4,
                 "blocks": 1,
                 "p": 32768,
-                "n": 16
+                "workgroup": 256
             },
             {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 8192,
-                "blocks": 4,
+                "Nitem": 4,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 16,
-                "n": 32768
+                "workgroup": 512
             },
             {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 32768,
-                "blocks": 64,
+                "Nitem": 16,
+                "n": 262144,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 2,
-                "n": 262144
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
+                "n": 4,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 262144,
-                "n": 4
+                "workgroup": 128
             },
             {
-                "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 2,
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8,
                 "blocks": 1,
                 "p": 32768,
                 "n": 32
             },
             {
-                "Nitem": 16,
-                "workgroup": 512,
+                "Nitem": 4,
+                "n": 32768,
+                "kernel": "generic",
                 "Nthreads": 512,
                 "blocks": 1,
                 "p": 32,
-                "n": 32768
+                "workgroup": 512
             },
             {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 32768,
-                "blocks": 8,
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 4,
                 "n": 262144
             },
             {
                 "Nitem": 1,
                 "workgroup": 512,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 2097152,
                 "n": 1
             },
             {
-                "Nitem": 1,
-                "workgroup": 128,
+                "Nitem": 2,
+                "n": 8,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 262144,
-                "n": 8
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 128,
+                "kernel": "generic",
                 "Nthreads": 8,
                 "blocks": 1,
                 "p": 32768,
                 "n": 64
             },
             {
-                "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 32,
-                "blocks": 1,
+                "n": 512,
+                "U": 4,
+                "kernel": "mlp",
                 "p": 4096,
-                "n": 512
+                "workgroup": 256
             },
             {
-                "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 128,
-                "blocks": 1,
-                "p": 512,
-                "n": 4096
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 512,
-                "Nthreads": 512,
-                "blocks": 1,
-                "p": 64,
-                "n": 32768
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 256,
-                "Nthreads": 32768,
-                "blocks": 4,
-                "p": 8,
-                "n": 262144
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 256,
-                "Nthreads": 65536,
-                "blocks": 1,
-                "p": 1,
-                "n": 2097152
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 256,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 2097152,
-                "n": 2
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 262144,
-                "n": 16
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 8192,
-                "blocks": 8,
-                "p": 16,
-                "n": 262144
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 256,
-                "Nthreads": 65536,
-                "blocks": 32,
-                "p": 2,
-                "n": 2097152
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 128,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 2097152,
-                "n": 4
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 262144,
-                "n": 32
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 4096,
-                "blocks": 16,
-                "p": 32,
-                "n": 262144
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 256,
-                "Nthreads": 32768,
-                "blocks": 16,
-                "p": 4,
-                "n": 2097152
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 256,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 16777216,
-                "n": 1
-            },
-            {
-                "Nitem": 1,
-                "workgroup": 512,
-                "Nthreads": 1,
-                "blocks": 1,
-                "p": 2097152,
-                "n": 8
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 2,
-                "blocks": 1,
-                "p": 262144,
-                "n": 64
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 4,
-                "blocks": 1,
-                "p": 32768,
-                "n": 512
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 64,
-                "blocks": 1,
-                "p": 4096,
-                "n": 4096
-            },
-            {
-                "Nitem": 8,
-                "workgroup": 256,
+                "Nitem": 2,
+                "n": 4096,
+                "kernel": "generic",
                 "Nthreads": 256,
                 "blocks": 1,
                 "p": 512,
-                "n": 32768
+                "workgroup": 512
             },
             {
                 "Nitem": 16,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 64,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "n": 16,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 16,
+                "n": 262144,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 256,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 16,
+                "n": 2097152,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 64,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 4,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
+                "n": 32,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 8,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "n": 8,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 8,
                 "workgroup": 128,
-                "Nthreads": 4096,
-                "blocks": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "n": 512,
+                "U": 8,
+                "kernel": "mlp",
+                "p": 32768,
+                "workgroup": 512
+            },
+            {
+                "n": 4096,
+                "U": 16,
+                "kernel": "mlp",
+                "p": 4096,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
                 "p": 64,
                 "n": 262144
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 8192,
-                "blocks": 4,
+                "n": 2097152,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 64,
                 "p": 8,
-                "n": 2097152
+                "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "workgroup": 512,
+                "n": 16777216,
+                "kernel": "generic",
                 "Nthreads": 131072,
-                "blocks": 64,
+                "blocks": 256,
                 "p": 1,
-                "n": 16777216
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 16777216,
@@ -588,31 +655,35 @@
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
+                "n": 16,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 2097152,
-                "n": 16
+                "workgroup": 512
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
+                "n": 2097152,
+                "kernel": "generic",
                 "Nthreads": 16384,
-                "blocks": 16,
+                "blocks": 32,
                 "p": 16,
-                "n": 2097152
+                "workgroup": 128
             },
             {
-                "Nitem": 8,
-                "workgroup": 256,
-                "Nthreads": 65536,
-                "blocks": 4,
+                "Nitem": 16,
+                "n": 16777216,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 16,
                 "p": 2,
-                "n": 16777216
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 16777216,
@@ -620,39 +691,44 @@
             },
             {
                 "Nitem": 8,
-                "workgroup": 128,
+                "n": 32,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 2097152,
-                "n": 32
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 16384,
-                "blocks": 4,
+                "n": 2097152,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 256,
                 "p": 32,
-                "n": 2097152
+                "workgroup": 128
             },
             {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 32768,
-                "blocks": 2,
+                "Nitem": 16,
+                "n": 16777216,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 16,
                 "p": 4,
-                "n": 16777216
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
-                "workgroup": 256,
+                "n": 1,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 134217728,
-                "n": 1
+                "workgroup": 256
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 16777216,
@@ -660,71 +736,78 @@
             },
             {
                 "Nitem": 8,
-                "workgroup": 128,
+                "n": 64,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
                 "p": 2097152,
-                "n": 64
+                "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "workgroup": 128,
+                "n": 512,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
                 "p": 262144,
-                "n": 512
+                "workgroup": 512
             },
             {
-                "Nitem": 8,
-                "workgroup": 512,
-                "Nthreads": 32,
-                "blocks": 1,
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "mlp",
                 "p": 32768,
                 "n": 4096
             },
             {
-                "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 128,
+                "Nitem": 8,
+                "n": 32768,
+                "kernel": "generic",
+                "Nthreads": 256,
                 "blocks": 1,
                 "p": 4096,
-                "n": 32768
+                "workgroup": 512
             },
             {
                 "Nitem": 8,
-                "workgroup": 512,
+                "n": 262144,
+                "kernel": "generic",
                 "Nthreads": 512,
                 "blocks": 1,
                 "p": 512,
-                "n": 262144
+                "workgroup": 512
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 8192,
-                "blocks": 1,
+                "n": 2097152,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 64,
                 "p": 64,
-                "n": 2097152
-            },
-            {
-                "Nitem": 16,
-                "workgroup": 128,
-                "Nthreads": 32768,
-                "blocks": 32,
-                "p": 8,
-                "n": 16777216
+                "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "workgroup": 512,
+                "n": 16777216,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 8,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "kernel": "generic",
                 "Nthreads": 131072,
-                "blocks": 64,
+                "blocks": 256,
                 "p": 1,
-                "n": 134217728
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 134217728,
@@ -732,31 +815,35 @@
             },
             {
                 "Nitem": 1,
-                "workgroup": 128,
+                "n": 16,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
                 "p": 16777216,
-                "n": 16
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
+                "n": 16777216,
+                "kernel": "generic",
                 "Nthreads": 16384,
-                "blocks": 128,
+                "blocks": 256,
                 "p": 16,
-                "n": 16777216
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 512,
+                "n": 134217728,
+                "kernel": "generic",
                 "Nthreads": 131072,
-                "blocks": 256,
+                "blocks": 4,
                 "p": 2,
-                "n": 134217728
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 134217728,
@@ -765,6 +852,7 @@
             {
                 "Nitem": 8,
                 "workgroup": 128,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 16777216,
@@ -772,23 +860,26 @@
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
+                "n": 16777216,
+                "kernel": "generic",
                 "Nthreads": 16384,
-                "blocks": 64,
+                "blocks": 32,
                 "p": 32,
-                "n": 16777216
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 512,
+                "n": 134217728,
+                "kernel": "generic",
                 "Nthreads": 131072,
                 "blocks": 16,
                 "p": 4,
-                "n": 134217728
+                "workgroup": 512
             },
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 1073741824,
@@ -797,6 +888,7 @@
             {
                 "Nitem": 1,
                 "workgroup": 256,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 134217728,
@@ -805,6 +897,7 @@
             {
                 "Nitem": 8,
                 "workgroup": 128,
+                "kernel": "generic",
                 "Nthreads": 1,
                 "blocks": 1,
                 "p": 16777216,
@@ -812,65 +905,69 @@
             },
             {
                 "Nitem": 8,
-                "workgroup": 128,
+                "n": 512,
+                "kernel": "generic",
                 "Nthreads": 2,
                 "blocks": 1,
                 "p": 2097152,
-                "n": 512
+                "workgroup": 128
             },
             {
-                "Nitem": 16,
-                "workgroup": 256,
-                "Nthreads": 16,
-                "blocks": 1,
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "mlp",
                 "p": 262144,
                 "n": 4096
             },
             {
-                "Nitem": 8,
-                "workgroup": 128,
-                "Nthreads": 64,
-                "blocks": 1,
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "mlp",
                 "p": 32768,
                 "n": 32768
             },
             {
                 "Nitem": 8,
-                "workgroup": 256,
+                "n": 262144,
+                "kernel": "generic",
                 "Nthreads": 256,
                 "blocks": 1,
                 "p": 4096,
-                "n": 262144
+                "workgroup": 256
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
+                "n": 2097152,
+                "kernel": "generic",
                 "Nthreads": 2048,
-                "blocks": 16,
+                "blocks": 8,
                 "p": 512,
-                "n": 2097152
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 128,
+                "n": 16777216,
+                "kernel": "generic",
                 "Nthreads": 8192,
-                "blocks": 4,
+                "blocks": 32,
                 "p": 64,
-                "n": 16777216
+                "workgroup": 128
             },
             {
                 "Nitem": 16,
-                "workgroup": 512,
+                "n": 134217728,
+                "kernel": "generic",
                 "Nthreads": 65536,
-                "blocks": 2,
+                "blocks": 4,
                 "p": 8,
-                "n": 134217728
+                "workgroup": 512
             },
             {
                 "Nitem": 8,
                 "workgroup": 512,
+                "kernel": "generic",
                 "Nthreads": 131072,
-                "blocks": 256,
+                "blocks": 2,
                 "p": 1,
                 "n": 1073741824
             }
@@ -2828,432 +2925,646 @@
         "size_1": [
             {
                 "Nitem": 1,
-                "n": 1,
+                "workgroup": 128,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 1,
                 "p": 512,
-                "workgroup": 256
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 512
             },
             {
                 "Nitem": 1,
+                "n": 2,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
                 "n": 512,
                 "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 4,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 3,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 11
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 3
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 11
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 256,
                 "p": 1,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 2,
-                "n": 2,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 512,
-                "workgroup": 512
+                "n": 32768
             },
             {
                 "Nitem": 1,
-                "n": 512,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 2,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 1,
-                "n": 4,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 512,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 512,
-                "Nblocks": 1,
-                "chunksz": 64,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 8,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 512,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 2,
-                "n": 512,
-                "Nblocks": 1,
-                "chunksz": 16,
-                "p": 8,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 4,
-                "n": 4096,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 1,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 2,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 2,
-                "n": 16,
-                "Nblocks": 1,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 2,
-                "p": 512,
-                "workgroup": 512
+                "p": 32768,
+                "n": 2
             },
             {
                 "Nitem": 4,
-                "n": 512,
+                "workgroup": 512,
                 "Nblocks": 1,
-                "chunksz": 64,
-                "p": 16,
-                "workgroup": 512
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 16
             },
             {
-                "Nitem": 1,
+                "Nitem": 2,
                 "n": 4096,
                 "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 2,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 4,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
+                "n": 32768
             },
             {
                 "Nitem": 1,
-                "n": 32,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 1,
-                "p": 512,
-                "workgroup": 256
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 45
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 11
+            },
+            {
+                "n": 64,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 4096,
+                "workgroup": 64
             },
             {
                 "Nitem": 2,
-                "n": 512,
+                "workgroup": 256,
                 "Nblocks": 1,
-                "chunksz": 16,
-                "p": 32,
-                "workgroup": 128
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 512
             },
             {
-                "Nitem": 4,
+                "Nitem": 2,
                 "n": 4096,
                 "Nblocks": 1,
-                "chunksz": 64,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 16,
-                "chunksz": 1,
-                "p": 32768,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 1,
-                "n": 8,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 64,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 512,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 2,
-                "n": 512,
-                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 8,
                 "p": 64,
-                "workgroup": 512
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 32768
             },
             {
                 "Nitem": 1,
-                "n": 4096,
+                "n": 262144,
                 "Nblocks": 1,
-                "chunksz": 128,
-                "p": 8,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 8,
-                "n": 32768,
-                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 1,
                 "workgroup": 128
             },
             {
                 "Nitem": 1,
-                "n": 2,
+                "workgroup": 256,
                 "Nblocks": 256,
-                "chunksz": 1,
-                "p": 32768,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 2,
-                "n": 16,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 4096,
-                "Nblocks": 1,
-                "chunksz": 64,
-                "p": 16,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 32768,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 2,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 4,
-                "Nblocks": 256,
-                "chunksz": 4,
-                "p": 32768,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 4,
-                "n": 32,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 4096,
-                "Nblocks": 1,
-                "chunksz": 64,
-                "p": 32,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 32768,
-                "Nblocks": 1,
-                "chunksz": 32,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 256,
-                "chunksz": 1,
+                "kernel": "generic",
+                "chunksz": 2,
                 "p": 262144,
-                "workgroup": 512
+                "n": 2
             },
             {
                 "Nitem": 1,
-                "n": 8,
+                "workgroup": 512,
                 "Nblocks": 128,
-                "chunksz": 4,
-                "p": 32768,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 64,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 512,
-                "Nblocks": 1,
-                "chunksz": 1,
-                "p": 512,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 2,
-                "n": 4096,
-                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 16,
-                "p": 64,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 32768,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 8,
-                "workgroup": 256
+                "p": 32768,
+                "n": 16
             },
             {
                 "Nitem": 8,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 1,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 2,
-                "Nblocks": 128,
-                "chunksz": 1,
-                "p": 262144,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 1,
-                "n": 16,
-                "Nblocks": 64,
-                "chunksz": 4,
-                "p": 32768,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
                 "n": 32768,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 64,
                 "p": 16,
-                "workgroup": 256
+                "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "n": 262144,
+                "workgroup": 128,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 2,
-                "workgroup": 128
+                "n": 262144
             },
             {
                 "Nitem": 1,
-                "n": 4,
+                "workgroup": 512,
                 "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
                 "p": 262144,
-                "workgroup": 128
+                "n": 3
             },
             {
                 "Nitem": 1,
-                "n": 32,
-                "Nblocks": 128,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
                 "chunksz": 4,
                 "p": 32768,
-                "workgroup": 256
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 32768,
+                "n": 45
             },
             {
                 "Nitem": 8,
-                "n": 32768,
+                "workgroup": 128,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 32,
                 "p": 32,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 2097152,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 1,
-                "n": 8,
-                "Nblocks": 128,
-                "chunksz": 1,
-                "p": 262144,
-                "workgroup": 128
+                "n": 32768
             },
             {
                 "Nitem": 4,
-                "n": 64,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
                 "Nblocks": 256,
-                "chunksz": 4,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "n": 6,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
                 "p": 32768,
-                "workgroup": 128
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 512
             },
             {
                 "Nitem": 2,
-                "n": 512,
-                "Nblocks": 1,
-                "chunksz": 2,
-                "p": 4096,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
                 "n": 4096,
                 "Nblocks": 1,
-                "chunksz": 4,
+                "kernel": "generic",
+                "chunksz": 8,
                 "p": 512,
                 "workgroup": 256
             },
             {
-                "Nitem": 4,
-                "n": 32768,
+                "Nitem": 8,
+                "workgroup": 256,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 32,
                 "p": 64,
-                "workgroup": 256
+                "n": 32768
             },
             {
-                "Nitem": 4,
+                "Nitem": 8,
                 "n": 262144,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 8,
                 "workgroup": 128
@@ -3262,286 +3573,203 @@
                 "Nitem": 8,
                 "n": 2097152,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 1,
                 "workgroup": 128
             },
             {
                 "Nitem": 1,
-                "n": 2,
+                "workgroup": 512,
                 "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
                 "p": 2097152,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 16,
-                "Nblocks": 256,
-                "chunksz": 2,
-                "p": 262144,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 8,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 16,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 2097152,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 2,
-                "workgroup": 128
+                "n": 2
             },
             {
                 "Nitem": 1,
-                "n": 4,
+                "workgroup": 256,
                 "Nblocks": 256,
-                "chunksz": 1,
-                "p": 2097152,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 4,
-                "n": 32,
-                "Nblocks": 256,
-                "chunksz": 2,
-                "p": 262144,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 64,
-                "p": 32,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 2097152,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 16777216,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 8,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 2097152,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 64,
-                "Nblocks": 256,
-                "chunksz": 4,
-                "p": 262144,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 4,
-                "n": 512,
-                "Nblocks": 128,
-                "chunksz": 32,
-                "p": 32768,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 4096,
-                "Nblocks": 1,
-                "chunksz": 2,
-                "p": 4096,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 8,
-                "n": 32768,
-                "Nblocks": 1,
-                "chunksz": 32,
-                "p": 512,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 16,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 32,
-                "p": 64,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 2097152,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 8,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 16777216,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 1,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 2,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 16777216,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 16,
-                "Nblocks": 256,
-                "chunksz": 2,
-                "p": 2097152,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 8,
-                "n": 2097152,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 16,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 16777216,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 2,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 4,
-                "n": 4,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 16777216,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 4,
-                "n": 32,
-                "Nblocks": 256,
-                "chunksz": 2,
-                "p": 2097152,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 2097152,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 32,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 16777216,
-                "Nblocks": 1,
-                "chunksz": 128,
-                "p": 4,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 1,
-                "n": 1,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 134217728,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 4,
-                "n": 8,
-                "Nblocks": 256,
-                "chunksz": 1,
-                "p": 16777216,
-                "workgroup": 256
-            },
-            {
-                "Nitem": 16,
-                "n": 64,
-                "Nblocks": 256,
-                "chunksz": 4,
-                "p": 2097152,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 16,
-                "n": 512,
-                "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 8,
                 "p": 262144,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 16,
-                "n": 4096,
-                "Nblocks": 64,
-                "chunksz": 32,
-                "p": 32768,
-                "workgroup": 256
+                "n": 16
             },
             {
                 "Nitem": 8,
-                "n": 32768,
+                "workgroup": 128,
                 "Nblocks": 1,
-                "chunksz": 32,
-                "p": 4096,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 262144,
+                "n": 45
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
                 "workgroup": 512
             },
             {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 11
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 32,
+                "p": 4096,
+                "n": 4096
+            },
+            {
                 "Nitem": 8,
-                "n": 262144,
+                "workgroup": 512,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 32,
                 "p": 512,
-                "workgroup": 256
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 262144
             },
             {
                 "Nitem": 8,
                 "n": 2097152,
                 "Nblocks": 1,
-                "chunksz": 64,
-                "p": 64,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 16777216,
-                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 8,
                 "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "n": 134217728,
+                "n": 16777216,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 1,
                 "workgroup": 128
@@ -3550,62 +3778,97 @@
                 "Nitem": 1,
                 "n": 2,
                 "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
-                "p": 134217728,
+                "p": 16777216,
                 "workgroup": 512
             },
             {
-                "Nitem": 16,
-                "n": 16,
+                "Nitem": 4,
+                "workgroup": 256,
                 "Nblocks": 256,
-                "chunksz": 1,
-                "p": 16777216,
-                "workgroup": 256
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 16
             },
             {
                 "Nitem": 8,
-                "n": 16777216,
+                "n": 2097152,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 16,
                 "workgroup": 128
             },
             {
                 "Nitem": 8,
-                "n": 134217728,
+                "n": 16777216,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 2,
                 "workgroup": 128
             },
             {
                 "Nitem": 4,
-                "n": 4,
+                "workgroup": 256,
                 "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
-                "p": 134217728,
-                "workgroup": 256
+                "p": 16777216,
+                "n": 4
             },
             {
-                "Nitem": 16,
-                "n": 32,
+                "Nitem": 1,
+                "workgroup": 256,
                 "Nblocks": 256,
-                "chunksz": 2,
+                "kernel": "generic",
+                "chunksz": 1,
                 "p": 16777216,
-                "workgroup": 256
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "n": 23,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 2097152,
+                "n": 45
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "n": 2097152
             },
             {
                 "Nitem": 8,
                 "n": 16777216,
                 "Nblocks": 1,
-                "chunksz": 128,
-                "p": 32,
-                "workgroup": 128
-            },
-            {
-                "Nitem": 8,
-                "n": 134217728,
-                "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 4,
                 "workgroup": 128
@@ -3614,6 +3877,244 @@
                 "Nitem": 1,
                 "n": 1,
                 "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "workgroup": 512
+            },
+            {
+                "Nitem": 4,
+                "n": 8,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 6
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 11
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 1000000,
+                "n": 100
+            },
+            {
+                "n": 150,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 1000000,
+                "workgroup": 160
+            },
+            {
+                "n": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 262144,
+                "workgroup": 256
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "n": 262144,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 512,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 2097152,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "n": 250,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 1000000,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "n": 32,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "n": 23,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 45
+            },
+            {
+                "n": 500,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "workgroup": 256
+            },
+            {
+                "Nitem": 8,
+                "n": 16777216,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 8,
+                "n": 134217728,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "workgroup": 128
+            },
+            {
+                "Nitem": 1,
+                "n": 1,
+                "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
                 "p": 1073741824,
                 "workgroup": 512
@@ -3622,54 +4123,83 @@
                 "Nitem": 4,
                 "n": 8,
                 "Nblocks": 256,
+                "kernel": "generic",
                 "chunksz": 1,
                 "p": 134217728,
                 "workgroup": 256
             },
             {
-                "Nitem": 16,
-                "n": 64,
+                "Nitem": 4,
+                "n": 6,
                 "Nblocks": 256,
-                "chunksz": 2,
-                "p": 16777216,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
                 "workgroup": 256
             },
             {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 100
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 150
+            },
+            {
                 "Nitem": 16,
-                "n": 512,
+                "workgroup": 512,
                 "Nblocks": 128,
+                "kernel": "generic",
                 "chunksz": 4,
                 "p": 2097152,
-                "workgroup": 512
+                "n": 512
             },
             {
-                "Nitem": 16,
                 "n": 4096,
-                "Nblocks": 32,
-                "chunksz": 8,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
                 "p": 262144,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 8,
-                "n": 32768,
-                "Nblocks": 1,
-                "chunksz": 32,
-                "p": 32768,
-                "workgroup": 512
-            },
-            {
-                "Nitem": 8,
-                "n": 262144,
-                "Nblocks": 1,
-                "chunksz": 32,
-                "p": 4096,
                 "workgroup": 256
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 32,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 4096,
+                "n": 262144
             },
             {
                 "Nitem": 8,
                 "n": 2097152,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 64,
                 "p": 512,
                 "workgroup": 128
@@ -3678,6 +4208,7 @@
                 "Nitem": 8,
                 "n": 16777216,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 64,
                 "workgroup": 128
@@ -3686,6 +4217,7 @@
                 "Nitem": 8,
                 "n": 134217728,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 8,
                 "workgroup": 128
@@ -3694,9 +4226,26 @@
                 "Nitem": 8,
                 "n": 1073741824,
                 "Nblocks": 1,
+                "kernel": "generic",
                 "chunksz": 128,
                 "p": 1,
                 "workgroup": 128
+            },
+            {
+                "n": 250,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "workgroup": 256
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 500
             }
         ],
         "size_4": [
@@ -6346,8 +6895,8 @@
         "Int16": {
             "threshold": 512
         },
-        "UInt16": {
-            "threshold": 512
+        "size_4": {
+            "threshold": 1024
         },
         "Int32": {
             "threshold": 1024
@@ -6376,8 +6925,8 @@
         "Float32": {
             "threshold": 1024
         },
-        "size_4": {
-            "threshold": 1024
+        "UInt16": {
+            "threshold": 512
         },
         "Int8": {
             "threshold": 256
