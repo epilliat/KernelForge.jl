@@ -971,10 +971,15 @@ function _write_jl_companion(path::AbstractString, payload::AbstractDict)
             for (k, cells) in pairs(payload["vecmat"])
                 println(io, "        ", repr(String(k)), " => [")
                 for c in cells
-                    @printf(io, "            (n=%d, p=%d, Nitem=%d, Nthreads=%d, workgroup=%d, blocks=%d),\n",
-                            Int(c["n"]), Int(c["p"]),
-                            Int(c["Nitem"]), Int(c["Nthreads"]),
-                            Int(c["workgroup"]), Int(c["blocks"]))
+                    if get(c, "kernel", "generic") == "mlp"
+                        @printf(io, "            (n=%d, p=%d, kernel=\"mlp\", U=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]), Int(c["U"]), Int(c["workgroup"]))
+                    else
+                        @printf(io, "            (n=%d, p=%d, kernel=\"generic\", Nitem=%d, Nthreads=%d, workgroup=%d, blocks=%d),\n",
+                                Int(c["n"]), Int(c["p"]),
+                                Int(c["Nitem"]), Int(c["Nthreads"]),
+                                Int(c["workgroup"]), Int(c["blocks"]))
+                    end
                 end
                 println(io, "        ],")
             end

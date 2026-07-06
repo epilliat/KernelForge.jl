@@ -201,9 +201,59 @@ function param_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
         if Nblocks_runtime == 1 && blocks != 1
             continue
         end
-        push!(out, (; Nitem, Nthreads, workgroup, blocks))
+        push!(out, (; kernel = :generic, Nitem, Nthreads, workgroup, blocks))
     end
     return out
+end
+
+# -----------------------------------------------------------------------------
+# MLP candidate family (vecmat_mlp_kernel!): warp-per-column, U independent loads
+# in flight. Two knobs: U (unroll/MLP depth) and workgroup. Wins the medium-large-n
+# × large-p band where the generic kernel's serial reduction is MLP-starved.
+# -----------------------------------------------------------------------------
+const MLP_U_GRID   = (4, 8, 16)
+const MLP_WG_GRID  = (128, 256, 512)
+
+# MLP requires n ≥ warpsz (every lane seeds an element); wins for large p (fill the
+# GPU) and n not so tall that a single warp's serial reduction dominates.
+_mlp_applicable(n::Int, p::Int) = 256 <= n <= 131072 && p >= 4096
+
+function mlp_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
+    _mlp_applicable(n, p) || return NamedTuple[]
+    Us  = dev ? (8,)   : MLP_U_GRID
+    wgs = dev ? (256,) : MLP_WG_GRID
+    out = NamedTuple[]
+    for U in Us, wg in wgs
+        push!(out, (; kernel = :mlp, U, workgroup = wg))
+    end
+    return out
+end
+
+all_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T =
+    vcat(param_candidates(T, n, p; dev), mlp_candidates(T, n, p; dev))
+
+# Zero-arg closure running one candidate (either family), result left in `dst`.
+function _run_closure(params::NamedTuple, x, A, dst, ::Type{H}, n, p, arch) where H
+    if params.kernel === :mlp
+        return () -> (KF._vecmat_mlp_impl!(*, +, identity, dst, x, A, H, n, p, arch;
+                        U = params.U, workgroup = params.workgroup); dst)
+    else
+        return () -> (KF.vecmat!(dst, x, A;
+                        params.Nitem, params.Nthreads,
+                        params.workgroup, params.blocks); dst)
+    end
+end
+
+# Serialize a cell's winning params (either family) to a mutable Dict.
+function _cell_dict(n::Int, p::Int, params::NamedTuple)
+    if params.kernel === :mlp
+        return Dict{String,Any}("n" => n, "p" => p, "kernel" => "mlp",
+            "U" => params.U, "workgroup" => params.workgroup)
+    else
+        return Dict{String,Any}("n" => n, "p" => p, "kernel" => "generic",
+            "Nitem" => params.Nitem, "Nthreads" => params.Nthreads,
+            "workgroup" => params.workgroup, "blocks" => params.blocks)
+    end
 end
 
 # -----------------------------------------------------------------------------
@@ -230,15 +280,21 @@ end
 
 function _precompile_one(params::NamedTuple, ::Type{T}) where T
     # Shape big enough to satisfy validity for this spec.
-    min_n = params.Nthreads * params.Nitem
-    min_p = max(cld(params.Nthreads, params.workgroup), 1)
-    n = nextpow(2, max(min_n, 1))
-    p = nextpow(2, max(min_p, 1))
+    if params.kernel === :mlp
+        n = max(params.workgroup, 256)
+        p = 4096
+    else
+        min_n = params.Nthreads * params.Nitem
+        min_p = max(cld(params.Nthreads, params.workgroup), 1)
+        n = nextpow(2, max(min_n, 1))
+        p = nextpow(2, max(min_p, 1))
+    end
     A = _gpu_rand(T, n, p)
     x = _gpu_rand(T, n)
     backend = get_backend(A)
-    KF.vecmat!(dst_for(T, backend, p), x, A;
-               params.Nitem, params.Nthreads, params.workgroup, params.blocks)
+    H = Base.promote_op(*, T, T)
+    arch = KF.detect_arch(A)
+    _run_closure(params, x, A, dst_for(T, backend, p), H, n, p, arch)()
     KA.synchronize(backend)
     return
 end
@@ -252,7 +308,7 @@ function _precompile_specs(shapes, ::Type{T};
     specs_set = Set{NamedTuple}()
     for (n, p) in shapes
         (n, p) in skip_done && continue
-        for params in param_candidates(T, n, p; dev)
+        for params in all_candidates(T, n, p; dev)
             push!(specs_set, params)
         end
     end
@@ -307,9 +363,16 @@ function _diag_init(csv_path::AbstractString)
     end
 end
 
+# Map either family's params into the fixed (Nitem,Nthreads,workgroup,blocks) diag
+# columns. mlp has no such knobs — encode (U, 0, workgroup, 0); diagnostic only.
+_diag_params(p) = p.kernel === :mlp ?
+    (Nitem = p.U, Nthreads = 0, workgroup = p.workgroup, blocks = 0) :
+    (Nitem = p.Nitem, Nthreads = p.Nthreads, workgroup = p.workgroup, blocks = p.blocks)
+
 function _diag_row(io, cell_idx, n, p, cand_idx, n_cands, params, compile_ms, bench_us, wall_ms, ok, is_first)
+    dp = _diag_params(params)
     println(io, cell_idx, ",", n, ",", p, ",", cand_idx, ",", n_cands, ",",
-            params.Nitem, ",", params.Nthreads, ",", params.workgroup, ",", params.blocks, ",",
+            dp.Nitem, ",", dp.Nthreads, ",", dp.workgroup, ",", dp.blocks, ",",
             compile_ms, ",", bench_us, ",", wall_ms, ",", ok ? 1 : 0, ",", is_first ? 1 : 0)
 end
 
@@ -321,7 +384,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
                    arch = nothing,
                    cell_idx::Int = 0, n_cells::Int = 0,
                    diag_csv::Union{Nothing,AbstractString} = nothing) where T
-    cands = param_candidates(T, n, p; dev)
+    cands = all_candidates(T, n, p; dev)
     isempty(cands) && return nothing
 
     # Never-worse-than-default guard. The autotuner ranks only among its swept
@@ -338,7 +401,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         bl0 = KF.default_blocks(arch, KF.VecMat, n, p, T)
         ni0 = KF.default_nitem(arch, KF.VecMat, n, p, T)
         nt0 = KF.default_nthreads(arch, KF.VecMat, n, p, T, ni0, wg0, bl0)
-        push!(cands, (; Nitem = ni0, Nthreads = nt0, workgroup = wg0, blocks = bl0))
+        push!(cands, (; kernel = :generic, Nitem = ni0, Nthreads = nt0, workgroup = wg0, blocks = bl0))
         default_ci = length(cands)
     end
 
@@ -368,9 +431,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         t_wall0 = time_ns()
         compile_ms, coarse_us, ok_c = NaN, NaN, false
         try
-            f = () -> (KF.vecmat!(dst, x, A;
-                                  params.Nitem, params.Nthreads,
-                                  params.workgroup, params.blocks); dst)
+            f = _run_closure(params, x, A, dst, H, n, p, arch)
             t_c0 = time_ns()
             f(); KA.synchronize(backend)
             compile_ms = (time_ns() - t_c0) / 1e6
@@ -397,8 +458,14 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         end
     end
 
+    # Family-stratified survivors: top-k of EACH kernel family reaches the fine
+    # pass, so a family with many mediocre candidates can't crowd the other's
+    # winner out of a global top-k (mirrors the matvec 2-family autotune).
     valid = sort!([c for c in coarse if c.ok], by = c -> c.coarse_us)
-    survivors = first(valid, min(coarse_k, length(valid)))
+    gen_valid = [c for c in valid if c.params.kernel === :generic]
+    mlp_valid = [c for c in valid if c.params.kernel === :mlp]
+    survivors = vcat(first(gen_valid, min(coarse_k, length(gen_valid))),
+                     first(mlp_valid, min(coarse_k, length(mlp_valid))))
     # Protect the default candidate into the fine pass even if its single
     # coarse trial fluked slow (see never-worse-than-default guard above).
     if default_ci > 0 && coarse[default_ci].ok && !any(c -> c.ci == default_ci, survivors)
@@ -413,9 +480,7 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         params = c.params
         f_us, f_re, f_ok = NaN, NaN, false
         try
-            f = () -> (KF.vecmat!(dst, x, A;
-                                  params.Nitem, params.Nthreads,
-                                  params.workgroup, params.blocks); dst)
+            f = _run_closure(params, x, A, dst, H, n, p, arch)
             _warmup_for(f, 5)
             # Fine phase trials default to 10 (autotune driver passes
             # `fine_trials`). Median is the right reducer here: we tried
@@ -501,9 +566,8 @@ function _bench_shape(params::NamedTuple, n::Int, p::Int, ::Type{T};
     backend = get_backend(A)
     H   = Base.promote_op(*, T, T)
     dst = KA.allocate(backend, H, p)
-    f = () -> (KF.vecmat!(dst, x, A;
-                          params.Nitem, params.Nthreads,
-                          params.workgroup, params.blocks); dst)
+    arch = KF.detect_arch(A)
+    f = _run_closure(params, x, A, dst, H, n, p, arch)
     try
         f(); KA.synchronize(backend)
         _warmup_for(f, 5)
@@ -541,10 +605,8 @@ function robust_refine_cells!(cells::Vector{Dict{String,Any}},
         kbest = argmin(scores)
         if kbest != 1
             winner = top[kbest]
-            cell["Nitem"]     = winner.params.Nitem
-            cell["Nthreads"]  = winner.params.Nthreads
-            cell["workgroup"] = winner.params.workgroup
-            cell["blocks"]    = winner.params.blocks
+            # Robust winner may switch families — rebuild the cell wholesale.
+            empty!(cell); merge!(cell, _cell_dict(n, p, winner.params))
             n_changed += 1
             verbose && @printf("  [%3d] (n=%-10d p=%-10d) robust winner #%d %s (mean=%.1fµs vs pass1 %.1fµs)\n",
                                i, n, p, kbest,
@@ -623,31 +685,43 @@ function _write_jl_companion(path::AbstractString, payload::AbstractDict)
         println(io, "    \"schema_version\" => ", payload["schema_version"], ",")
         println(io, "    \"gpu_tag\"        => ", repr(String(payload["gpu_tag"])), ",")
         println(io, "    \"tuned_at\"       => ", repr(String(payload["tuned_at"])), ",")
+        # matvec section — kernel-tag aware (generic | rowthread). Preserve any
+        # existing matvec tuning verbatim so a vecmat re-tune never drops/corrupts
+        # the matvec rowthread cells (mirrors matvec/autotune.jl's writer).
         if haskey(payload, "matvec")
             println(io, "    \"matvec\" => Dict{String,Any}(")
-            mv = payload["matvec"]
-            for (k, cells) in pairs(mv)
+            for (k, cells) in pairs(payload["matvec"])
                 println(io, "        ", repr(String(k)), " => [")
                 for c in cells
-                    @printf(io, "            (n=%d, p=%d, Nitem=%d, chunksz=%d, Nblocks=%d, workgroup=%d),\n",
-                            Int(c["n"]), Int(c["p"]),
-                            Int(c["Nitem"]), Int(c["chunksz"]),
-                            Int(c["Nblocks"]), Int(c["workgroup"]))
+                    if get(c, "kernel", "generic") == "rowthread"
+                        @printf(io, "            (n=%d, p=%d, kernel=\"rowthread\", U=%d, ncb=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]), Int(c["U"]), Int(c["ncb"]), Int(c["workgroup"]))
+                    else
+                        @printf(io, "            (n=%d, p=%d, kernel=\"generic\", Nitem=%d, chunksz=%d, Nblocks=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]),
+                                Int(c["Nitem"]), Int(c["chunksz"]),
+                                Int(c["Nblocks"]), Int(c["workgroup"]))
+                    end
                 end
                 println(io, "        ],")
             end
             println(io, "    ),")
         end
+        # vecmat section — kernel-tag aware (generic | mlp).
         if haskey(payload, "vecmat")
             println(io, "    \"vecmat\" => Dict{String,Any}(")
-            vm = payload["vecmat"]
-            for (k, cells) in pairs(vm)
+            for (k, cells) in pairs(payload["vecmat"])
                 println(io, "        ", repr(String(k)), " => [")
                 for c in cells
-                    @printf(io, "            (n=%d, p=%d, Nitem=%d, Nthreads=%d, workgroup=%d, blocks=%d),\n",
-                            Int(c["n"]), Int(c["p"]),
-                            Int(c["Nitem"]), Int(c["Nthreads"]),
-                            Int(c["workgroup"]), Int(c["blocks"]))
+                    if get(c, "kernel", "generic") == "mlp"
+                        @printf(io, "            (n=%d, p=%d, kernel=\"mlp\", U=%d, workgroup=%d),\n",
+                                Int(c["n"]), Int(c["p"]), Int(c["U"]), Int(c["workgroup"]))
+                    else
+                        @printf(io, "            (n=%d, p=%d, kernel=\"generic\", Nitem=%d, Nthreads=%d, workgroup=%d, blocks=%d),\n",
+                                Int(c["n"]), Int(c["p"]),
+                                Int(c["Nitem"]), Int(c["Nthreads"]),
+                                Int(c["workgroup"]), Int(c["blocks"]))
+                    end
                 end
                 println(io, "        ],")
             end
@@ -761,20 +835,20 @@ function autotune(::Type{T} = Float32;
             continue
         end
 
-        push!(cells, Dict{String,Any}(
-            "n"         => n,
-            "p"         => p,
-            "Nitem"     => result.params.Nitem,
-            "Nthreads"  => result.params.Nthreads,
-            "workgroup" => result.params.workgroup,
-            "blocks"    => result.params.blocks,
-        ))
+        push!(cells, _cell_dict(n, p, result.params))
         push!(cell_tops, result.top)
-        verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) Ni=%-2d Nt=%-5d wg=%-4d bl=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
-                           i, length(shapes), n, p,
-                           result.params.Nitem, result.params.Nthreads,
-                           result.params.workgroup, result.params.blocks,
-                           result.median_us, result.n_candidates, wall)
+        if result.params.kernel === :mlp
+            verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) [MLP] U=%-2d wg=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
+                               i, length(shapes), n, p,
+                               result.params.U, result.params.workgroup,
+                               result.median_us, result.n_candidates, wall)
+        else
+            verbose && @printf("  [%3d/%d] (n=%-10d, p=%-10d) Ni=%-2d Nt=%-5d wg=%-4d bl=%-4d  %8.1fµs  (%4d cands, %.1fs)\n",
+                               i, length(shapes), n, p,
+                               result.params.Nitem, result.params.Nthreads,
+                               result.params.workgroup, result.params.blocks,
+                               result.median_us, result.n_candidates, wall)
+        end
 
         _write_merged_json(json_out, arch_tag, section, cells)
 

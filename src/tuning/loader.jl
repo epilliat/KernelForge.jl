@@ -317,18 +317,50 @@ function lookup_vecmat(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
     return nothing
 end
 
-@inline _vm_cell_nt(c) = (Nitem=Int(c.Nitem), Nthreads=Int(c.Nthreads),
-                          workgroup=Int(c.workgroup), blocks=Int(c.blocks))
+# A vecmat cell records which kernel FAMILY the autotune picked for its (n,p):
+#   :generic → (Nitem, Nthreads, workgroup, blocks)  [the strided-reduction kernel]
+#   :mlp     → (U, workgroup)                          [the warp-per-column MLP kernel]
+# The `kernel` field is optional; a cell without it is a legacy generic cell.
+@inline _vm_cell_kernel(c) = hasproperty(c, :kernel) ? Symbol(c.kernel) : :generic
+
+@inline function _vm_cell_nt(c)
+    if _vm_cell_kernel(c) === :mlp
+        return (; kernel = :mlp, U = Int(c.U), workgroup = Int(c.workgroup))
+    end
+    return (; kernel = :generic, Nitem = Int(c.Nitem), Nthreads = Int(c.Nthreads),
+              workgroup = Int(c.workgroup), blocks = Int(c.blocks))
+end
+
+# True if this arch's loaded vecmat tuning contains ≥1 mlp cell (mirrors
+# `_arch_has_rowthread_tuning` for matvec — self-resolving transition gate).
+function _arch_has_mlp_tuning(arch::AbstractArch)
+    tag = nameof(typeof(arch))
+    haskey(TUNING_TABLE[], tag) || return false
+    payload = TUNING_TABLE[][tag]
+    haskey(payload, "vecmat") || return false
+    vm = payload["vecmat"]
+    vm isa AbstractDict || return false
+    for (_, cells) in pairs(vm)
+        for c in cells
+            _vm_cell_kernel(c) === :mlp && return true
+        end
+    end
+    return false
+end
 
 # First-cut cross-size adaptation: scale Nitem by ref_size/sizeof(T); leave
 # Nthreads/workgroup/blocks unchanged. Same cap as matvec
 # (`min(cld(32, sz), 16)`) — protects byte-strided vload alignment for
 # sizeof(T)==1 and bounds LLVM unroll cost.
 function _vm_cell_nt_scaled(c, ::Type{T}, ref_size::Int) where T
+    # MLP cells: U (unroll depth) and workgroup are dtype-agnostic launch knobs.
+    if _vm_cell_kernel(c) === :mlp
+        return (; kernel = :mlp, U = Int(c.U), workgroup = Int(c.workgroup))
+    end
     sz = sizeof(T)
     Nitem_ref = Int(c.Nitem)
     Nitem = clamp(max(1, Nitem_ref * ref_size ÷ sz), 1, min(cld(32, sz), 16))
-    return (; Nitem,
+    return (; kernel = :generic, Nitem,
               Nthreads  = Int(c.Nthreads),
               workgroup = Int(c.workgroup),
               blocks    = Int(c.blocks))

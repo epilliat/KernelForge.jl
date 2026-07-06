@@ -195,6 +195,9 @@ function resolve_parameters(
     # nothing. Fills any knob the caller didn't override; falls through to
     # default_* heuristics if there's no tuning data.
     tuned = lookup_vecmat(arch, T, n, p)
+    # Only GENERIC tuned cells fill the generic knobs below. An mlp cell is
+    # consumed earlier in `_vecmat_entry!`; ignore it here (use heuristics).
+    tuned = (tuned !== nothing && tuned.kernel === :generic) ? tuned : nothing
     workgroup = something(workgroup,
                           tuned === nothing ? nothing : tuned.workgroup,
                           default_workgroup(arch, VecMat, n, p, T))
@@ -214,6 +217,46 @@ function resolve_parameters(
     @assert Nthreads * Nitem <= n "Nthreads * Nitem must be <= n"
     return (; Nitem, Nthreads, workgroup, blocks)
 end
+
+# ============================================================================
+# MLP (warp-per-column) fast path — dispatch + launch.
+# ============================================================================
+# See the "MLP … path" note in vecmat_kernel.jl (vecmat_mlp_kernel!). One warp
+# reduces a column with U independent loads in flight (memory-level parallelism),
+# matching/beating cuBLAS on the medium-large-n × large-p band where the generic
+# kernel's serial reduction leaves bandwidth on the table.
+#
+# `_vecmat_use_mlp` is the UNTUNED-ARCH fallback heuristic (used only when no
+# autotune cell selects a kernel). On a tuned arch the per-cell `kernel` tag
+# decides. Default OFF; A100 enabled for the validated band (n ≥ 256 so every
+# lane seeds an element, p large enough to fill the GPU, n not so tall that a
+# single warp's serial reduction dominates — tall shapes keep the generic
+# multi-block kernel).
+_vecmat_use_mlp(::AbstractArch, n::Int, p::Int, ::Type{T}) where {T} = false
+_vecmat_use_mlp(::A100, n::Int, p::Int, ::Type{T}) where {T} =
+    256 <= n <= 131072 && p >= 4096
+
+function _vecmat_mlp_impl!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    x::Union{AbstractArray,Nothing},
+    src::AbstractMatrix{T},
+    ::Type{H}, n::Int, p::Int, arch::AbstractArch;
+    U::Int = 8, workgroup::Int = 256,
+) where {S,T,F,O,G,H}
+    backend = get_backend(src)
+    warpsz  = get_warpsize(arch)
+    wg      = max(workgroup, warpsz)
+    wpb     = max(wg ÷ warpsz, 1)                       # warps per block
+    # Grid-stride: one warp per column, capped to fill the GPU (avoids launching
+    # p warps for huge p; the kernel strides over columns).
+    nblk    = clamp(cld(p, wpb), 108, 4096)
+    ndrange = wg * nblk
+    vecmat_mlp_kernel!(backend, wg)(
+        f, op, g, dst, x, src, Val(U), n, p, Val(warpsz); ndrange = ndrange)
+    return dst
+end
+
 # ============================================================================
 # Buffer allocation
 # ============================================================================
@@ -386,6 +429,19 @@ function _vecmat_entry!(
     H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
 
     arch = something(arch, detect_arch(src))::AbstractArch
+
+    # MLP (warp-per-column) fast path — only when the caller left the launch knobs
+    # at their defaults. A tuned :mlp cell uses its (U, workgroup); otherwise the
+    # fallback heuristic fires for the validated band on an untuned arch.
+    if isnothing(Nitem) && isnothing(Nthreads) && isnothing(workgroup) && isnothing(blocks)
+        tuned = lookup_vecmat(arch, T, n, p)
+        if tuned !== nothing && tuned.kernel === :mlp
+            return _vecmat_mlp_impl!(f, op, g, dst, x, src, H, n, p, arch;
+                                     U = tuned.U, workgroup = tuned.workgroup)
+        elseif !_arch_has_mlp_tuning(arch) && _vecmat_use_mlp(arch, n, p, T)
+            return _vecmat_mlp_impl!(f, op, g, dst, x, src, H, n, p, arch)
+        end
+    end
 
     params = resolve_parameters(arch, VecMat, src, Nitem, Nthreads, workgroup, blocks)
     if isnothing(tmp) && params.Nthreads > params.workgroup

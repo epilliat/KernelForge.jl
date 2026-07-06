@@ -167,3 +167,86 @@
 
     Base.@label done
 end
+# ============================================================================
+# MLP (medium-large-n, large-p) path — "warp-per-column" reduction.
+# ============================================================================
+# The generic `vecmat_kernel!` reduces a column with a SERIAL strided loop (one
+# vload per iteration, `val = op(val, …)`), so only ~Nitem elements are ever in
+# flight — memory-level parallelism is capped and it tops out ~55–77% of A100
+# peak on the middle band while cuBLAS GEMV reaches ~85%. This kernel assigns one
+# WARP per column and issues `U` INDEPENDENT strided loads per step before folding
+# them into the accumulator (MLP = U), then a single warp shuffle-reduction. That
+# saturates bandwidth: measured A100 matches or beats cuBLAS across the band
+# (e.g. 500×2e6 0.95×, 2000×5e5 0.99×, 1000×1e5 0.96×). Requires n ≥ warpsz (every
+# lane seeds a valid element); best for large p (enough columns to fill the GPU)
+# and n not so huge that a single warp's serial reduction dominates (tall shapes
+# keep the generic multi-block kernel). See `_vecmat_use_mlp` in vecmat.jl.
+
+# Fold `U` independent contributions (rows i, i+warpsz, …, i+warpsz·(U-1) of column
+# `c`, 0-based) into `acc` with `op`. `@generated` so U, warpsz and the x-vs-nothing
+# branch resolve at compile time; the U loads are issued together → MLP.
+@inline @generated function _mlp_fold(f::F, op::O, acc, x, src, i::Int, c::Int,
+                                      ::Val{U}, ::Val{warpsz}) where {F,O,U,warpsz}
+    load(u) = x === Nothing ?
+        :(f(@inbounds src[i + $((u-1)*warpsz) + 1, c + 1])) :
+        :(f(@inbounds(x[i + $((u-1)*warpsz) + 1]), @inbounds(src[i + $((u-1)*warpsz) + 1, c + 1])))
+    body = Expr(:block)
+    for u in 1:U
+        push!(body.args, :($(Symbol(:v_, u)) = $(load(u))))
+    end
+    ex = :acc
+    for u in 1:U
+        ex = :(op($ex, $(Symbol(:v_, u))))
+    end
+    push!(body.args, ex)
+    body
+end
+
+@kernel unsafe_indices = true inbounds = true function vecmat_mlp_kernel!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    x,
+    src::AbstractArray{T},
+    ::Val{U},
+    n::Int, p::Int,
+    ::Val{warpsz}
+) where {F<:Function,O<:Function,G<:Function,T,S,U,warpsz}
+    workgroup = Int(@groupsize()[1])
+    lid  = Int(@index(Local, Linear))
+    gid  = Int(@index(Group, Linear))
+    gtid = (gid - 1) * workgroup + lid            # 1-based global thread
+    lane = (lid - 1) % warpsz                     # 0-based lane in warp
+    wlane = lane + 1                              # 1-based lane
+    gwarp = (gtid - 1) ÷ warpsz                   # 0-based global warp
+    nwarps = Int(@ndrange()[1]) ÷ warpsz          # total warps (grid-stride over cols)
+
+    c = gwarp                                     # 0-based column, grid-strided
+    while c < p
+        # seed with this lane's first element (n ≥ warpsz ⇒ lane < n, always valid)
+        i = lane
+        acc = isnothing(x) ? f(src[i+1, c+1]) : f(x[i+1], src[i+1, c+1])
+        i += warpsz
+        # U-way unrolled main loop (MLP = U)
+        while i + warpsz * (U - 1) < n
+            acc = _mlp_fold(f, op, acc, x, src, i, c, Val(U), Val(warpsz))
+            i += warpsz * U
+        end
+        # strided remainder
+        while i < n
+            v = isnothing(x) ? f(src[i+1, c+1]) : f(x[i+1], src[i+1, c+1])
+            acc = op(acc, v)
+            i += warpsz
+        end
+        # warp shuffle-reduction (up-scan; highest lane holds the result)
+        offset = 1
+        while offset < warpsz
+            shuffled = @shfl(Up, acc, offset)
+            if wlane > offset
+                acc = op(shuffled, acc)
+            end
+            offset <<= 1
+        end
+        (wlane == warpsz) && (dst[c+1] = g(acc))
+        c += nwarps
+    end
+end
