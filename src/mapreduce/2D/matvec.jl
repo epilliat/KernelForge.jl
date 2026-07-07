@@ -478,6 +478,7 @@ function _matvec_entry!(
     end
     #@show params
     _matvec_impl!(f, op, g, dst, src, x, params.chunksz, params.Nblocks, params.workgroup, params.Nitem, tmp, H, n, p, arch)
+    return dst   # `!` returns the mutated dst (matches the row-thread fast-path return)
 end
 
 # ============================================================================

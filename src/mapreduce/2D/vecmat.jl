@@ -448,6 +448,7 @@ function _vecmat_entry!(
         tmp = get_allocation(VecMat, f, op, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, arch)
     end
     _vecmat_impl!(f, op, g, dst, x, src, params.Nitem, params.Nthreads, params.workgroup, params.blocks, tmp, H, n, p, arch)
+    return dst   # `!` returns the mutated dst (matches the mlp fast-path return)
 end
 
 # ============================================================================
