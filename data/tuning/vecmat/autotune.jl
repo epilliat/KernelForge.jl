@@ -124,6 +124,17 @@ function max_log2_np(::Type{T}; safety::Int = 4) where T
     return min(cap, maximum(LOG2_LEVELS))
 end
 
+# Tall/small-p corner the pow-2 grid MISSES: LOG2_LEVELS jumps n 2^15→2^18 and
+# p 2^9→2^12, so a tall vecmat (n≫p) at p≈1e3 borrows a distant cell whose
+# Nthreads/workgroup are wrong for its reduction length. Measured A100 (end-to-end):
+# 100000×1000 62→74% peak (1.29→1.09× cuBLAS) once it maps to the tuned (131072,1024)
+# cell. p=1024 sits nearer a p≈1000 query than 512, so these cells get picked.
+# n capped at 131072 ON PURPOSE: adding n=262144 cells stole the nearest-cell mapping
+# of EXTREME-tall queries (n≈1e6) — their reduction is far longer than 262144, so the
+# 262144-tuned params regressed them (1e6×1000 77→73%). Keeping n≤131072 leaves those
+# queries on their old (262144,512) cell. Residual ~1.1× cuBLAS is the kernel ceiling.
+const TALL_CORNER = [(n, p) for n in (32768, 131072) for p in (1024, 2048)]
+
 function pow28_shapes(::Type{T} = Float32; safety::Int = 4) where T
     cap = max_log2_np(T; safety)
     out = Tuple{Int,Int}[]
@@ -133,7 +144,10 @@ function pow28_shapes(::Type{T} = Float32; safety::Int = 4) where T
         (n >= MIN_DIM || p >= MIN_DIM) || continue
         push!(out, (n, p))
     end
-    return out
+    for (n, p) in TALL_CORNER
+        n * p <= (1 << cap) && push!(out, (n, p))
+    end
+    return unique!(out)
 end
 
 const DEV_SHAPES = [(10_000, 10_000), (10, 1_000_000), (1_000_000, 10)]
