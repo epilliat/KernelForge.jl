@@ -221,12 +221,23 @@ function get_allocation(
     arch=nothing
 ) where {T,F<:Function,O<:Function}
     n, p = size(src)
-    arch = something(arch, detect_arch(src))
+    arch = something(arch, detect_arch(src))::AbstractArch
+    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
+    backend = get_backend(src)
+    # Row-thread fast path: allocate its flat `partial` scratch (sized exactly to
+    # the launch) so `matvec!(...; tmp)` reuses it instead of allocating per call.
+    # Only when the caller left the launch knobs at defaults (matches dispatch).
+    if isnothing(chunksz) && isnothing(Nblocks) && isnothing(workgroup) && isnothing(Nitem)
+        rt = _matvec_rowthread_dispatch(arch, T, n, p)
+        if rt !== nothing
+            partial = KernelAbstractions.allocate(backend, H,
+                          _matvec_rowthread_partial_len(n, p, rt.ncb))
+            return KernelBuffer((; partial))
+        end
+    end
     params = resolve_parameters(
         arch, MatVec, src, chunksz, Nblocks, workgroup, blocks_row, Nitem
     )
-    H = isnothing(x) ? Base.promote_op(f, T) : Base.promote_op(f, T, eltype(x))
-    backend = get_backend(src)
     nbatch = cld(n, params.Nitem)
     partial = KernelAbstractions.allocate(backend, NTuple{params.Nitem,H}, nbatch * params.Nblocks)
     flag = KernelAbstractions.allocate(backend, UInt8, nbatch * params.Nblocks)
@@ -313,13 +324,31 @@ _matvec_use_rowthread(::A100, n::Int, p::Int, ::Type{T}) where {T} =
 # small n down to a few at n≈1e5.
 _rowthread_default_ncb(n::Int, p::Int) = clamp(cld(3 * 10^5, n), 1, 512)
 
+# The row-thread launch params `(U, wg, ncb)` for (arch, T, n, p) if this shape
+# dispatches to the row-thread kernel, else `nothing`. Single source of truth
+# shared by `_matvec_entry!` (routing) and `get_allocation` (scratch sizing), so
+# the caller's `tmp.partial` is sized exactly to what the launch reuses.
+function _matvec_rowthread_dispatch(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
+    tuned = lookup_matvec(arch, T, n, p)
+    if tuned !== nothing && tuned.kernel === :rowthread
+        return (; U = tuned.U, wg = tuned.workgroup, ncb = tuned.ncb)
+    elseif !_arch_has_rowthread_tuning(arch) && _matvec_use_rowthread(arch, n, p, T)
+        return (; U = 16, wg = 256, ncb = _rowthread_default_ncb(n, p))
+    end
+    return nothing
+end
+
+# Number of H-elements in the row-thread `partial` scratch for this launch (`ncbe·n`).
+_matvec_rowthread_partial_len(n::Int, p::Int, ncb::Int) = cld(p, cld(p, ncb)) * n
+
 function _matvec_rowthread_impl!(
     f::F, op::O, g::G,
     dst::AbstractArray{S},
     src::AbstractMatrix{T},
     x::Union{AbstractArray,Nothing},
     ::Type{H}, n::Int, p::Int, arch::AbstractArch;
-    U::Int=16, wg::Int=256, ncb::Int=_rowthread_default_ncb(n, p)
+    U::Int=16, wg::Int=256, ncb::Int=_rowthread_default_ncb(n, p),
+    tmp::Union{Nothing,KernelBuffer}=nothing
 ) where {S,T,F,O,G,H}
     backend = get_backend(src)
     warpsz  = get_warpsize(arch)
@@ -327,7 +356,16 @@ function _matvec_rowthread_impl!(
     ncol    = cld(p, ncb)
     ncbe    = cld(p, ncol)                                  # active column-blocks (each ≥1 column)
     rtiles  = cld(n, wg)                                    # row-tiles to cover all n rows
-    partial = KernelAbstractions.allocate(backend, H, ncbe * n)
+    # Reuse the caller's scratch when it matches (honours the `tmp` contract — no
+    # per-call allocation for repeated calls; `get_allocation` sizes it from the
+    # same `ncb`, so the match is exact). Else allocate a one-shot buffer.
+    need    = ncbe * n
+    partial = if tmp !== nothing && hasproperty(tmp.arrays, :partial) &&
+                 tmp.arrays.partial isa AbstractVector{H} && length(tmp.arrays.partial) == need
+        tmp.arrays.partial
+    else
+        KernelAbstractions.allocate(backend, H, need)
+    end
     matvec_rowthread_kernel!(backend, wg)(
         f, op, partial, src, x, n, Val(U), ncol, p, wg, ncbe; ndrange = wg * rtiles * ncbe)
     rwg = clamp(cld(min(n, 256), warpsz) * warpsz, warpsz, 256)
@@ -458,15 +496,14 @@ function _matvec_entry!(
     #       wide/square band on an untuned arch.
     if isnothing(chunksz) && isnothing(Nblocks) && isnothing(workgroup) &&
        isnothing(Nitem)
-        tuned = lookup_matvec(arch, T, n, p)
-        if tuned !== nothing && tuned.kernel === :rowthread
+        # `_matvec_rowthread_dispatch` returns (U, wg, ncb) for a tuned :rowthread
+        # cell, or for the wide/square fallback heuristic on an untuned arch (the
+        # heuristic goes quiet once re-tuned). `tmp` (if the caller supplied one,
+        # sized by get_allocation) is reused by the impl — no per-call allocation.
+        rt = _matvec_rowthread_dispatch(arch, T, n, p)
+        if rt !== nothing
             return _matvec_rowthread_impl!(f, op, g, dst, src, x, H, n, p, arch;
-                                           U = tuned.U, wg = tuned.workgroup, ncb = tuned.ncb)
-        elseif !_arch_has_rowthread_tuning(arch) && _matvec_use_rowthread(arch, n, p, T)
-            # Transition / untuned-arch fallback: the arch has no row-thread cells
-            # yet, so the wide/square heuristic overrides any stale generic cell
-            # in that band (validated to beat it). Goes quiet once re-tuned.
-            return _matvec_rowthread_impl!(f, op, g, dst, src, x, H, n, p, arch)
+                                           U = rt.U, wg = rt.wg, ncb = rt.ncb, tmp)
         end
     end
 
