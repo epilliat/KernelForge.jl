@@ -94,6 +94,8 @@ std::string getTypeName()
         return "int32";
     if (std::is_same<T, uint64_t>::value)
         return "uint64";
+    if (std::is_same<T, uint8_t>::value)
+        return "uint8";
     return "unknown";
 }
 
@@ -716,6 +718,13 @@ int main(int argc, char **argv)
             if (!g_quiet)
                 std::cout << "\n### UInt64 (64-bit) - Inclusive Scan ###" << std::endl;
             results.push_back(benchmark_cub_inclusive_scan<uint64_t>(N, warmup_ms, iterations, gpu_info));
+        }
+
+        if (dtype == "all" || dtype == "uint8")
+        {
+            if (!g_quiet)
+                std::cout << "\n### UInt8 (8-bit) - Inclusive Scan ###" << std::endl;
+            results.push_back(benchmark_cub_inclusive_scan<uint8_t>(N, warmup_ms, iterations, gpu_info));
         }
     }
 

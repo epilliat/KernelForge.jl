@@ -124,8 +124,10 @@ dst = fill!(AT{T}(undef, n), zero(T))
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
 
-sizes = [10^6, 10^7, 10^8, 10^9]
-types = [Float32, Float64]
+# `sizes` overridable via ENV (e.g. small-VRAM GPUs: KF_SCAN_SIZES=1000000,10000000,100000000)
+sizes = haskey(ENV, "KF_SCAN_SIZES") ? parse.(Int, split(ENV["KF_SCAN_SIZES"], ",")) :
+        [10^6, 10^7, 10^8, 10^9]
+types = [Float32, Float64, UInt8]
 
 # ---------------------------------------------------------------------------
 # Collect all results

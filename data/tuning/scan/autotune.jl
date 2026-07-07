@@ -86,7 +86,15 @@ const TUNED_N_LOG2 = (20, 22, 24, 26, 28, 30)
 # (KI), 32-item blocks compile for 8-byte aggregates (32xFloat64 = 256 B). F64
 # scan is ~22% faster at Ni=32 (halves the tile/block count → less lookback
 # protocol). Ni=64 (512 B) over-spills and regresses, so 32 is the ceiling.
-const NITEM_GRID = (1, 2, 4, 8, 16, 32)
+#
+# Non-pow-2 candidates (12/20/24/28) added 2026-07 for the transposed wide-H
+# kernel (scan_kernel_transposed!, sizeof(H)≥8 on CUDA): its shared-memory
+# transpose hits bank conflicts on power-of-2 Nitem strides (A100 F64 Ni16 = 50%)
+# while the odd/non-pow-2 stride is conflict-free (Ni20 = 73%). The dispatch
+# (scan!) auto-routes each fitting candidate to transposed-vs-blocked, so this one
+# grid tunes both families; the winner emerges per dtype. Harmless for narrow H
+# (blocked/packed path ranks them and pow-2 still wins there).
+const NITEM_GRID = (1, 2, 4, 8, 12, 16, 20, 24, 28, 32)
 # Extended down to 2/4 waves (2026-06: 128/256 threads on wave64) so the sweep
 # can reach the smaller ~16 KB tiles (e.g. 256 threads × 16 items × 4 B for F32)
 # that vendor scans (rocPRIM/CUB) favour on MI300X — the post-packed-descriptor
@@ -112,28 +120,58 @@ end
 function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
                      arch = nothing, trials::Int = 30, verbose::Bool = true) where T_ref
     A = _gpu_rand(T_ref, N); dst = similar(A)
+    warpsz = arch === nothing ? 32 : KF.get_warpsize(arch)
+    # Which split-path families to bench (2-family knob). For the autotune f=g=identity
+    # so H=S=T_ref; `:transposed` is a candidate only where the transposed kernel is
+    # applicable (wide isbits H) AND its tile fits shared. Benching BOTH families at
+    # every (Ni,wg) — including `:blocked` at small tiles — is what lets the winner be
+    # discovered per arch with no fit-gate blind spot (see scan.jl default_scan_family).
+    applicable = KF.scan_transposed_applicable(T_ref, T_ref)
     runs = NamedTuple[]
     for Ni in NITEM_GRID, wg in wg_grid
         Ni * wg <= N || continue
-        f = () -> KF.scan!(*, dst, A; Nitem=Ni, workgroup=wg)
-        try
-            _warmup(f)
-            us = _bench_us(f; trials)
-            push!(runs, (; Nitem=Ni, workgroup=wg, us))
-        catch
+        # Blocked `vload`/`vstore!` compiles ONLY for pow-2 Nitem (non-pow-2 hits
+        # `vload_multi`, a dynamic call that fails GPU codegen on some KI versions —
+        # env-dependent, so never bench/emit it). Transposed handles any Nitem. This
+        # guarantees `:blocked` is only ever paired with a pow-2 Nitem, on any machine.
+        fams = Symbol[]
+        ispow2(Ni) && push!(fams, :blocked)
+        (applicable && KF.scan_transposed_fits(T_ref, Ni, wg, warpsz)) && push!(fams, :transposed)
+        isempty(fams) && continue
+        for fam in fams
+            # Scan with `+`, NOT `*`. Scan is bandwidth-bound and the emitted
+            # `default_nitem/workgroup` are op-agnostic, so we must measure the pure
+            # memory cost. A cumulative PRODUCT of rand∈[0,1) underflows to denormals
+            # within ~40 elements; denormal-multiply latency is Nitem-dependent (more
+            # within-thread underflow at larger Nitem) and mis-ranked the tiles —
+            # it made the autotune pick Nitem=8 when Nitem=16 is ~3-13% faster in the
+            # real (`+`) benchmark on A100. `+` on rand∈[0,1) never degenerates.
+            f = () -> KF.scan!(+, dst, A; Nitem=Ni, workgroup=wg, family=fam)
+            try
+                _warmup(f)
+                us = _bench_us(f; trials)
+                push!(runs, (; Nitem=Ni, workgroup=wg, family=fam, us))
+            catch
+            end
         end
     end
-    # Never-worse-than-default guard: bench the handwritten default heuristic as
-    # a candidate so the per-N winner can never regress it. The wave64 wg grid
-    # ({512,1024}) can't reach the 128/256 workgroups the default may use.
+    # Never-worse-than-default guard: bench the current default heuristic as a candidate
+    # so the per-N winner can never regress it. The wave64 wg grid ({512,1024}) can't
+    # reach the 128/256 workgroups the default may use. IMPORTANT: label it with the
+    # family it would ACTUALLY run as — a non-pow-2 default Nitem is a transposed config
+    # (the runtime forces `!ispow2 -> transposed`); recording it as `:blocked` would
+    # mislabel a transposed win as blocked and corrupt the emitted family.
     if arch !== nothing
         try
             dni = KF.default_nitem(arch, KF.Scan1D, N, T_ref)
             dwg = KF.default_workgroup(arch, KF.Scan1D, N, T_ref)
-            if dni * dwg <= N
-                f = () -> KF.scan!(*, dst, A; Nitem=dni, workgroup=dwg)
+            dfam = ispow2(dni) ? :blocked : :transposed
+            fits_ok = dfam === :blocked ||
+                      (applicable && KF.scan_transposed_fits(T_ref, dni, dwg, warpsz))
+            if dni * dwg <= N && fits_ok
+                f = () -> KF.scan!(+, dst, A; Nitem=dni, workgroup=dwg, family=dfam)
                 _warmup(f)
-                push!(runs, (; Nitem=dni, workgroup=dwg, us=_bench_us(f; trials)))
+                push!(runs, (; Nitem=dni, workgroup=dwg, family=dfam, us=_bench_us(f; trials)))
             end
         catch
         end
@@ -141,10 +179,10 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
     isempty(runs) && return nothing
     sort!(runs, by = r -> r.us)
     best = runs[1]
-    verbose && @printf("  N=2^%-2d (%11d) : Ni=%-2d wg=%-4d  %10.2f µs\n",
+    verbose && @printf("  N=2^%-2d (%11d) : Ni=%-2d wg=%-4d %-11s %10.2f µs\n",
                        round(Int, log2(N)), N,
-                       best.Nitem, best.workgroup, best.us)
-    return (; N, best.Nitem, best.workgroup, best.us)
+                       best.Nitem, best.workgroup, string(best.family), best.us)
+    return (; N, best.Nitem, best.workgroup, best.family, best.us)
 end
 
 # -----------------------------------------------------------------------------
@@ -166,6 +204,71 @@ function _regimes(winners::Vector{<:NamedTuple}, extract::Symbol)
     end
     push!(out, (typemax(Int), cur))
     return out
+end
+
+# Symbol-valued regimes for the `:family` knob (`_regimes` is Int-typed).
+function _family_regimes(winners::Vector{<:NamedTuple})
+    isempty(winners) && return Tuple{Int,Symbol}[]
+    sorted = sort(winners, by = w -> w.N)
+    out = Tuple{Int,Symbol}[]
+    cur = sorted[1].family
+    for i in 2:length(sorted)
+        nxt = sorted[i].family
+        if nxt != cur
+            thr = isqrt(sorted[i-1].N * sorted[i].N)
+            push!(out, (thr, cur))
+            cur = nxt
+        end
+    end
+    push!(out, (typemax(Int), cur))
+    return out
+end
+
+# COHERENT joint regimes: segment on the WHOLE (Nitem, workgroup, family) triple so all
+# three emitted functions share the same N-thresholds. This is REQUIRED for wide types:
+# a non-pow-2 Nitem is only valid with `:transposed` (the blocked kernel can't compile
+# it), so `default_nitem` and `default_scan_family` must never disagree at a boundary.
+# Returns (regs_wg, regs_ni, regs_fam), each Vector of (threshold, value) over the same
+# thresholds (adjacent-equal values are left unmerged — harmless, just a redundant ternary).
+function _coherent_regimes(winners::Vector{<:NamedTuple})
+    sorted = sort(winners, by = w -> w.N)
+    key(w) = (w.Nitem, w.workgroup, w.family)
+    segs = Tuple{Int,Int,Int,Symbol}[]
+    cur = key(sorted[1])
+    for i in 2:length(sorted)
+        k = key(sorted[i])
+        if k != cur
+            thr = isqrt(sorted[i-1].N * sorted[i].N)
+            push!(segs, (thr, cur[1], cur[2], cur[3]))
+            cur = k
+        end
+    end
+    push!(segs, (typemax(Int), cur[1], cur[2], cur[3]))
+    regs_wg  = Tuple{Int,Int}[(s[1], s[3]) for s in segs]
+    regs_ni  = Tuple{Int,Int}[(s[1], s[2]) for s in segs]
+    regs_fam = Tuple{Int,Symbol}[(s[1], s[4]) for s in segs]
+    return regs_wg, regs_ni, regs_fam
+end
+
+# Emit `default_scan_family` (Symbol-valued: :blocked / :transposed), same regime
+# shape as `_emit_n_func`. Only called when some regime is :transposed (else the
+# generic `default_scan_family(::AbstractArch,…)=:blocked` fallback already applies).
+function _emit_family_func(io, arch_tag, op_sym,
+                           regimes::Vector{Tuple{Int,Symbol}}, fallback::Symbol,
+                           N_min::Int, type_spec::AbstractString)
+    println(io, "@inline function KernelForge.default_scan_family(")
+    println(io, "    ::KernelForge.", arch_tag, ", ::Type{KernelForge.",
+                op_sym, "}, n, ", type_spec)
+    println(io, "    n < ", N_min, " ? ", repr(fallback), " :")
+    for (thr, val) in regimes
+        if thr == typemax(Int)
+            println(io, "        ", repr(val))
+        else
+            println(io, "        n < ", thr, " ? ", repr(val), " :")
+        end
+    end
+    println(io, "end")
+    println(io)
 end
 
 function _qualified_type_name(::Type{T}) where T
@@ -252,18 +355,29 @@ function _emit_block(arch_tag::AbstractString, op_sym::Symbol,
     fallback_ni = sorted[1].Nitem
     fallback_wg = sorted[1].workgroup
 
-    regs_wg = _regimes(sorted, :workgroup)
-    regs_ni = _regimes(sorted, :Nitem)
-
-    _emit_n_func(buf, arch_tag, op_sym, "default_workgroup",
-                 regs_wg, fallback_wg, N_min, type_spec)
-
     if is_generic
-        _emit_nitem_func_generic(buf, arch_tag, op_sym, regs_ni,
+        # F32 generic: byte-scaled default_nitem; family never :transposed (sizeof<8),
+        # and blocked candidates at non-pow-2 Nitem fail to compile so winners are always
+        # pow-2 — no coherence hazard, keep independent per-knob regimes.
+        _emit_n_func(buf, arch_tag, op_sym, "default_workgroup",
+                     _regimes(sorted, :workgroup), fallback_wg, N_min, type_spec)
+        _emit_nitem_func_generic(buf, arch_tag, op_sym, _regimes(sorted, :Nitem),
                                  fallback_ni, 4 * N_min)
     else
+        # Type-specific (may use the transposed family + non-pow-2 Nitem): emit
+        # workgroup / nitem / family from COHERENT joint segments so the triple never
+        # disagrees (non-pow-2 Nitem always pairs with :transposed — see _coherent_regimes).
+        regs_wg, regs_ni, regs_fam = _coherent_regimes(sorted)
+        _emit_n_func(buf, arch_tag, op_sym, "default_workgroup",
+                     regs_wg, fallback_wg, N_min, type_spec)
         _emit_nitem_func_specific(buf, arch_tag, op_sym, regs_ni,
                                   fallback_ni, N_min, type_spec)
+        # Only emit default_scan_family when transposed wins somewhere (else the generic
+        # `:blocked` fallback in scan.jl already covers this arch/type).
+        if any(r -> r[2] === :transposed, regs_fam)
+            _emit_family_func(buf, arch_tag, op_sym, regs_fam, sorted[1].family,
+                              N_min, type_spec)
+        end
     end
 
     return String(take!(buf))
@@ -337,7 +451,7 @@ function autotune(::Type{T_ref} = Float32;
     verbose && @printf("  block marker: %s\n", op_marker)
 
     A0 = _gpu_rand(T_ref, 1_000_000); dst0 = similar(A0)
-    _warmup(() -> KF.scan!(*, dst0, A0), 500)
+    _warmup(() -> KF.scan!(+, dst0, A0), 500)
     A0 = nothing; dst0 = nothing
 
     verbose && println("\nPer-N winners (full (Nitem, wg) sweep):")

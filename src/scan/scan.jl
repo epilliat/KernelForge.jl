@@ -45,6 +45,8 @@ optionally applies `g` to each output element.
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `family=nothing`: Split-path kernel family `:blocked` or `:transposed` for wide
+  aggregates (`sizeof ≥ 8`); auto-selected per arch by the autotune if nothing
 - `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
@@ -88,6 +90,8 @@ optionally applies `g` to each output element, writing results to `dst`.
 - `tmp=nothing`: Pre-allocated `KernelBuffer` (or `nothing` to allocate automatically)
 - `Nitem=nothing`: Items per thread (auto-selected if nothing)
 - `workgroup=nothing`: Workgroup size (auto-selected if nothing)
+- `family=nothing`: Split-path kernel family `:blocked` or `:transposed` for wide
+  aggregates (`sizeof ≥ 8`); auto-selected per arch by the autotune if nothing
 - `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Examples
@@ -208,6 +212,7 @@ function scan(
     tmp::TMP=nothing,
     Nitem=nothing,
     workgroup=nothing,
+    family=nothing,
     arch=nothing
 ) where {AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
@@ -215,7 +220,7 @@ function scan(
     S = Base.promote_op(g, H)
     backend = get_backend(src)
     dst = KernelAbstractions.allocate(backend, S, length(src))
-    scan!(f, op, dst, src; g, tmp, Nitem, workgroup, arch)
+    scan!(f, op, dst, src; g, tmp, Nitem, workgroup, family, arch)
     return dst
 end
 
@@ -242,6 +247,7 @@ function scan!(
     tmp::TMP=nothing,
     Nitem=nothing,
     workgroup=nothing,
+    family=nothing,
     arch=nothing
 ) where {DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     n = length(src)
@@ -252,9 +258,10 @@ function scan!(
     arch = something(arch, detect_arch(src))
     Nitem = something(Nitem, default_nitem(arch, Scan1D, n, T))
     workgroup = something(workgroup, default_workgroup(arch, Scan1D, n, T))
+    family = something(family, default_scan_family(arch, Scan1D, n, T))
     ndrange = cld(n, Nitem)
     blocks = cld(ndrange, workgroup)
-    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend, arch)
+    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, family, ndrange, blocks, tmp, n, backend, arch)
 end
 
 # ============================================================================
@@ -268,6 +275,7 @@ function _scan_impl!(
     src::AT,
     Nitem::Int,
     workgroup::Int,
+    family::Symbol,
     ndrange::Int,
     blocks::Int,
     ::Nothing,
@@ -276,8 +284,59 @@ function _scan_impl!(
     arch
 ) where {DS<:AbstractArray,AT<:AbstractArray,F,O,G}
     tmp = get_allocation(Scan1D, f, op, src, workgroup, blocks, arch)
-    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, ndrange, blocks, tmp, n, backend, arch)
+    _scan_impl!(f, op, g, dst, src, Nitem, workgroup, family, ndrange, blocks, tmp, n, backend, arch)
 end
+
+# Whether the packed-scan kernel should device-fence after each descriptor publish
+# (prompt cross-block visibility → shorter decoupled-lookback; see scan_kernel.jl).
+# Enabled on CUDA (measured +8-13% BW on A100 F32); off on AMD until validated on
+# MI300X (its relaxed path is at rocPRIM parity; a cross-XCD fence may regress it).
+# Correctness-neutral either way.
+@inline scan_desc_fence(::CUDAArch) = true
+@inline scan_desc_fence(::AMDArch) = false
+@inline scan_desc_fence(::AbstractArch) = false
+
+# ── Split-path kernel FAMILY: blocked `vload` vs transposed WARP_TRANSPOSE ──────────
+# For a WIDE aggregate H the blocked `vload` starves memory-level parallelism as
+# items/thread grows (F64 caps ~61% of A100 peak); the transposed load (striped
+# coalesced global access + shared-memory transpose, see scan_kernel_transposed!)
+# stays ~73-82% at high Nitem → F64 1.28×→1.05× CUB on A100. BUT the transpose only
+# pays off on a high-BW card that is MLP-starved by blocked loads: on RTX1000 (which
+# saturates its narrow bus at ANY Nitem) it is a measured 7-12% REGRESSION.
+#
+# So the family is NOT hardcoded per arch — it is an AUTOTUNE-DISCOVERED knob, exactly
+# like the matvec 2-family (`generic`/`rowthread`). `default_scan_family` returns
+# `:blocked` (the safe default for every UN-tuned arch → zero regression) and the
+# inline autotune (`data/tuning/<Arch>_inline.jl`) overrides it to `:transposed` only
+# where that kernel actually won on that hardware, per N. The autotune benches BOTH
+# families at every (Nitem, workgroup) — including blocked at small tiles — so there is
+# no fit-gate blind spot: whichever wins is emitted. See [[project_scan_parity_register_lever]].
+@inline default_scan_family(::AbstractArch, ::Type{Scan1D}, n, ::Type{T}) where {T} = :blocked
+
+# Correctness gate for the transposed kernel (arch-independent): only WIDE isbits H,
+# and S === H because the store transpose stages g-applied S-values in the H-typed
+# shared tile (a type-changing `g` — rare for scan — must fall back to blocked).
+@inline scan_transposed_applicable(::Type{H}, ::Type{S}) where {H,S} =
+    isbitstype(H) && sizeof(H) >= 8 && S === H
+
+# The transposed shared tile is WG·Nitem elements of H plus a warpsz reduction slot;
+# it must fit the 48 KB static shared budget. Tiles that would overflow (very wide
+# structs) fall back to the blocked split kernel (correctness-neutral).
+@inline scan_transposed_fits(::Type{H}, Nitem::Int, workgroup::Int, warpsz::Int) where {H} =
+    (workgroup * Nitem + warpsz) * sizeof(H) <= 49152
+
+# Resolve the requested family to whether the transposed kernel is actually launched:
+# it must be applicable (wide isbits H, S===H) AND the tile must fit, AND either the
+# family says `:transposed` OR `Nitem` is non-power-of-2. The `!ispow2(Nitem)` clause is
+# a HARD SAFETY: the blocked `vload`/`vstore!` kernel only compiles for pow-2 Nitem
+# (non-pow-2 hits `vload_multi`, a dynamic call that fails GPU codegen), so a non-pow-2
+# Nitem MUST use the transposed kernel. Non-pow-2 Nitem only ever arises for wide types
+# (the blocked candidates at non-pow-2 Nitem fail to compile and are skipped in tuning),
+# so this is always both safe and correct — it also defends against a mismatched
+# default_nitem/default_scan_family regime boundary or a manual non-pow-2 `Nitem=` kwarg.
+@inline scan_launch_transposed(family::Symbol, ::Type{H}, ::Type{S}, Nitem, workgroup, warpsz) where {H,S} =
+    scan_transposed_applicable(H, S) && scan_transposed_fits(H, Nitem, workgroup, warpsz) &&
+    (family === :transposed || !ispow2(Nitem))
 
 # KernelBuffer dispatch: run the kernel
 function _scan_impl!(
@@ -286,6 +345,7 @@ function _scan_impl!(
     src::AT,
     Nitem::Int,
     workgroup::Int,
+    family::Symbol,
     ndrange::Int,
     blocks::Int,
     tmp::KernelBuffer,
@@ -300,12 +360,22 @@ function _scan_impl!(
     dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
     Alignment = src_align == dst_align ? src_align : -1
     warpsz = get_warpsize(arch)
-    if scan_packable(H)
+    if scan_launch_transposed(family, H, S, Nitem, workgroup, warpsz)
+        # Wide-H fast path: striped coalesced load + shared transpose (see
+        # scan_kernel_transposed!). Uses the same split (partial1/2/flag) buffers.
+        fill!(tmp.arrays.flag, 0x00)
+        scan_kernel_transposed!(backend, workgroup)(
+            f, op, g, dst, src, Val(Nitem),
+            tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
+            Val(warpsz), Val(workgroup);
+            ndrange = ndrange,
+        )
+    elseif scan_packable(H)
         fill!(tmp.arrays.desc, UInt64(0))
         scan_kernel_packed!(backend, workgroup)(
             f, op, g, dst, src, Val(Nitem),
             tmp.arrays.desc,
-            Val(Alignment), Val(warpsz);
+            Val(Alignment), Val(warpsz), Val(scan_desc_fence(arch));
             ndrange = ndrange,
         )
     else

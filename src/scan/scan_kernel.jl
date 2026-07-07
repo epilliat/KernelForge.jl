@@ -237,8 +237,9 @@ end
     ::Val{Nitem},
     desc::AbstractVector{UInt64},
     ::Val{Alignment},
-    ::Val{warpsz}
-) where {Nitem,T,S,Alignment,warpsz}
+    ::Val{warpsz},
+    ::Val{DescFence}
+) where {Nitem,T,S,Alignment,warpsz,DescFence}
     @uniform begin
         N = length(src)
         workgroup = Int(@groupsize()[1])
@@ -287,6 +288,15 @@ end
         if lane == nwarps && last_idx <= N
             KI.atomic_store!(desc, gid, _scan_pack(SCAN_STATUS_PARTIAL, block_agg),
                              KI.Device, KI.Relaxed)
+            # Force the just-published descriptor to be globally visible (flush to L2)
+            # so successor tiles' lookback observes it immediately instead of walking
+            # past a not-yet-visible aggregate and re-spinning. Matches CUB's
+            # __threadfence() on publish. The PARTIAL fence is the essential one
+            # (lookback sums PARTIALs; INCLUSIVE prefixes lag). Gated to CUDA archs
+            # via DescFence — measured +8-13% BW on A100 F32; left off on AMD (its
+            # relaxed path is at rocPRIM parity and a cross-XCD fence may regress it)
+            # until validated on MI300X. Correctness-neutral either way.
+            DescFence && KI.fence(KI.Device, KI.AcqRel)
         end
     end
 
@@ -337,6 +347,7 @@ end
     if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
         KI.atomic_store!(desc, gid, _scan_pack(SCAN_STATUS_PREFIX, op(prefix, block_agg)),
                          KI.Device, KI.Relaxed)
+        DescFence && KI.fence(KI.Device, KI.AcqRel)
     end
 
     if gid >= 2
@@ -385,6 +396,203 @@ end
                 val = op(val, f(src[idx_base+i]))
                 dst[idx_base+i] = g(val)
             end
+        end
+    end
+end
+
+# ============================================================================
+# Transposed (WARP_TRANSPOSE-style) variant of scan_kernel! — large-H fast path.
+# ============================================================================
+# For a WIDE aggregate H (`sizeof(H) ≥ 8`, e.g. Float64/ComplexF32) the blocked
+# `vload` used by `scan_kernel!` starves memory-level parallelism as items/thread
+# grows: each thread issues Nitem DEPENDENT contiguous loads, so the global-load
+# BW ceiling collapses with Nitem (measured on A100: F64 Ni16 = 48% of peak). But
+# a low Nitem forces many tiles → a long decoupled-lookback chain, so the blocked
+# path is trapped at a ~61% saddle for F64.
+#
+# CUB's DeviceScan sidesteps this with BLOCK_LOAD_WARP_TRANSPOSE: read the tile
+# STRIPED (thread `lid` reads global positions `tile_base + k·workgroup + lid` for
+# k = 0…Nitem-1 — coalesced at every k, MLP-preserving at ANY Nitem), stage it in
+# shared memory, then read it back BLOCKED so each thread owns a CONTIGUOUS segment
+# for the local `tree_scan`; symmetric transpose on the store. This keeps the copy
+# ceiling ~82% at high Nitem, enabling few tiles (cheap lookback) AND high BW
+# (measured A100 F64: 61% → 73%, ≈ CUB parity).
+#
+# Everything between the load and the store — block scan, decoupled lookback,
+# descriptor publish, tail/junk confinement — is byte-for-byte the same as
+# `scan_kernel!` (the split path), so this handles ANY isbits H. Two differences
+# from `scan_kernel!`:
+#   • WG is a `Val` (the shared tile `WG·Nitem` must be a compile-time size);
+#   • no `Alignment` — element-wise striped access has no vector-alignment cliff.
+# The shared tile must fit (`(WG·Nitem + warpsz)·sizeof(H) ≤ 48 KB`); the caller
+# (`scan_use_transposed`/`scan_transposed_fits`) gates this and falls back to the
+# blocked split kernel for tiles that would overflow shared (very wide structs).
+# NOTE: pow-2 Nitem hits shared-bank conflicts on the blocked read/write (A100 F64
+# Ni16 = 50% vs Ni20 = 73%); the autotune NITEM_GRID includes non-pow-2 values so
+# the tuned Nitem avoids the conflicted stride (a padded index was a wash — it fixed
+# pow-2 but regressed the non-pow-2 optimum, so it is NOT used).
+@kernel inbounds = true unsafe_indices = true function scan_kernel_transposed!(
+    f, op, g,
+    dst::AbstractVector{S},
+    src::AbstractVector{T},
+    ::Val{Nitem},
+    partial1::AbstractVector{H},
+    partial2::AbstractVector{H},
+    flag::AbstractVector{UInt8},
+    ::Val{warpsz},
+    ::Val{WG},
+) where {Nitem,T,H,S,warpsz,WG}
+    @uniform begin
+        N = length(src)
+        workgroup = WG
+        nwarps = WG ÷ warpsz
+        TILE = WG * Nitem
+    end
+
+    lid = Int(@index(Local))
+    gid = Int(@index(Group))
+
+    warp_id = cld(lid, warpsz)
+    lane = (lid - 1) % warpsz + 1
+
+    tile_base = (gid - 1) * TILE   # 0-based global offset of this tile
+
+    tile = @localmem H TILE
+    shared = @localmem H warpsz
+
+    # ---- STRIPED global load → shared (linear tile copy, coalesced at every k) ----
+    # tile[p] holds global element (tile_base + p). OOB tail slots get a valid dummy
+    # f(src[N]) (no identity element is assumed); junk is confined to the highest
+    # tile positions = highest-lid threads and is guarded out on publish + store.
+    for k in 0:Nitem-1
+        p = k * workgroup + lid          # 1..TILE
+        e = tile_base + p                # 1-based global index
+        tile[p] = f(src[e <= N ? e : N])
+    end
+    @synchronize
+
+    # ---- read blocked-owned contiguous items → local inclusive scan ----
+    tbase = (lid - 1) * Nitem
+    values = ntuple(Val(Nitem)) do j
+        @inbounds tile[tbase+j]
+    end
+    values = tree_scan(op, values)
+
+    @synchronize   # tile fully read before it is reused for the store transpose
+
+    # ==================== block scan + decoupled lookback (== scan_kernel!) ========
+    val = values[end]
+    @warpreduce(val, op, lane, warpsz)
+    stored_val = val
+    if lane == warpsz
+        shared[warp_id] = val
+    end
+
+    @synchronize
+
+    last_idx = Nitem * workgroup * gid
+    if warp_id == nwarps
+        val_acc = shared[lane]
+        @warpreduce(val_acc, op, lane, warpsz)
+        shared[lane] = val_acc
+        if lane == nwarps && last_idx <= N
+            partial1[gid] = val_acc
+            @access flag[gid] = 0x01
+            partial2[gid] = val_acc
+        end
+    end
+
+    prefix = val
+    if gid >= 2 && warp_id == nwarps
+        lookback = 0
+        contains_prefix = false
+        backoff = UInt32(1)
+        while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
+            idx_lookback = max(gid - lookback - lane, 1)
+            @access flg = flag[idx_lookback]
+            has_aggregate = (0x01 <= flg <= 0x02)
+            if @vote(All, has_aggregate, warpsz)
+                has_prefix = (flg == 0x02)
+                if has_prefix
+                    val = partial2[idx_lookback]
+                else
+                    val = partial1[idx_lookback]
+                end
+                offset = 1
+                contains_prefix = has_prefix
+                while offset < warpsz
+                    shuffled = @shfl(Down, val, offset)
+                    shuffled_contains_prefix = @shfl(Down, contains_prefix, offset)
+                    if !contains_prefix && lane + offset <= warpsz && gid - lookback - lane - offset >= 1
+                        val = op(shuffled, val)
+                        contains_prefix = contains_prefix || shuffled_contains_prefix
+                    end
+                    offset <<= 1
+                end
+
+                if lookback == 0
+                    prefix = val
+                else
+                    prefix = op(val, prefix)
+                end
+                lookback += warpsz
+                backoff = UInt32(1)
+            else
+                @sleep backoff
+                backoff = min(backoff << 1, UInt32(64))
+            end
+        end
+        if lane == 1
+            shared[warpsz] = prefix
+        end
+    end
+
+    @synchronize
+
+    if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
+        partial2[gid] = op(prefix, partial2[gid])
+        @access flag[gid] = 0x02
+    end
+
+    if gid >= 2
+        prefix_block = shared[warpsz]
+    end
+    if warp_id >= 2
+        prefix_warp = shared[warp_id-1]
+    end
+    prefix_lane = @shfl(Idx, stored_val, max(lane - 1, 1))
+
+    if warp_id == 1 && lane == 1 && gid >= 2
+        global_prefix = prefix_block
+    elseif warp_id == 1 && lane >= 2 && gid == 1
+        global_prefix = prefix_lane
+    elseif warp_id == 1 && lane >= 2 && gid >= 2
+        global_prefix = op(prefix_block, prefix_lane)
+    elseif warp_id >= 2 && lane == 1 && gid == 1
+        global_prefix = prefix_warp
+    elseif warp_id >= 2 && lane == 1 && gid >= 2
+        global_prefix = op(prefix_block, prefix_warp)
+    elseif warp_id >= 2 && lane >= 2 && gid == 1
+        global_prefix = op(prefix_warp, prefix_lane)
+    elseif warp_id >= 2 && lane >= 2 && gid >= 2
+        global_prefix = op(prefix_block, op(prefix_warp, prefix_lane))
+    end
+
+    if gid >= 2 || lane >= 2 || warp_id >= 2
+        values = prefix_apply(op, global_prefix, values)
+    end
+
+    # ---- store transpose: blocked results → shared → STRIPED global write --------
+    @synchronize
+    for j in 1:Nitem
+        @inbounds tile[tbase+j] = g(values[j])
+    end
+    @synchronize
+    for k in 0:Nitem-1
+        p = k * workgroup + lid
+        e = tile_base + p
+        if e <= N
+            dst[e] = tile[p]
         end
     end
 end
