@@ -371,10 +371,16 @@ const RT_WG_GRID   = (128, 256, 512)
 const RT_NCB_GRID  = (1, 2, 4, 8, 16, 32, 64, 128, 256, 512)
 const DEV_RT_NCB   = (4, 32, 256)
 
-# Row-thread only competes for wide/square/middle-band shapes with real column
-# parallelism; skip tiny/tall-thin cells where the generic kernel always wins
-# (few columns → nothing to split, few rows → too few warps per block).
-_rowthread_applicable(n::Int, p::Int) = n >= 64 && p >= 4096
+# Row-thread competes wherever there's real column parallelism to stream. The old
+# `p >= 4096` gate LEFT TALL / SMALL-p CELLS ON GENERIC even though the row-thread
+# kernel wins big there (A100, measured: 10000×1000 generic 32% → rowthread 55%,
+# 1.05× cuBLAS; 100000×1000 generic 49% → rowthread ncb=1 single-kernel 85%, 0.86×
+# = BEATS cuBLAS). The grid's next-lower p-level is 512 (LOG2_LEVELS skips 7,8),
+# and query p≈1000 lands on it — so gate at p >= 512. This is data-driven: the
+# family-stratified autotune still keeps generic wherever it actually wins; a
+# permissive gate only lets row-thread be CONSIDERED. For very tall n the ncb_cap
+# below collapses to 1 → the single-launch `matvec_rowthread_single_kernel!` path.
+_rowthread_applicable(n::Int, p::Int) = n >= 64 && p >= 512
 
 function rowthread_candidates(::Type{T}, n::Int, p::Int; dev::Bool = false) where T
     _rowthread_applicable(n, p) || return NamedTuple[]

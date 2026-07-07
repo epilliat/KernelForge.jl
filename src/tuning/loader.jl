@@ -264,6 +264,16 @@ function _adapt_matvec_shape(nt, n::Int)
     while Nitem > 1 && 8 * (cld(n, Nitem) * Nitem - n) > n
         Nitem >>= 1
     end
+    # Alignment cap (L2a): the generic `vload` advances one column per load by
+    # `n` elements, so each column's load base is `Nitem·sizeof(T)`-aligned only
+    # when `Nitem | n`. A query n the tuned cell did not divide (e.g. 8∤300)
+    # misaligns every column past the first → ~2× BW loss (the "vload alignment
+    # cliff" — see WIDE_CORNER_N in matvec/autotune.jl). Shrink Nitem (pow2) to the
+    # largest divisor of n so every column load stays aligned. No-op when Nitem|n
+    # already (the common 8|n tuned case), so tall/square shapes are untouched.
+    while Nitem > 1 && n % Nitem != 0
+        Nitem >>= 1
+    end
     return (; kernel = :generic, Nitem, chunksz = Int(nt.chunksz),
               Nblocks = Int(nt.Nblocks), workgroup = Int(nt.workgroup))
 end

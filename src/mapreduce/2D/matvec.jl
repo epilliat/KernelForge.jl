@@ -356,6 +356,12 @@ function _matvec_rowthread_impl!(
     ncol    = cld(p, ncb)
     ncbe    = cld(p, ncol)                                  # active column-blocks (each ≥1 column)
     rtiles  = cld(n, wg)                                    # row-tiles to cover all n rows
+    # L1a — no column split: one launch, write dst directly (no partial, no reduce).
+    if ncbe == 1
+        matvec_rowthread_single_kernel!(backend, wg)(
+            f, op, g, dst, src, x, n, Val(U), p, wg; ndrange = wg * rtiles)
+        return dst
+    end
     # Reuse the caller's scratch when it matches (honours the `tmp` contract — no
     # per-call allocation for repeated calls; `get_allocation` sizes it from the
     # same `ncb`, so the match is exact). Else allocate a one-shot buffer.
@@ -369,7 +375,13 @@ function _matvec_rowthread_impl!(
     matvec_rowthread_kernel!(backend, wg)(
         f, op, partial, src, x, n, Val(U), ncol, p, wg, ncbe; ndrange = wg * rtiles * ncbe)
     rwg = clamp(cld(min(n, 256), warpsz) * warpsz, warpsz, 256)
-    matvec_rowthread_reduce!(backend, rwg)(op, g, dst, partial, n, ncbe; ndrange = n)
+    # ndrange MUST be a multiple of the groupsize: with `unsafe_indices=true`, KA's
+    # `@index(Global)` machinery indexes its ndrange-shape tables OOB for threads in a
+    # trailing partial block when `n` is not a multiple of `rwg` (e.g. n=1234, rwg=256
+    # → 5 blocks). Only surfaces under `--check-bounds=yes` (Pkg.test); masked by
+    # @inbounds otherwise. Rounding up is safe — the kernel's `if r<=n` guard drops the
+    # extra threads. (See mv_oob2 probe: ndrange=ceil(n,rwg) passes, ndrange=n faults.)
+    matvec_rowthread_reduce!(backend, rwg)(op, g, dst, partial, n, ncbe; ndrange = cld(n, rwg) * rwg)
     return dst
 end
 

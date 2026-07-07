@@ -551,6 +551,38 @@ end
     end
 end
 
+# Single-launch row-thread kernel for the no-column-split case (`ncbe == 1`): each
+# thread owns a whole row, streams ALL p columns, applies `g`, and writes `dst[r]`
+# directly — no `partial` scratch and no separate reduce launch. This is the
+# tiny-work / small-p fast path (L1a): when the row-tiling alone fills the GPU
+# there is no column split to reduce, so folding the reduce into the main kernel
+# cuts 2 launches → 1 and drops the scratch allocation entirely.
+@kernel inbounds = true unsafe_indices = true function matvec_rowthread_single_kernel!(
+    f::F, op::O, g::G,
+    dst::AbstractArray{S},
+    src::AbstractArray{T},
+    x,
+    n::Int, ::Val{U}, p::Int, wg::Int
+) where {F<:Function,O<:Function,G<:Function,S,T,U}
+    gid = Int(@index(Group))
+    lid = Int(@index(Local))
+    r   = (gid - 1) * wg + lid                   # global row (1-based)
+    if r <= n
+        acc = isnothing(x) ? f(src[r, 1]) : f(src[r, 1], x[1])
+        col = 1                                  # 0-based cursor past the seed
+        while col + U <= p
+            acc = _rowthread_chunk(f, op, acc, src, x, col, Val(U), r)
+            col += U
+        end
+        while col < p
+            v = isnothing(x) ? f(src[r, col+1]) : f(src[r, col+1], x[col+1])
+            acc = op(acc, v)
+            col += 1
+        end
+        @inbounds dst[r] = g(acc)
+    end
+end
+
 # Combine the `ncb` per-column-block partials for each row and apply `g`. Block
 # 0 is always active (c0=0 < p), so it seeds the reduction — no op-identity.
 @kernel inbounds = true unsafe_indices = true function matvec_rowthread_reduce!(
@@ -559,7 +591,12 @@ end
     partial::AbstractVector{H},
     n::Int, ncb::Int
 ) where {O<:Function,G<:Function,S,H}
-    r = Int(@index(Global))
+    # Use the explicit `Linear` form (the codebase convention; bare `@index(Global)`
+    # defaults to Cartesian). NOTE: the trailing-partial-block OOB under
+    # `unsafe_indices=true` is fixed at the LAUNCH site by rounding `ndrange` up to a
+    # groupsize multiple (see `_matvec_rowthread_impl!` in matvec.jl) — the `if r<=n`
+    # guard then drops the extra threads.
+    r = Int(@index(Global, Linear))
     if r <= n
         acc = @inbounds partial[r]
         for b in 1:ncb-1
