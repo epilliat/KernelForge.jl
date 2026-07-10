@@ -10,12 +10,13 @@ Methodology:
 - Final DataFrame printed at the end
 =#
 include("../init.jl")
+include("../vendor_int8.jl")
 
 # ---------------------------------------------------------------------------
 # Configuration — edit these to control what gets benchmarked
 # ---------------------------------------------------------------------------
 total_elements = [10^7, 10^8, 10^9]
-types = [Float32]
+types = [Float32, Float64, UInt8]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
 
@@ -24,21 +25,28 @@ types = [Float32]
 # ---------------------------------------------------------------------------
 function run_matvec_benchmarks(n::Int, p::Int, ::Type{T}) where T
     A = fill!(AT{T}(undef, n, p), one(T))
-    x = AT{T}(1:p)
+    x = _bench_vec(T, p)
     dst = fill!(AT{T}(undef, n), zero(T))
     tmp =KF.get_allocation(KF.MatVec, *, +, A, x)
     println("\n" * "="^60)
     println("MatVec: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
+    vlabel, vcall = vendor_matvec_baseline(T, A, x)
     rows = NamedTuple[]
     for (name, method, call) in [
         ("KernelForge [n=$n, p=$p]", "KernelForge", () -> KernelForge.matvec!(*, +, dst, A, x; tmp)),
-        (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
-            has_cuda() ? "cuBLAS" : "LinearAlgebra",
-            () -> A * x),
+        ("$vlabel [n=$n, p=$p]", vlabel, vcall),
     ]
-        s = bench(name, call; backend)
+        # Guard: a vendor baseline (or KF) can error on an extreme shape on a
+        # given arch (e.g. rocBLAS on a degenerate gemv). Record NaN for that
+        # (cell × method) and keep going rather than crashing before the CSV.
+        s = try
+            bench(name, call; backend)
+        catch e
+            @warn "bench failed — recording NaN" name exception=(e, catch_backtrace())
+            (mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
+        end
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
@@ -66,7 +74,7 @@ KA.synchronize(backend)
 # ---------------------------------------------------------------------------
 all_rows = NamedTuple[]
 total_elements = [10^7, 10^8, 10^9]
-types = [Float32]
+types = [Float32, Float64, UInt8]
 # n ranges from 10 to total÷10, powers of 10
 # recomputed per total in the loop below
 for total in total_elements, T in types

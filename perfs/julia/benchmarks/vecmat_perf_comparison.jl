@@ -3,13 +3,14 @@ VecMat Performance Benchmarking Script
 ======================================
 =#
 include("../init.jl")
+include("../vendor_int8.jl")
 
 # ---------------------------------------------------------------------------
 # Benchmark runner
 # ---------------------------------------------------------------------------
 function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
     A = fill!(AT{T}(undef, n, p), one(T))
-    x = AT{T}(1:n)
+    x = _bench_vec(T, n)
     dst = fill!(AT{T}(undef, p), zero(T))
     tmp = KF.get_allocation(KF.VecMat, *, +, x, A)
 
@@ -17,15 +18,23 @@ function run_vecmat_benchmarks(n::Int, p::Int, ::Type{T}) where T
     println("VecMat: n=$n, p=$p, T=$T  (n×p = $(n*p))")
     println("="^60)
 
+    vlabel, vcall = vendor_vecmat_baseline(T, A, x)
     rows = NamedTuple[]
     for (name, method, call) in [
             ("KernelForge [n=$n, p=$p]", "KernelForge",
              () -> KernelForge.vecmat!(dst, x, A; tmp)),
-            (has_cuda() ? "cuBLAS [n=$n, p=$p]" : "LinearAlgebra [n=$n, p=$p]",
-             has_cuda() ? "cuBLAS" : "LinearAlgebra",
-             () -> x' * A),
+            ("$vlabel [n=$n, p=$p]", vlabel, vcall),
         ]
-        s = bench(name, call; backend)
+        # Guard: a vendor baseline (or KF) can error on an extreme shape on a
+        # given arch — e.g. rocBLAS gevm hits hipErrorInvalidConfiguration on
+        # skinny n=1 vecmat. Record NaN for that (cell × method) and keep going
+        # instead of taking the whole sweep down before the CSV is written.
+        s = try
+            bench(name, call; backend)
+        catch e
+            @warn "bench failed — recording NaN" name exception=(e, catch_backtrace())
+            (mean_kernel_μs=NaN, std_kernel_μs=NaN, mean_total_μs=NaN, std_total_μs=NaN)
+        end
         push!(rows, (; n, p, type=string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs,
             s.mean_total_μs, s.std_total_μs))
@@ -46,7 +55,7 @@ x' * src; KA.synchronize(backend)
 # Configuration
 # ---------------------------------------------------------------------------
 total_elements = [10^7, 10^8, 10^9]
-types = [Float32]
+types = [Float32, Float64, UInt8]
 
 # ---------------------------------------------------------------------------
 # Collect all results
