@@ -95,7 +95,7 @@ if _BACKEND_KIND === :cuda
     @eval begin
         _gpu_backend()                         = CUDA.CUDABackend()
         _total_memory()                        = Int(CUDA.totalmem(CUDA.device()))
-        _gpu_rand(::Type{T}, dims...) where T   = CUDA.rand(T, dims...)
+        _gpu_rand_prim(::Type{T}, dims...) where T  = CUDA.rand(T, dims...)
         _gpu_zeros(::Type{T}, dims...) where T  = CUDA.zeros(T, dims...)
 
         # Pure kernel time: sum of device events per trial, then median.
@@ -126,7 +126,7 @@ else # :roc
         # HIP hipDeviceProp_t.totalGlobalMem — same struct the AMDGPU
         # extension reads for multiProcessorCount.
         _total_memory()                        = Int(AMDGPU.HIP.properties(AMDGPU.device()).totalGlobalMem)
-        _gpu_rand(::Type{T}, dims...) where T   = AMDGPU.rand(T, dims...)
+        _gpu_rand_prim(::Type{T}, dims...) where T  = AMDGPU.rand(T, dims...)
         _gpu_zeros(::Type{T}, dims...) where T  = AMDGPU.zeros(T, dims...)
 
         # Block-timing: each `@elapsed` brackets `inner` back-to-back calls.
@@ -157,6 +157,32 @@ else # :roc
             return median(samples)
         end
     end
+end
+
+# Large-array-safe random fill — backend-agnostic wrapper over `_gpu_rand_prim`.
+# Some backends (AMDGPU) truncate the RNG kernel's element count to Int32
+# internally, so a single `rand(T, n, p)` with ≥ 2^31 elements throws
+# `InexactError: trunc(Int32, …)` (hit on MI300A by the autotune's giant
+# wide-reduction cells, n*p up to ~2^31). CUDA indexes with Int64 and has no
+# such limit. To keep ONE code path that works on every arch, allocate
+# uninitialized and fill through a contiguous reshape in ≤2^30-element chunks
+# so every RNG launch stays well under 2^31. The chunk loop covers [1,total],
+# so no element is left uninitialized. Only the handful of ≥2^30-element cells
+# take this path; everything else hits the single-call fast path (identical to
+# the old behavior), so CUDA tuning is byte-for-byte unchanged.
+const _RAND_CHUNK = 1 << 30
+function _gpu_rand(::Type{T}, dims::Integer...) where T
+    total = prod(map(Int, dims))
+    total < _RAND_CHUNK && return _gpu_rand_prim(T, dims...)
+    A = KA.allocate(_gpu_backend(), T, dims...)   # uninit malloc — no kernel, any size
+    flat = reshape(A, :)                          # contiguous view, no copy
+    off = 0
+    while off < total
+        m = min(_RAND_CHUNK, total - off)
+        copyto!(view(flat, off+1:off+m), _gpu_rand_prim(T, m))
+        off += m
+    end
+    return A
 end
 
 # -----------------------------------------------------------------------------
@@ -791,14 +817,20 @@ end
 # NaN if the candidate fails (e.g. validity assertion).
 function _bench_shape(params::NamedTuple, n::Int, p::Int, ::Type{T};
                       trials::Int = 3) where T
-    A   = _gpu_rand(T, n, p)
-    x   = _gpu_rand(T, p)
-    backend = get_backend(A)
-    H   = Base.promote_op(*, T, T)
-    dst = KA.allocate(backend, H, n)
-    arch = KF.detect_arch(A)
-    f = _run_closure(params, A, x, dst, H, arch)
+    # EVERYTHING (alloc + rand + launch + bench) is inside the try: this runs
+    # in pass 2 on axis-neighbor shapes that can be larger than the tuned cell,
+    # and any per-shape failure — OOM on a small-VRAM arch, a backend rand/alloc
+    # limit, a kernel assert — must degrade to "skip this shape" (NaN), never
+    # crash the whole autotune. (pass 1's `tune_cell` guards its alloc the same
+    # way; this path used to alloc OUTSIDE the try and took the run down with it.)
     try
+        A   = _gpu_rand(T, n, p)
+        x   = _gpu_rand(T, p)
+        backend = get_backend(A)
+        H   = Base.promote_op(*, T, T)
+        dst = KA.allocate(backend, H, n)
+        arch = KF.detect_arch(A)
+        f = _run_closure(params, A, x, dst, H, arch)
         # first call warms; per-iter sync inside _warmup_for
         f(); KA.synchronize(backend)
         _warmup_for(f, 5)

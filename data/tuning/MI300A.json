@@ -1,0 +1,6986 @@
+{
+    "vecmat": {
+        "size_1": [
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 256,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 256,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 256,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 256,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 16,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 8,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 256,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 256,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 8,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1024,
+                "blocks": 4,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 32,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "mlp",
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 256,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 2,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 1024,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 8,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 1,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2048,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 1,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "mlp",
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 4,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1024,
+                "n": 131072
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 32,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 8,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 8,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2048,
+                "n": 131072
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 1,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 64,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 8,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 16,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 128,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 64,
+                "p": 1,
+                "n": 1073741824
+            }
+        ],
+        "size_4": [
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 256,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 256,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 256,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 128,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 8,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 256,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 256,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 2,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 8,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 64,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 64,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 64,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 32,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 256,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 1024,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 16,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 4,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 256,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 256,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2048,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 2,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "mlp",
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 4,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1024,
+                "n": 131072
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 256,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 16,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 1,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 256,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2048,
+                "n": 131072
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 2,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 64,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 256,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 8,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 4,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 256,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "workgroup": 512,
+                "U": 4,
+                "kernel": "mlp",
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "mlp",
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 16,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 128,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 4,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 64,
+                "p": 1,
+                "n": 1073741824
+            }
+        ],
+        "size_8": [
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 256,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 256,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 32,
+                "blocks": 256,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 256,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 4,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 16,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 16,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 128,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 256,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 8,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 256,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 256,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 32,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 2,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 32,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 16384,
+                "blocks": 256,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 32,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 256,
+                "blocks": 1,
+                "p": 1024,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 32,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 16,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 128,
+                "blocks": 1,
+                "p": 2048,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 2,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 65536,
+                "blocks": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 256,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 4,
+                "kernel": "mlp",
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 1024,
+                "n": 131072
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 256,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 256,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 16,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 4,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 1,
+                "p": 2048,
+                "n": 131072
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8192,
+                "blocks": 2,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 1,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4096,
+                "blocks": 32,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 16,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 1,
+                "blocks": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 4,
+                "blocks": 1,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 8,
+                "blocks": 1,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 64,
+                "blocks": 1,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "kernel": "generic",
+                "Nthreads": 512,
+                "blocks": 64,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 2048,
+                "blocks": 128,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "kernel": "generic",
+                "Nthreads": 32768,
+                "blocks": 16,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "kernel": "generic",
+                "Nthreads": 131072,
+                "blocks": 8,
+                "p": 1,
+                "n": 1073741824
+            }
+        ]
+    },
+    "tuned_at": "2026-07-10",
+    "gpu_tag": "MI300A",
+    "matvec": {
+        "size_1": [
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 6
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 11
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 3
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 23
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 6
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 4096,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 45
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 3
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 23
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 45
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 6
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 3
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 4,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 3
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 23
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 32,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 1000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 1000000,
+                "n": 150
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 250
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 3
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 16777216,
+                "n": 45
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 500
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 6
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 150
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 32,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 16,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 1073741824
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 250
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 10000000,
+                "n": 500
+            }
+        ],
+        "size_4": [
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 3
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 6
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 11
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 512,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 32,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 11
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 8,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 6
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 32,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 262144,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 262144,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 11
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 3
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 2097152,
+                "n": 23
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 2097152,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 16777216,
+                "n": 11
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 150
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 250
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 3
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 16777216,
+                "n": 45
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 1000000,
+                "n": 500
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 6
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 150
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 32,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 4,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 8,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 1073741824
+            },
+            {
+                "n": 250,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "workgroup": 256
+            },
+            {
+                "n": 500,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 10000000,
+                "workgroup": 512
+            }
+        ],
+        "size_8": [
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 1
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 512,
+                "n": 8
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 11
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 8,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 512,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 16,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 512,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 512,
+                "n": 45
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 512
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 6
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 64
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 64,
+                "n": 512
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 8,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 32768
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 16,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 4096,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 4096,
+                "n": 23
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 4096,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 4096
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 4096,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 512
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 64,
+                "n": 4096
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 16
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 2,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 3
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 32768,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 32768,
+                "n": 45
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 32,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 4,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 1
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 4,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 262144,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 4096,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 4096
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 32768
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 8,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 2
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 262144,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 16,
+                "n": 262144
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 2,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 262144,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 262144,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 32,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 4,
+                "n": 2097152
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 64,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 8
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 16,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 2097152,
+                "n": 6
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 128,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 2097152,
+                "n": 11
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 262144,
+                "n": 64
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 32768,
+                "n": 512
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 4096,
+                "n": 4096
+            },
+            {
+                "workgroup": 256,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 32768
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 8,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 1,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 2
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 16
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 256,
+                "p": 16,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 4
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 3
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 2097152,
+                "n": 32
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 2097152,
+                "n": 45
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 16777216
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 16777216,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 16777216,
+                "n": 6
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 16777216,
+                "n": 11
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 8,
+                "p": 2097152,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 256,
+                "p": 1000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 1000000,
+                "n": 150
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 262144,
+                "n": 512
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 32768,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 2,
+                "p": 4096,
+                "n": 32768
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 2,
+                "p": 512,
+                "n": 262144
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 64,
+                "n": 2097152
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 2
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 16
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 1000000,
+                "n": 250
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 16,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 2,
+                "n": 134217728
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 4
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 3
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 4,
+                "p": 16777216,
+                "n": 32
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 16,
+                "p": 16777216,
+                "n": 23
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 32,
+                "p": 16777216,
+                "n": 45
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 64,
+                "p": 1000000,
+                "n": 500
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 32,
+                "n": 16777216
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 4,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 1073741824,
+                "n": 1
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 512,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 2,
+                "p": 134217728,
+                "n": 8
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 256,
+                "Nblocks": 256,
+                "kernel": "generic",
+                "chunksz": 1,
+                "p": 134217728,
+                "n": 6
+            },
+            {
+                "workgroup": 64,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 16777216,
+                "n": 64
+            },
+            {
+                "workgroup": 128,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 100
+            },
+            {
+                "workgroup": 192,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 512,
+                "p": 10000000,
+                "n": 150
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 2097152,
+                "n": 512
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 16,
+                "p": 262144,
+                "n": 4096
+            },
+            {
+                "workgroup": 128,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 32768,
+                "n": 32768
+            },
+            {
+                "workgroup": 512,
+                "U": 8,
+                "kernel": "rowthread",
+                "ncb": 8,
+                "p": 4096,
+                "n": 262144
+            },
+            {
+                "workgroup": 512,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 1,
+                "p": 512,
+                "n": 2097152
+            },
+            {
+                "Nitem": 4,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 64,
+                "p": 64,
+                "n": 16777216
+            },
+            {
+                "Nitem": 2,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 8,
+                "n": 134217728
+            },
+            {
+                "Nitem": 1,
+                "workgroup": 128,
+                "Nblocks": 1,
+                "kernel": "generic",
+                "chunksz": 128,
+                "p": 1,
+                "n": 1073741824
+            },
+            {
+                "workgroup": 256,
+                "U": 16,
+                "kernel": "rowthread",
+                "ncb": 128,
+                "p": 10000000,
+                "n": 250
+            }
+        ]
+    },
+    "schema_version": 1
+}
