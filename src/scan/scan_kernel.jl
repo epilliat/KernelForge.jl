@@ -57,6 +57,18 @@ end
 @inline _scan_status(d::UInt64) = UInt32(d >> 32)
 @inline _scan_value(::Type{H}, d::UInt64) where {H} = _scan_from_u32(H, d % UInt32)
 
+# ── Split-path descriptor (partial1/partial2/flag) access — `Bypass` gate (see scan_desc_bypass)
+# On AMD (`Bypass` true) the decoupled-lookback descriptor is read/published through Device-scope
+# RELAXED atomics (a cache-BYPASSING coherent access on gfx942 — no per-round acquire, which would
+# L1-invalidate and erase the F64 win). Cross-block ORDERING (partial stores drained before the
+# flag; flag read before the partial) is carried by the WORKGROUP release/acquire `@fence`s, whose
+# AMD lowering appends an `s_waitcnt vmcnt(0)` drain (no L2 writeback) — rocPRIM's WITHOUT_SLOW_FENCES
+# gfx94x recipe. On CUDA (`Bypass` false, byte-identical to the historical path) the flag keeps its
+# Device ACQUIRE/RELEASE (a relaxed flag races on CUDA's model), the partials stay plain cached
+# access, and the `@fence`s vanish (they are free on a single die). The `Bypass` const folds the
+# dead branch away. `@access`/`@fence` need KI ≥ the symbol-name `scope_ordering` (bare eval broke
+# package precompile) + the AMD workgroup-release vmem drain.
+
 @kernel inbounds = true unsafe_indices = true function scan_kernel!(
     f, op, g,
     dst::AbstractVector{S},
@@ -66,8 +78,9 @@ end
     partial2::AbstractVector{H},
     flag::AbstractVector{UInt8},
     ::Val{Alignment},
-    ::Val{warpsz}
-) where {Nitem,T,H,S,Alignment,warpsz}
+    ::Val{warpsz},
+    ::Val{Bypass}
+) where {Nitem,T,H,S,Alignment,warpsz,Bypass}
     @uniform begin
         N = length(src)
         workgroup = Int(@groupsize()[1])
@@ -109,9 +122,28 @@ end
         @warpreduce(val_acc, op, lane, warpsz)
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
-            partial1[gid] = val_acc
-            @access flag[gid] = 0x01
-            partial2[gid] = val_acc
+            # Bypass (AMD): publish the aggregate. ALL descriptor accesses (partial + flag,
+            # load + store) are Device-scope RELAXED atomics — `Device` gives cross-block
+            # COHERENCE (a glc/dlc load/store to the coherent point, bypassing stale L1),
+            # `Relaxed` drops ORDERING. The flag is relaxed too, so it does NO synchronization
+            # on its own: the partial-before-flag ORDERING comes solely from the WORKGROUP-
+            # scope RELEASE @fence below (its AMD lowering appends s_waitcnt vmcnt(0), no L2 writeback) — the
+            # consumer pairs it with the flag→partial control dependency + coherent reads.
+            # This is rocPRIM's WITHOUT_SLOW_FENCES gfx94x recipe: coherence via bypass
+            # atomics, ordering via workgroup fences. A DEVICE-scope release (on the store or a
+            # fence) is model-portable but IS the wall — a per-block waitcnt that caps F64 at
+            # ~24%; the workgroup fence keeps it ~35%. CUDA (Bypass=false) instead uses a real
+            # Device Acquire/Release on the flag (free on one die; a relaxed flag races there).
+            if Bypass
+                @access Device Relaxed partial1[gid] = val_acc
+                @fence Workgroup Release    # drain partial stores (s_waitcnt vmcnt(0)) before the flag
+                @access Device Relaxed flag[gid] = 0x01
+                @access Device Relaxed partial2[gid] = val_acc
+            else
+                partial1[gid] = val_acc
+                @access flag[gid] = 0x01          # Device Release
+                partial2[gid] = val_acc
+            end
         end
     end
 
@@ -122,14 +154,30 @@ end
         backoff = UInt32(1)
         while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
             idx_lookback = max(gid - lookback - lane, 1)
-            @access flg = flag[idx_lookback]
+            # Bypass (AMD): Device-Relaxed (cache-bypass) flag load — always fresh from the
+            # coherent point (`Device` scope), Relaxed so it does no ordering itself. The
+            # matching ACQUIRE fence sits inside the vote-success branch (once per round, not
+            # per spin), pairing with the producer's per-publish RELEASE. This closes BOTH
+            # handshakes with ONE fence: flag==0x01 ⇒ acquire pairs with release(partial1→0x01)
+            # ⇒ read partial1; flag==0x02 ⇒ acquire pairs with release(partial2→0x02) ⇒ read
+            # partial2. The fence orders EITHER subsequent partial load after the flag load, so
+            # a single acquire serves both. Both fences are workgroup-scope order-only (cheap,
+            # no L1 invalidate) — rocPRIM's atomic_fence_acquire_order_only gfx94x recipe.
+            if Bypass
+                flg = @access Device Relaxed flag[idx_lookback]
+            else
+                flg = @access flag[idx_lookback]      # Device Acquire
+            end
             has_aggregate = (0x01 <= flg <= 0x02)
             if @vote(All, has_aggregate, warpsz)
+                if Bypass
+                    @fence Workgroup Acquire    # pair the producer release; order the partial read after the flag read
+                end
                 has_prefix = (flg == 0x02)
                 if has_prefix
-                    val = partial2[idx_lookback]
+                    val = Bypass ? (@access Device Relaxed partial2[idx_lookback]) : partial2[idx_lookback]
                 else
-                    val = partial1[idx_lookback]
+                    val = Bypass ? (@access Device Relaxed partial1[idx_lookback]) : partial1[idx_lookback]
                 end
                 offset = 1
                 contains_prefix = has_prefix
@@ -166,8 +214,15 @@ end
     @synchronize
 
     if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
-        partial2[gid] = op(prefix, partial2[gid])
-        @access flag[gid] = 0x02
+        if Bypass
+            pv = @access Device Relaxed partial2[gid]
+            @access Device Relaxed partial2[gid] = op(prefix, pv)
+            @fence Workgroup Release    # drain the inclusive-prefix store before the flag
+            @access Device Relaxed flag[gid] = 0x02
+        else
+            partial2[gid] = op(prefix, partial2[gid])
+            @access flag[gid] = 0x02          # Device Release
+        end
     end
 
     if gid >= 2
@@ -441,7 +496,8 @@ end
     flag::AbstractVector{UInt8},
     ::Val{warpsz},
     ::Val{WG},
-) where {Nitem,T,H,S,warpsz,WG}
+    ::Val{Bypass},
+) where {Nitem,T,H,S,warpsz,WG,Bypass}
     @uniform begin
         N = length(src)
         workgroup = WG
@@ -496,9 +552,28 @@ end
         @warpreduce(val_acc, op, lane, warpsz)
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
-            partial1[gid] = val_acc
-            @access flag[gid] = 0x01
-            partial2[gid] = val_acc
+            # Bypass (AMD): publish the aggregate. ALL descriptor accesses (partial + flag,
+            # load + store) are Device-scope RELAXED atomics — `Device` gives cross-block
+            # COHERENCE (a glc/dlc load/store to the coherent point, bypassing stale L1),
+            # `Relaxed` drops ORDERING. The flag is relaxed too, so it does NO synchronization
+            # on its own: the partial-before-flag ORDERING comes solely from the WORKGROUP-
+            # scope RELEASE @fence below (its AMD lowering appends s_waitcnt vmcnt(0), no L2 writeback) — the
+            # consumer pairs it with the flag→partial control dependency + coherent reads.
+            # This is rocPRIM's WITHOUT_SLOW_FENCES gfx94x recipe: coherence via bypass
+            # atomics, ordering via workgroup fences. A DEVICE-scope release (on the store or a
+            # fence) is model-portable but IS the wall — a per-block waitcnt that caps F64 at
+            # ~24%; the workgroup fence keeps it ~35%. CUDA (Bypass=false) instead uses a real
+            # Device Acquire/Release on the flag (free on one die; a relaxed flag races there).
+            if Bypass
+                @access Device Relaxed partial1[gid] = val_acc
+                @fence Workgroup Release    # drain partial stores (s_waitcnt vmcnt(0)) before the flag
+                @access Device Relaxed flag[gid] = 0x01
+                @access Device Relaxed partial2[gid] = val_acc
+            else
+                partial1[gid] = val_acc
+                @access flag[gid] = 0x01          # Device Release
+                partial2[gid] = val_acc
+            end
         end
     end
 
@@ -509,14 +584,30 @@ end
         backoff = UInt32(1)
         while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
             idx_lookback = max(gid - lookback - lane, 1)
-            @access flg = flag[idx_lookback]
+            # Bypass (AMD): Device-Relaxed (cache-bypass) flag load — always fresh from the
+            # coherent point (`Device` scope), Relaxed so it does no ordering itself. The
+            # matching ACQUIRE fence sits inside the vote-success branch (once per round, not
+            # per spin), pairing with the producer's per-publish RELEASE. This closes BOTH
+            # handshakes with ONE fence: flag==0x01 ⇒ acquire pairs with release(partial1→0x01)
+            # ⇒ read partial1; flag==0x02 ⇒ acquire pairs with release(partial2→0x02) ⇒ read
+            # partial2. The fence orders EITHER subsequent partial load after the flag load, so
+            # a single acquire serves both. Both fences are workgroup-scope order-only (cheap,
+            # no L1 invalidate) — rocPRIM's atomic_fence_acquire_order_only gfx94x recipe.
+            if Bypass
+                flg = @access Device Relaxed flag[idx_lookback]
+            else
+                flg = @access flag[idx_lookback]      # Device Acquire
+            end
             has_aggregate = (0x01 <= flg <= 0x02)
             if @vote(All, has_aggregate, warpsz)
+                if Bypass
+                    @fence Workgroup Acquire    # pair the producer release; order the partial read after the flag read
+                end
                 has_prefix = (flg == 0x02)
                 if has_prefix
-                    val = partial2[idx_lookback]
+                    val = Bypass ? (@access Device Relaxed partial2[idx_lookback]) : partial2[idx_lookback]
                 else
-                    val = partial1[idx_lookback]
+                    val = Bypass ? (@access Device Relaxed partial1[idx_lookback]) : partial1[idx_lookback]
                 end
                 offset = 1
                 contains_prefix = has_prefix
@@ -550,8 +641,15 @@ end
     @synchronize
 
     if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
-        partial2[gid] = op(prefix, partial2[gid])
-        @access flag[gid] = 0x02
+        if Bypass
+            pv = @access Device Relaxed partial2[gid]
+            @access Device Relaxed partial2[gid] = op(prefix, pv)
+            @fence Workgroup Release    # drain the inclusive-prefix store before the flag
+            @access Device Relaxed flag[gid] = 0x02
+        else
+            partial2[gid] = op(prefix, partial2[gid])
+            @access flag[gid] = 0x02          # Device Release
+        end
     end
 
     if gid >= 2

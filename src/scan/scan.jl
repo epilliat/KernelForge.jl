@@ -296,6 +296,33 @@ end
 @inline scan_desc_fence(::AMDArch) = false
 @inline scan_desc_fence(::AbstractArch) = false
 
+# Whether the SPLIT-path kernels (scan_kernel! / scan_kernel_transposed!, used for any
+# non-packable H — Float64/Int64/Complex/Quaternion/composites) read & publish the
+# partial1/partial2/flag descriptor with Device-scope RELAXED atomics (cache-bypassing,
+# coherent) instead of the plain cached loads + `@access` Acquire/Release flag of the CUDA
+# path. On AMD (gfx942, per-XCD L2 + cross-XCD Infinity Fabric) the F64 wall is the split
+# lookback's DEVICE-scope acquire on the flag load AND the Device release on the flag store
+# — each forces an L1 invalidate / L2 writeback (`buffer_wbl2`), capping F64 at ~half of
+# F32's BW (MI300A 1e9: 24% vs 48%). Bypass makes all descriptor accesses Device-Relaxed
+# (fresh from L2, no cache op), and moves ORDERING to cheap WORKGROUP-scope release/acquire
+# `@fence`s whose AMD lowering appends an `s_waitcnt vmcnt(0)` DRAIN (no writeback) — exactly
+# rocPRIM's `atomic_fence_release_vmem_order_only` / `_acquire_order_only` (WITHOUT_SLOW_FENCES
+# gfx94x). Measured MI300A F64: 24%→~35% (Ni16, ~1.5×; 1.93×→1.31× vs rocPRIM), correct
+# (stress 910 reps/0 fails). OFF on CUDA: its Acquire/Release is free on a single die AND a
+# relaxed flag there is a genuine data race (measured wrong: e=1.0) — CUDA's stronger model
+# needs the real acquire. Off for every other/untuned arch (safe default). REQUIRES the KI
+# with the workgroup-release vmcnt(0) drain (else the two Device-Relaxed stores race).
+@inline scan_desc_bypass(::AMDArch) = true
+@inline scan_desc_bypass(::CUDAArch) = false
+@inline scan_desc_bypass(::AbstractArch) = false
+
+# The bypass routes partial1/partial2 loads/stores through KI atomics, which on gfx942 exist
+# only up to 64 bits. So it applies ONLY to a PRIMITIVE 8-byte aggregate (Float64/Int64/
+# UInt64) — exactly the split-path types the F64 win targets. Wider/composite split-path H
+# (ComplexF64 16 B, QuaternionF64 32 B, tuples) has no 128-bit atomic → keep the plain path
+# (a bypass atomic_load there fails GPU codegen). ≤4-byte primitives never reach here (packed).
+@inline scan_bypass_eligible(::Type{H}) where {H} = isprimitivetype(H) && sizeof(H) == 8
+
 # ── Split-path kernel FAMILY: blocked `vload` vs transposed WARP_TRANSPOSE ──────────
 # For a WIDE aggregate H the blocked `vload` starves memory-level parallelism as
 # items/thread grows (F64 caps ~61% of A100 peak); the transposed load (striped
@@ -367,7 +394,7 @@ function _scan_impl!(
         scan_kernel_transposed!(backend, workgroup)(
             f, op, g, dst, src, Val(Nitem),
             tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
-            Val(warpsz), Val(workgroup);
+            Val(warpsz), Val(workgroup), Val(scan_desc_bypass(arch) && scan_bypass_eligible(H));
             ndrange = ndrange,
         )
     elseif scan_packable(H)
@@ -383,7 +410,7 @@ function _scan_impl!(
         scan_kernel!(backend, workgroup)(
             f, op, g, dst, src, Val(Nitem),
             tmp.arrays.partial1, tmp.arrays.partial2, tmp.arrays.flag,
-            Val(Alignment), Val(warpsz);
+            Val(Alignment), Val(warpsz), Val(scan_desc_bypass(arch) && scan_bypass_eligible(H));
             ndrange = ndrange,
         )
     end
