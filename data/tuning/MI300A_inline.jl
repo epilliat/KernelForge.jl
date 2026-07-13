@@ -29,11 +29,18 @@ end
 # 1e9 — Ni16 35.8% vs Ni32 34.1% vs Ni8 26.1% (was 24% pre-bypass). Small-N cells unchanged
 # (lookback-light there). Hand-edited from a targeted sweep (xp/scan_parity/retune_f64.jl);
 # a full autotune re-run would rediscover the same.
+#
+# 2026-07-13: F64 on MI300A now takes the PACKED-128 path (scan_use_packed128 — CDNA3 + 8-byte
+# primitive; single coherent+atomic dwordx4 descriptor, one lookback round-trip instead of
+# flag→value). Re-swept on that kernel at 1e9: Ni16/wg512 = 40.2% peak / 1.195× rocPRIM, beating
+# Ni16/wg1024 (37.8%) and Ni32/wg512 (37.2%); Ni8 still collapses (25–29% — 4× the tiles ⇒ 4× the
+# lookback chain, which the cheaper descriptor does not offset). So large-N workgroup 1024 → 512.
+# Small-N cells left alone (lookback-light; packed-128 already improves them: 1e7 124→111 µs).
 @inline function KernelForge.default_workgroup(
     ::KernelForge.MI300A, ::Type{KernelForge.Scan1D}, n, ::Type{Float64})
     n < 1048576 ? 1024 :
         n < 2097152 ? 1024 :
-        1024
+        512
 end
 
 @inline function KernelForge.default_nitem(

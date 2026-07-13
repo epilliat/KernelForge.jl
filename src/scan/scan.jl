@@ -131,10 +131,14 @@ Allocate a `KernelBuffer` for `scan!`. Useful for repeated scans.
 - `arch=nothing`: Architecture (auto-detected from `src` if nothing)
 
 # Returns
-A `KernelBuffer` whose fields depend on the aggregate type `H = promote_op(f, eltype(src))`:
+A `KernelBuffer` whose fields depend on the aggregate type `H = promote_op(f, eltype(src))`
+(and, for the packed-128 case, on the architecture):
 - packable `H` (primitive, `sizeof ∈ {1,2,4}`, e.g. `Float32`/`Int32`): a single
   `desc::Vector{UInt64}` packed status+value tile descriptor;
-- otherwise (e.g. `Float64`, complex/tuple/struct aggregates): `partial1`,
+- 8-byte primitive `H` (e.g. `Float64`/`Int64`) **on CDNA3** (MI300): a single
+  `desc128::Vector{UInt128}` packed status+value descriptor, read/published with one
+  coherent+atomic 16-byte access (see `scan_use_packed128`);
+- otherwise (e.g. `Float64` on other archs, complex/tuple/struct aggregates): `partial1`,
   `partial2` (eltype `H`) and `flag` (`UInt8`).
 Either way the buffer is sized for `blocks` tiles; pass the same `tmp` to `scan!`.
 
@@ -154,11 +158,23 @@ function get_allocation(
     f::F,
     op::O,
     src::AT,
-    blocks::Int
+    blocks::Int;
+    arch=nothing,      # keyword, NOT positional: a 6th positional would be ambiguous with the
+                       # (src, workgroup, blocks) method below. MUST be the same arch `_scan_impl!`
+                       # dispatches on, or the buffers here would not match the launched kernel.
 ) where {F<:Function,O<:Function,AT<:AbstractArray}
     T = eltype(AT)
     H = Base.promote_op(f, T)
     backend = get_backend(src)
+    arch = something(arch, detect_arch(src))
+    if scan_use_packed128(arch, H)
+        # Packed-128 path (CDNA3 + 8-byte primitive H): one UInt128 status+value descriptor per
+        # tile, read/published with a single coherent+atomic dwordx4. Depends on (arch, H) only —
+        # the same predicate `_scan_impl!` uses — so the buffers always match the launched kernel.
+        # Zeroed buffer = STATUS_INVALID, the valid init state.
+        desc128 = KernelAbstractions.allocate(backend, UInt128, blocks)
+        return KernelBuffer((; desc128))
+    end
     if scan_packable(H)
         # Packed path: one UInt64 status+value descriptor per tile (see
         # scan_kernel.jl). Zeroed buffer = STATUS_INVALID, the valid init state.
@@ -188,7 +204,10 @@ function get_allocation(
     workgroup = something(workgroup, default_workgroup(arch, Scan1D, n, T))
     ndrange = cld(n, Nitem)
     blocks = something(blocks, cld(ndrange, workgroup))
-    return get_allocation(Scan1D, f, op, src, blocks)
+    # Forward `arch`: the buffer layout depends on it (packed-128 vs packed-64 vs split), and it must
+    # be the SAME arch `_scan_impl!` dispatches on — otherwise `tmp` could hold `desc128` while the
+    # launched kernel expects `partial1/2/flag` (or vice versa).
+    return get_allocation(Scan1D, f, op, src, blocks; arch)
 end
 
 # ============================================================================
@@ -323,6 +342,32 @@ end
 # (a bypass atomic_load there fails GPU codegen). ≤4-byte primitives never reach here (packed).
 @inline scan_bypass_eligible(::Type{H}) where {H} = isprimitivetype(H) && sizeof(H) == 8
 
+# ── PACKED-128 descriptor: supersedes the split path for 8-byte primitives on CDNA3 ─────
+# An 8-byte aggregate leaves no room for a status inside 64 bits, so the split path must publish
+# {flag, partial} separately — and its lookback pays TWO serialized cross-block round-trips per step
+# (read flag, vote, then a DEPENDENT read of the value). Packing {status, value} into a UInt128 and
+# accessing it with ONE coherent+atomic 16-byte op (`KI.atomic_load/atomic_store!(…, Device, Relaxed)`
+# → a single `global_{load,store}_dwordx4 … sc1`) delivers status+value together: the value is already
+# in hand when the vote passes. One round-trip. This is rocPRIM's F64 recipe and it is what closes the
+# remaining F64 gap on MI300A (measured 1e9: 1.34× → 1.195× vs rocPRIM; it also supersedes the split
+# bypass above, which stays in use on non-CDNA3 AMD). Atomicity also removes the fences — a torn
+# status/value pair is impossible.
+#
+# ARCH gate = CDNA3 (gfx94x / MI300): the KI 128-bit atomic emits `sc1`, which is the CDNA3 spelling.
+# CDNA2 (gfx90a / MI250X) and CDNA1 want `glc dlc` / `glc` — until KI dispatches on that, they keep
+# the split bypass path. TYPE gate = 8-byte PRIMITIVE H: `reinterpret(UInt64, v)` of a composite does
+# not GPU-codegen, and the 128-bit atomic cannot carry an aggregate either (both verified on gfx942),
+# so ComplexF64/tuples/structs keep the split path.
+#
+# Depends on (arch, H) ONLY — never on Nitem/family — so `get_allocation` and `_scan_impl!` cannot
+# disagree about which buffers exist. On a packed-128 eligible config this path supersedes BOTH split
+# families, so the `family` kwarg has no effect there (the transposed family is measured-dead on
+# gfx942 anyway). Blocked `vload` ⇒ Nitem MUST be a power of 2 (checked at launch).
+@inline scan_packed128_arch(::CDNA3) = true
+@inline scan_packed128_arch(::AbstractArch) = false
+@inline scan_use_packed128(arch, ::Type{H}) where {H} =
+    scan_packed128_arch(arch) && scan_packable128(H)
+
 # ── Split-path kernel FAMILY: blocked `vload` vs transposed WARP_TRANSPOSE ──────────
 # For a WIDE aggregate H the blocked `vload` starves memory-level parallelism as
 # items/thread grows (F64 caps ~61% of A100 peak); the transposed load (striped
@@ -387,7 +432,23 @@ function _scan_impl!(
     dst_align = (Int(pointer(dst)) ÷ sizeof(S)) % Nitem + 1
     Alignment = src_align == dst_align ? src_align : -1
     warpsz = get_warpsize(arch)
-    if scan_launch_transposed(family, H, S, Nitem, workgroup, warpsz)
+    if scan_use_packed128(arch, H)
+        # CDNA3 + 8-byte primitive H: the UInt128 {status,value} descriptor read/published with a
+        # single coherent+atomic dwordx4 (one lookback round-trip instead of flag→value). Supersedes
+        # BOTH split families, so `family` does not apply here. Same (arch,H) predicate as
+        # `get_allocation`, so `tmp.arrays.desc128` is guaranteed to be the buffer that was allocated.
+        # Blocked `vload` ⇒ pow-2 Nitem (a non-pow-2 would hit KI `vload_multi`, which fails codegen).
+        ispow2(Nitem) || throw(ArgumentError(
+            "scan: the packed-128 path (CDNA3 + 8-byte primitive eltype) uses the blocked `vload`, " *
+            "which requires a power-of-2 Nitem; got Nitem=$Nitem"))
+        fill!(tmp.arrays.desc128, UInt128(0))
+        scan_kernel_packed128!(backend, workgroup)(
+            f, op, g, dst, src, Val(Nitem),
+            tmp.arrays.desc128,
+            Val(Alignment), Val(warpsz);
+            ndrange = ndrange,
+        )
+    elseif scan_launch_transposed(family, H, S, Nitem, workgroup, warpsz)
         # Wide-H fast path: striped coalesced load + shared transpose (see
         # scan_kernel_transposed!). Uses the same split (partial1/2/flag) buffers.
         fill!(tmp.arrays.flag, 0x00)

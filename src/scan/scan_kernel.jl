@@ -456,6 +456,182 @@ end
 end
 
 # ============================================================================
+# Packed-128 tile descriptor — 8-byte payloads (Float64/Int64) on CDNA3.
+# ============================================================================
+# Same idea as the packed UInt64 descriptor above, one size class up: an 8-byte aggregate H does not
+# leave room for a status in 64 bits, so {status, value} is packed into a UInt128 and published/read
+# with a SINGLE coherent+atomic 16-byte access (`KI.atomic_load/atomic_store!(…, Device, Relaxed)` →
+# one `global_{load,store}_dwordx4 … sc1`, see the KernelIntrinsics AMD extension).
+#
+# WHY THIS MATTERS: the split path (scan_kernel!) must read the flag, vote, and only THEN issue a
+# DEPENDENT load of the value — two serialized cross-block round-trips per lookback step. The atomic
+# 16-byte snapshot delivers status+value together, so the value is already in hand when the vote
+# passes: one round-trip. That is rocPRIM's F64 recipe, and it is what closes the F64 gap on MI300A
+# (measured 1.34× → 1.195× vs rocPRIM at 1e9). Atomicity also removes the need for fences — a torn
+# status/value pair is impossible — exactly as on the packed-UInt64 path.
+#
+# H must be an 8-byte PRIMITIVE type: `reinterpret(UInt64, v)` of a composite does not GPU-codegen
+# (same restriction as `scan_packable`), and the 128-bit atomic itself cannot carry an aggregate.
+# Composite/wide H keep the split path. Arch is gated to CDNA3 (`sc1`); see `scan_use_packed128`.
+@inline scan_packable128(::Type{H}) where {H} = isprimitivetype(H) && sizeof(H) == 8
+
+# low 64 bits = value bits, bits 64..95 = status. Primitive→primitive reinterpret only (GPU-safe).
+@inline _scan_pack128(s::UInt32, v::H) where {H} = UInt128(reinterpret(UInt64, v)) | (UInt128(s) << 64)
+@inline _scan_status128(d::UInt128) = (d >> 64) % UInt32
+@inline _scan_value128(::Type{H}, d::UInt128) where {H} = reinterpret(H, d % UInt64)
+
+@kernel inbounds = true unsafe_indices = true function scan_kernel_packed128!(
+    f, op, g,
+    dst::AbstractVector{S},
+    src::AbstractVector{T},
+    ::Val{Nitem},
+    desc::AbstractVector{UInt128},
+    ::Val{Alignment},
+    ::Val{warpsz}
+) where {Nitem,T,S,Alignment,warpsz}
+    @uniform begin
+        N = length(src)
+        workgroup = Int(@groupsize()[1])
+        nwarps = workgroup ÷ warpsz
+    end
+
+    lid = Int(@index(Local))
+    gid = Int(@index(Group))
+    I = (gid - 1) * workgroup + lid
+
+    idx_base = (I - 1) * Nitem
+
+    warp_id = cld(lid, warpsz)
+    lane = (lid - 1) % warpsz + 1
+
+    H = Base.promote_op(f, T)  # aggregate type, compile-time (no global load)
+    shared = @localmem H warpsz
+
+    if idx_base + Nitem <= N
+        values = f.(vload(src, I, Val(Nitem), Val(true), Val(Alignment)))
+        values = tree_scan(op, values)
+    else
+        values = ntuple(Val(Nitem)) do i
+            f(src[N]) # dummy value
+        end
+    end
+
+    val = values[end]
+    @warpreduce(val, op, lane, warpsz)
+    stored_val = val
+    if lane == warpsz
+        shared[warp_id] = val
+    end
+
+    @synchronize
+
+    last_idx = Nitem * workgroup * gid
+    block_agg = val  # block aggregate, broadcast to all lanes of the last warp below
+    if warp_id == nwarps
+        val_acc = shared[lane]
+        @warpreduce(val_acc, op, lane, warpsz)
+        block_agg = @shfl(Idx, val_acc, nwarps)
+        shared[lane] = val_acc
+        if lane == nwarps && last_idx <= N
+            KI.atomic_store!(desc, gid, _scan_pack128(SCAN_STATUS_PARTIAL, block_agg),
+                             KI.Device, KI.Relaxed)
+        end
+    end
+
+    prefix = val
+    if gid >= 2 && warp_id == nwarps
+        lookback = 0
+        contains_prefix = false
+        # No backoff: measured a wash on MI300A F64 (the warps barely spin — producers commit fast
+        # enough that the all-ready vote passes first try; the cost is the coherent-load latency,
+        # which rocPRIM pays too), so sleeping would only add latency. Matches the packed-64 path.
+        while lookback + 1 < gid && !@shfl(Idx, contains_prefix, 1)
+            idx_lookback = max(gid - lookback - lane, 1)
+            # ONE coherent+atomic 16-byte load: status AND value together (no dependent 2nd load).
+            d = KI.atomic_load(desc, idx_lookback, KI.Device, KI.Relaxed)
+            flg = _scan_status128(d)
+            has_aggregate = (SCAN_STATUS_PARTIAL <= flg <= SCAN_STATUS_PREFIX)
+            if @vote(All, has_aggregate, warpsz)
+                has_prefix = (flg == SCAN_STATUS_PREFIX)
+                val = _scan_value128(H, d)   # already in hand — the snapshot carried it
+                offset = 1
+                contains_prefix = has_prefix
+                while offset < warpsz
+                    shuffled = @shfl(Down, val, offset)
+                    shuffled_contains_prefix = @shfl(Down, contains_prefix, offset)
+                    if !contains_prefix && lane + offset <= warpsz && gid - lookback - lane - offset >= 1
+                        val = op(shuffled, val)
+                        contains_prefix = contains_prefix || shuffled_contains_prefix
+                    end
+                    offset <<= 1
+                end
+
+                if lookback == 0
+                    prefix = val
+                else
+                    prefix = op(val, prefix)
+                end
+                lookback += warpsz
+            end
+        end
+        if lane == 1
+            shared[warpsz] = prefix
+        end
+    end
+
+    @synchronize
+
+    if gid >= 2 && warp_id == nwarps && lane == 1 && last_idx <= N
+        KI.atomic_store!(desc, gid, _scan_pack128(SCAN_STATUS_PREFIX, op(prefix, block_agg)),
+                         KI.Device, KI.Relaxed)
+    end
+
+    if gid >= 2
+        prefix_block = shared[warpsz]
+    end
+    if warp_id >= 2
+        prefix_warp = shared[warp_id-1]
+    end
+    prefix_lane = @shfl(Idx, stored_val, max(lane - 1, 1))
+
+    if warp_id == 1 && lane == 1 && gid >= 2
+        global_prefix = prefix_block
+    elseif warp_id == 1 && lane >= 2 && gid == 1
+        global_prefix = prefix_lane
+    elseif warp_id == 1 && lane >= 2 && gid >= 2
+        global_prefix = op(prefix_block, prefix_lane)
+    elseif warp_id >= 2 && lane == 1 && gid == 1
+        global_prefix = prefix_warp
+    elseif warp_id >= 2 && lane == 1 && gid >= 2
+        global_prefix = op(prefix_block, prefix_warp)
+    elseif warp_id >= 2 && lane >= 2 && gid == 1
+        global_prefix = op(prefix_warp, prefix_lane)
+    elseif warp_id >= 2 && lane >= 2 && gid >= 2
+        global_prefix = op(prefix_block, op(prefix_warp, prefix_lane))
+    end
+
+    if idx_base + Nitem <= N
+        if (gid >= 2 || lane >= 2 || warp_id >= 2)
+            values = prefix_apply(op, global_prefix, values)
+        end
+        vstore!(dst, I, g.(values), Val(true), Val(Alignment))
+    elseif idx_base < N
+        if N > Nitem
+            val = op(global_prefix, f(src[idx_base+1]))
+        else
+            val = f(src[idx_base+1])
+        end
+        dst[idx_base+1] = g(val)
+        for i in (2:Nitem)
+            if idx_base + i <= N
+                val = op(val, f(src[idx_base+i]))
+                dst[idx_base+i] = g(val)
+            end
+        end
+    end
+end
+
+# ============================================================================
 # Transposed (WARP_TRANSPOSE-style) variant of scan_kernel! — large-H fast path.
 # ============================================================================
 # For a WIDE aggregate H (`sizeof(H) ≥ 8`, e.g. Float64/ComplexF32) the blocked
