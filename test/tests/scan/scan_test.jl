@@ -100,3 +100,26 @@ end
         end
     end
 end
+# Every test above lets `scan!` allocate its own buffer, so none of them exercise a REUSED `tmp` —
+# which is the whole point of `tmp`, and the case where a stale tile descriptor from the previous
+# call could leak into the next one. Exact integer sums, so a leak shows up as an exact mismatch
+# rather than a rounding one.
+@testset "KernelForge.scan! with a reused tmp" begin
+    for T in (Int32, Int64, Float32, Float64), n in (1000, 100_000, 1_000_000)
+        @testset "$T n=$n" begin
+            src = AT(zeros(T, n))
+            dst = AT(zeros(T, n))
+            tmp = KF.@allocate scan1d(identity, +, src)
+            ok = true
+            for call in 1:10        # same tmp, DIFFERENT data each time
+                src_cpu = rand(T <: Integer ? (T(-4):T(4)) : T, n)
+                copyto!(src, src_cpu)
+                KF.scan!(+, dst, src; tmp)
+                KA.synchronize(backend)
+                ok &= T <: Integer ? Array(dst) == accumulate(+, src_cpu) :
+                                     isapprox(Array(dst), accumulate(+, src_cpu))
+            end
+            @test ok
+        end
+    end
+end
