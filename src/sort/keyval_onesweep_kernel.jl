@@ -219,6 +219,13 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
                 comb = shared_hist[1, 1]
                 flg_val = comb & UInt32(0xFF)
                 b_val = Int(comb >> 8)
+                # Every thread must finish reading shared_hist[1, 1] before the
+                # `lid == 1` store below overwrites it with the next block index.
+                # Without this barrier a fast warp clobbers the slot while a slow
+                # warp is still loading it: the warps then disagree on `b_val` and
+                # on `contains_prefix`, which both corrupts the prefix and makes the
+                # trailing `@synchronize` divergent.
+                @synchronize
 
                 if flg_val == UInt32(0x02)
                     @access pval = partial2[bucket, b_val]
