@@ -19,6 +19,8 @@ using KernelAbstractions
 import KernelAbstractions as KA
 using KernelForge
 import KernelForge as KF
+using KernelIntrinsics
+import KernelIntrinsics as KI
 using Random
 
 

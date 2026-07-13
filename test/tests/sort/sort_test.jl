@@ -265,3 +265,100 @@ end
         @test Array(y) == sort(Array(src))
     end
 end
+
+# ---------------------------------------------------------------------------
+# Dynamic shared memory + workgroup decoupling + the RR knob.
+#
+# The onesweep allocates its shared arrays dynamically, so the tile is bounded
+# by the device's opt-in limit rather than by the 48 KB static cap, and the
+# workgroup is no longer pinned to Nbuckets=256. Both change how ranks are
+# computed, so both need to be exercised across the space the autotune can pick
+# from — and the cap has to be honoured, since it varies per device.
+@testset "onesweep: workgroup / rr / dynamic-tile" begin
+    cap = KI.max_dynamic_localmem(KI.device(backend, 1))
+    warpsz = KI.get_warpsize(KI.device(backend, 1))
+    Nbuckets = 256
+
+    fits(::Type{T}, wg, nc, ni) where {T} =
+        KF.onesweep_shmem(T, Nbuckets, warpsz, wg, nc, ni) <= cap
+
+    @testset "shared layout is self-consistent" begin
+        # The host sizes the launch from `onesweep_shmem`; the kernel places its
+        # arrays from `onesweep_shared_layout`. If these ever disagree the kernel
+        # corrupts memory silently, so pin the relationship.
+        for T in (UInt32, UInt64), wg in (256, 512), nc in (1, 2)
+            wpb = wg ÷ warpsz
+            nwg = Nbuckets ÷ warpsz
+            bsm = wg * nc * 16
+            (o_h, o_a, o_s, total) = KF.onesweep_shared_layout(T, Nbuckets, wpb, nwg, bsm)
+            @test o_h == 0
+            @test o_a >= o_h + Nbuckets * wpb * sizeof(UInt32)   # hist fits before aux
+            @test o_s >= o_a + (Nbuckets + nwg) * sizeof(UInt32) # aux fits before sorted
+            @test o_s % 16 == 0                                  # aligned for any isbits T
+            @test total == o_s + bsm * sizeof(T)
+            @test total == KF.onesweep_shmem(T, Nbuckets, warpsz, wg, nc, 16)
+        end
+    end
+
+    @testset "correct across workgroup x rr x tile" begin
+        for T in (UInt32, UInt64), wg in (256, 512, 1024), rr in (false, true),
+                (ni, nc) in ((16, 1), (16, 2), (16, 4))
+            wg > Nbuckets * 4 && continue
+            fits(T, wg, nc, ni) || continue
+            for n in (10_007, 1_000_000)
+                src = AT(rand(T, n))
+                got = KF.sort(src; workgroup = wg, rr = rr, Nitem = ni, Nchunks = nc)
+                @test Array(got) == sort(Array(src))
+            end
+        end
+    end
+
+    @testset "stability is preserved at every workgroup" begin
+        # THE test for the workgroup decoupling. An LSD radix sort needs every
+        # pass to be stable, and a keys-only comparison cannot see instability:
+        # the multiset of keys is identical either way. So sort (key, payload)
+        # pairs with heavy key collisions and require the payloads within each
+        # key to stay in source order.
+        n = 200_003
+        keys = rand(UInt32(0):UInt32(99), n)      # ~2000 duplicates per key
+        pairs_cpu = collect(zip(keys, UInt32.(0:(n - 1))))
+        for wg in (256, 512, 1024), rr in (false, true)
+            wg > Nbuckets * 4 && continue
+            ni, nc = (wg == 1024 ? 8 : 16), 1
+            fits(eltype(pairs_cpu), wg, nc, ni) || continue
+            got = Array(KF.sort(AT(pairs_cpu); by = first,
+                                workgroup = wg, rr = rr, Nitem = ni, Nchunks = nc))
+            @test issorted(got; by = first)
+            @test got == sort(pairs_cpu; by = first)   # Base's sort is stable
+        end
+    end
+
+    @testset "lookback is correct when it actually spins" begin
+        # The decoupled-lookback loop only exercises its spin/‌rewind path once
+        # there are enough blocks for a block to wait on a predecessor.
+        T = UInt32
+        n = 4_000_000
+        src = AT(rand(T, n))
+        expected = sort(Array(src))
+        for wg in (256, 512, 1024)
+            wg > Nbuckets * 4 && continue
+            nc = maximum(c for c in (1, 2, 4) if fits(T, wg, c, 16); init = 0)
+            nc == 0 && continue
+            @test cld(n, wg * nc * 16) > 100      # the spin path is really taken
+            @test Array(KF.sort(src; workgroup = wg, Nitem = 16, Nchunks = nc)) == expected
+        end
+    end
+
+    @testset "a tile over the device cap is rejected, not silently wrong" begin
+        # Must throw (catchable, non-sticky) so the autotune can skip the
+        # candidate and carry on in the same process.
+        T = UInt64
+        big = 64
+        @test !fits(T, 1024, big, 16)
+        @test_throws ArgumentError KF.sort(AT(rand(T, 10_000));
+                                           workgroup = 1024, Nitem = 16, Nchunks = big)
+        # ...and the backend still works afterwards
+        src = AT(rand(T, 10_000))
+        @test Array(KF.sort(src)) == sort(Array(src))
+    end
+end

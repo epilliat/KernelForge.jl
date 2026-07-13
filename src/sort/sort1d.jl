@@ -16,14 +16,29 @@
 
 # Chunks per warp. We size block_size_max = workgroup * Nchunks * Nitem so
 # that shared_sorted (= block_size_max * sizeof(T) bytes) fits alongside
-# shared_hist (8 KB) + shared_aux (~1 KB) in the 48 KB static-shared budget.
+# shared_hist (8 KB) + shared_aux (~1 KB) in the shared-memory budget.
 # For sizeof(T) ≤ 4 bytes, (Nitem=16, Nchunks=2) → 8192 elements → up to 32 KB
 # shared_sorted, total ≤ 41 KB.
 # For sizeof(T) = 8, halve Nchunks → 4096 elements × 8 B = 32 KB, total 41 KB.
+#
+# These sizes date from when shared memory was static and therefore capped at
+# 48 KB. The onesweep now allocates dynamically, so the real ceiling is
+# `KI.max_dynamic_localmem(dev)` (99 KB Ada, 163 KB A100) and much larger tiles
+# are reachable — but only where they have been MEASURED to win. The defaults
+# stay at the old shape so an untuned architecture behaves exactly as before;
+# the autotune raises them per (arch, N, dtype).
 @inline default_nchunks(::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = sizeof(T) <= 4 ? 2 : 1
 @inline default_nchunks(::RTX1000,      ::Type{Sort1D}, n, ::Type{T}) where T = sizeof(T) <= 4 ? 2 : 1
 @inline default_nchunks(::A40,          ::Type{Sort1D}, n, ::Type{T}) where T = sizeof(T) <= 4 ? 2 : 1
 @inline default_nchunks(::AMDArch,      ::Type{Sort1D}, n, ::Type{T}) where T = sizeof(T) <= 4 ? 2 : 1
+
+# RR ("re-read"): in phase 5a, re-load each item from `src` instead of carrying
+# it in a register from phase 1b. Halves the live values and stops the register
+# allocator spilling at high items/thread, at the cost of a second (L1-hot) load.
+# Measured on A100: wins on 4-byte keys (−8..−19%), loses on 8-byte ones
+# (+3..+10%). Default `false` = the historical behaviour; the autotune flips it
+# per (arch, N, dtype) where it measured a win.
+@inline default_sort_rr(::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = false
 
 
 # Keyval (`sort(...; keys=k)`) defaults: shared_sorted (T) AND shared_keys
@@ -193,19 +208,19 @@ function sort(src::AT;
                 keys=nothing,
                 tmp::TMP=nothing,
                 Nitem=nothing, Nchunks=nothing,
-                workgroup=nothing, arch=nothing) where
+                workgroup=nothing, rr=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
     if keys === nothing
         dst = similar(src)
         sort!(dst, src; algorithm, by, uint_map, lt, tmax, reverse,
-              tmp, Nitem, Nchunks, workgroup, arch)
+              tmp, Nitem, Nchunks, workgroup, rr, arch)
         return dst
     else
         length(keys) == length(src) || error("`keys` must have the same length as `src`")
         dst = similar(src)
         keys_dst = similar(keys)
         sort!(dst, src; algorithm, keys, keys_dst, by, uint_map,
-              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, arch)
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, arch)
         return (dst, keys_dst)
     end
 end
@@ -223,7 +238,7 @@ function sort!(dst::AbstractArray, src::AT;
                  keys=nothing, keys_dst=nothing,
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
-                 workgroup=nothing, arch=nothing) where
+                 workgroup=nothing, rr=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
     algorithm in (:auto, :radix, :sample) ||
@@ -262,6 +277,7 @@ function sort!(dst::AbstractArray, src::AT;
         workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, T))
         Nitem_ = something(Nitem, default_nitem(arch_, Sort1D, n, T))
         Nchunks_ = something(Nchunks, default_nchunks(arch_, Sort1D, n, T))
+        rr_ = something(rr, default_sort_rr(arch_, Sort1D, n, T))
         npasses = sizeof(K)
 
         if npasses == 1
@@ -271,7 +287,7 @@ function sort!(dst::AbstractArray, src::AT;
         else
             _dispatch_onesweep!(Val(Nitem_), Val(Nchunks_),
                                 by, uint_map, dst, src, tmp,
-                                Nitem_, Nchunks_, workgroup_, npasses, K, backend, arch_)
+                                Nitem_, Nchunks_, workgroup_, rr_, npasses, K, backend, arch_)
         end
         return dst
     else
@@ -331,16 +347,16 @@ function sort!(src::AT;
                  keys=nothing,
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
-                 workgroup=nothing, arch=nothing) where
+                 workgroup=nothing, rr=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
     if keys === nothing
         sort!(src, src; algorithm, by, uint_map, lt, tmax, reverse,
-              tmp, Nitem, Nchunks, workgroup, arch)
+              tmp, Nitem, Nchunks, workgroup, rr, arch)
         return src
     else
         # Keys also sorted in-place: keys_dst === keys.
         sort!(src, src; algorithm, keys, keys_dst=keys, by, uint_map,
-              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, arch)
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, arch)
         return (src, keys)
     end
 end
@@ -367,17 +383,17 @@ end
 
 @inline _dispatch_onesweep!(::Val{16}, ::Val{1},
         by, uint_map, dst, src, tmp,
-        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+        Nitem, Nchunks, workgroup, rr, npasses, ::Type{K}, backend, arch) where K =
     _sort1d_impl!(get_radix_kernel(Val(16), Val(1)),
                   by, uint_map, dst, src, tmp,
-                  Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+                  Nitem, Nchunks, workgroup, rr, npasses, K, backend, arch)
 
 @inline _dispatch_onesweep!(::Val{16}, ::Val{2},
         by, uint_map, dst, src, tmp,
-        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+        Nitem, Nchunks, workgroup, rr, npasses, ::Type{K}, backend, arch) where K =
     _sort1d_impl!(get_radix_kernel(Val(16), Val(2)),
                   by, uint_map, dst, src, tmp,
-                  Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+                  Nitem, Nchunks, workgroup, rr, npasses, K, backend, arch)
 
 # Fallbacks: exotic specs. Factory may @eval; we then invokelatest the
 # impl exactly once per fresh spec. Subsequent calls for the same spec
@@ -393,11 +409,11 @@ end
 
 function _dispatch_onesweep!(::Val{Nitem}, ::Val{Nchunks},
         by, uint_map, dst, src, tmp,
-        Nitem_int, Nchunks_int, workgroup, npasses, ::Type{K}, backend, arch) where {Nitem,Nchunks,K}
+        Nitem_int, Nchunks_int, workgroup, rr, npasses, ::Type{K}, backend, arch) where {Nitem,Nchunks,K}
     ker_fn = get_radix_kernel(Val(Nitem), Val(Nchunks))
     Base.invokelatest(_sort1d_impl!, ker_fn,
                       by, uint_map, dst, src, tmp,
-                      Nitem_int, Nchunks_int, workgroup, npasses, K, backend, arch)
+                      Nitem_int, Nchunks_int, workgroup, rr, npasses, K, backend, arch)
 end
 
 
@@ -509,14 +525,14 @@ function _sort1d_impl!(
     dst::DS, src::AT,
     ::Nothing,
     Nitem::Int, Nchunks::Int,
-    workgroup::Int,
+    workgroup::Int, rr::Bool,
     npasses::Int, ::Type{K},
     backend, arch,
 ) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,K}
     tmp = get_allocation(Sort1D, src;
                          Nitem, Nchunks, workgroup, arch, by, uint_map)
     _sort1d_impl!(ker, by, uint_map, dst, src, tmp,
-                  Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+                  Nitem, Nchunks, workgroup, rr, npasses, K, backend, arch)
 end
 
 function _sort1d_impl!(
@@ -524,7 +540,7 @@ function _sort1d_impl!(
     dst::DS, src::AT,
     tmp::KernelBuffer,
     Nitem::Int, Nchunks::Int,
-    workgroup::Int,
+    workgroup::Int, rr::Bool,
     npasses::Int, ::Type{K},
     backend, arch,
 ) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,K}
@@ -534,6 +550,11 @@ function _sort1d_impl!(
     wpb = workgroup ÷ warpsz
     block_size_max = workgroup * Nchunks * Nitem
     nblocks = cld(n, block_size_max)
+
+    workgroup >= Nbuckets ||
+        throw(ArgumentError("sort workgroup must be >= $Nbuckets (got $workgroup): " *
+                            "the first $Nbuckets threads carry the per-digit buckets"))
+    shmem = onesweep_shmem(eltype(src), Nbuckets, warpsz, workgroup, Nchunks, Nitem)
 
     hist     = tmp.arrays.hist
     partial1 = tmp.arrays.partial1
@@ -555,7 +576,12 @@ function _sort1d_impl!(
     #     `sort` / `sort!(dst, src)` on UInt16/UInt32/UInt64/Float32/Float64).
     #   * dst !== src + odd  npasses: one src → scratch copy, ping
     #     (scratch, dst); result in dst.
-    inst = ker(backend, workgroup, nblocks * workgroup)
+    # `ker(backend, workgroup)` — NOT `ker(backend, workgroup, ndrange)`. Passing
+    # the ndrange positionally bakes it in as a StaticSize type parameter, which
+    # recompiles the kernel for every distinct n.
+    inst = ker(backend, workgroup)
+    ndrange = nblocks * workgroup
+    rr_val = rr ? Val(true) : Val(false)   # keep the launch statically dispatched
 
     if dst === src
         if iseven(npasses)
@@ -584,9 +610,11 @@ function _sort1d_impl!(
         p2_view = @view partial2[:, :, pass]
         fl_view = @view flag[:, pass]
         excl_col = @view hist[:, pass]
-        inst(b, a, by, uint_map, Int32(8 * (pass - 1)),
-             excl_col, p1_view, p2_view, fl_view,
-             Val(Nbuckets), Val(warpsz), Val(wpb))
+        KernelIntrinsics.launch!(
+            inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
+            excl_col, p1_view, p2_view, fl_view,
+            Val(Nbuckets), Val(warpsz), Val(wpb), rr_val;
+            ndrange, shmem)
         a, b = b, a
         # No-copy `dst !== src` + even npasses path: pass 1 reads src
         # directly into scratch, then ping-pong (scratch, dst) so the

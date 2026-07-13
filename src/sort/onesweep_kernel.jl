@@ -33,9 +33,27 @@
 #       Pass a view (e.g. `@view full_excl_hist[:, p]`) when calling.
 #   flag               :: AbstractVector{UInt8} of length nblocks
 #
-# Constraint: shared_sorted (= block_size_max * sizeof(T) bytes) +
-#   shared_hist (= Nbuckets * wpb * 4 bytes) must fit in 48 KB static
-#   shared. Wider T forces smaller block_size_max.
+# Shared memory is DYNAMIC (`KI.@dynlocalmem`), not `@localmem`. `@localmem`
+# allocates statically, and ptxas caps a static allocation at 48 KB on every
+# NVIDIA architecture — which capped `block_size_max`, which capped the tile.
+# The dynamic region reaches the real per-block limit (99 KB Ada, 163 KB A100),
+# so the tile is now bounded by `KI.max_dynamic_localmem(dev)` instead. The
+# three arrays are carved out of ONE flat blob by `onesweep_shared_layout`,
+# which is called from the host (to size the launch) and from the kernel (to
+# place each array) — never derive the two sides separately.
+#
+# The workgroup is DECOUPLED from Nbuckets. It used to be pinned to 256 by
+# `bucket = lid`, so the only way to grow the tile was to grow items/thread,
+# which exploded registers (tile 32768 at wg=256 => 128 items/thread => 255 regs
+# and 488 B/thread spilled to local memory). With `has_bucket = lid <= Nbuckets`
+# the same tile can be bought at wg=1024 with 32 items/thread, CUB-like and
+# spill-free. Only the first `nwg = Nbuckets ÷ warpsz` warps carry a bucket.
+#
+# NOT a single block-wide histogram, though that would make the histogram
+# workgroup-independent: it would BREAK STABILITY. Block-wide atomics hand out
+# ranks in ARRIVAL order rather than source order, and an LSD radix sort needs
+# every pass to be stable or it destroys the order the previous passes
+# established. The per-warp histogram is exactly what makes this kernel stable.
 #
 # Stable champions on RTX 1000 Ada Laptop (sm_89), UInt32 keys:
 #   N = 10M : (Nitem=16, Nchunks=2) ≈ 532 µs/pass
@@ -45,6 +63,47 @@ using KernelAbstractions
 using KernelIntrinsics
 using Base.Cartesian: @nexprs
 using KernelAbstractions: @atomic
+
+
+"""
+    onesweep_shared_layout(T, Nbuckets, wpb, nwg, block_size_max)
+
+Byte offsets of the three shared arrays inside the kernel's dynamic workgroup
+region, plus the total size of that region:
+
+    (off_hist, off_aux, off_sorted, total)
+
+`shared_sorted` is padded up to a 16-byte boundary, which is at least the
+alignment of any isbits `T`.
+
+Call this from BOTH the host (`total` sizes the launch) and the device (the
+offsets place each array). The host and the device disagreeing about this layout
+is the one way to corrupt the kernel silently, so there is exactly one copy of it.
+"""
+@inline function onesweep_shared_layout(
+        ::Type{T}, Nbuckets::Integer, wpb::Integer, nwg::Integer, block_size_max::Integer
+    ) where {T}
+    off_hist = 0
+    off_aux = off_hist + Nbuckets * wpb * sizeof(UInt32)
+    off_sorted = cld(off_aux + (Nbuckets + nwg) * sizeof(UInt32), 16) * 16
+    return (off_hist, off_aux, off_sorted, off_sorted + block_size_max * sizeof(T))
+end
+
+"""
+    onesweep_shmem(T, Nbuckets, warpsz, workgroup, Nchunks, Nitem) -> Int
+
+Bytes of dynamic workgroup memory one onesweep block needs for this launch
+configuration. Compare against `KI.max_dynamic_localmem(dev)` before launching;
+`KI.launch!` throws (catchably) if it does not fit.
+"""
+@inline function onesweep_shmem(
+        ::Type{T}, Nbuckets::Integer, warpsz::Integer, workgroup::Integer,
+        Nchunks::Integer, Nitem::Integer
+    ) where {T}
+    wpb = workgroup ÷ warpsz
+    nwg = Nbuckets ÷ warpsz
+    return Int(onesweep_shared_layout(T, Nbuckets, wpb, nwg, workgroup * Nchunks * Nitem)[4])
+end
 
 
 # Cache: (Nitem, Nchunks) → compiled @kernel function object.
@@ -62,7 +121,16 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             N = length(src)
             digit_mask = UInt32(Nbuckets - 1)
             T = eltype(dst)
+            workgroup = wpb * warpsz
             block_size_max = wpb * $Nchunks * warpsz * $Nitem
+            # Bucket-carrying warps. NOT `wpb`: buckets are spread over the
+            # first Nbuckets THREADS, so they occupy Nbuckets ÷ warpsz warps
+            # regardless of how many warps the block has.
+            nwg = Nbuckets ÷ warpsz
+            # One flat dynamic region, carved by the SAME layout function the
+            # host calls to size `shmem`. See onesweep_shared_layout.
+            (off_hist, off_aux, off_sorted, _) =
+                onesweep_shared_layout(T, Nbuckets, wpb, nwg, block_size_max)
         end
 
         lid = Int(@index(Local))
@@ -70,6 +138,14 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         warp_id = (lid - 1) ÷ warpsz + 1
         lane = (lid - 1) % warpsz + 1
         global_warp = (gid - 1) * wpb + warp_id
+
+        # Workgroup decoupling: at workgroup > Nbuckets the trailing threads
+        # carry no bucket. They still load, rank and scatter items — they just
+        # take no part in the per-bucket scan, the aggregate publish, or the
+        # lookback. `bucket` is clamped to 1 so every index stays in range; the
+        # `has_bucket` guard is what keeps those threads from writing anything.
+        has_bucket = lid <= Nbuckets
+        bucket = has_bucket ? lid : 1
 
         # Position-based addressing (strided load). Lane L's i-th item in
         # chunk c is at src position:
@@ -80,13 +156,13 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         block_last_pos_1 = min(gid * block_size_max, N)
         block_size_actual = max(0, block_last_pos_1 - block_first_pos_1 + 1)
 
-        shared_hist = @localmem UInt32 (Nbuckets, wpb)
-        # shared_aux: scratch for warp_totals[1..wpb] and block_digit_start[1..Nbuckets].
+        shared_hist = KernelIntrinsics.@dynlocalmem UInt32 (Nbuckets, wpb) off_hist
+        # shared_aux: scratch for warp_totals[1..nwg] and block_digit_start[1..Nbuckets].
         # In v19/v22 these aliased into the front of shared_sorted (then UInt32),
         # which broke once shared_sorted started carrying T-typed values (an
         # InexactError if T is narrower than UInt32). Costs ~1 KB extra shared.
-        shared_aux = @localmem UInt32 (Nbuckets + wpb,)
-        shared_sorted = @localmem T (block_size_max,)
+        shared_aux = KernelIntrinsics.@dynlocalmem UInt32 (Nbuckets + nwg,) off_aux
+        shared_sorted = KernelIntrinsics.@dynlocalmem T (block_size_max,) off_sorted
 
         is_full_tile = gid * block_size_max <= N
 
@@ -138,48 +214,58 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 
         # Phase 2: per-bucket exclusive scan over warps. Iterates over wpb
         # warps (8 on NVIDIA workgroup=256/warpsz=32, 4 on AMD warpsz=64).
-        bucket = lid
-        prefix_acc = UInt32(0)
-        for w in 1:wpb
-            v = shared_hist[bucket, w]
-            shared_hist[bucket, w] = prefix_acc
-            prefix_acc += v
+        block_total_b = UInt32(0)
+        if has_bucket
+            prefix_acc = UInt32(0)
+            for w in 1:wpb
+                v = shared_hist[bucket, w]
+                shared_hist[bucket, w] = prefix_acc
+                prefix_acc += v
+            end
+            block_total_b = prefix_acc
         end
-        block_total_b = prefix_acc
 
         # Phase 3a: publish aggregate (TRANSPOSED layout for coalescing).
-        @access partial1[bucket, gid] = block_total_b
-        @access partial2[bucket, gid] = block_total_b
+        if has_bucket
+            @access partial1[bucket, gid] = block_total_b
+            @access partial2[bucket, gid] = block_total_b
+        end
         @synchronize
         if lid == 1
             @access flag[gid] = 0x01
         end
 
-        # Phase 4.5: warp-totals reduction. Uses shared_aux for cross-warp
-        # scratch (was aliased into shared_sorted in v19/v22).
-        val_inc = block_total_b
-        @warpreduce(val_inc, +, lane, warpsz)
-        val_exc_within = val_inc - block_total_b
-
-        if lane == warpsz
-            shared_aux[Nbuckets + warp_id] = val_inc
+        # Phase 4.5: exclusive scan of the Nbuckets block totals, which live in
+        # threads 1..Nbuckets, i.e. in warps 1..nwg. The guard is warp-uniform,
+        # so the shuffles inside @warpreduce see a converged warp.
+        val_exc_within = UInt32(0)
+        if warp_id <= nwg
+            val_inc = block_total_b
+            @warpreduce(val_inc, +, lane, warpsz)
+            val_exc_within = val_inc - block_total_b
+            if lane == warpsz
+                shared_aux[Nbuckets + warp_id] = val_inc
+            end
         end
         @synchronize
 
         if warp_id == 1
-            wt = lane <= wpb ? shared_aux[Nbuckets + lane] : UInt32(0)
+            wt = lane <= nwg ? shared_aux[Nbuckets + lane] : UInt32(0)
             inc_v = wt
-            @warpreduce(inc_v, +, lane, wpb)
+            @warpreduce(inc_v, +, lane, nwg)
             excl_v = inc_v - wt
-            if lane <= wpb
+            if lane <= nwg
                 shared_aux[Nbuckets + lane] = excl_v
             end
         end
         @synchronize
 
-        warp_prefix = shared_aux[Nbuckets + warp_id]
-        own_bds_reg = warp_prefix + val_exc_within
-        shared_aux[bucket] = own_bds_reg
+        own_bds_reg = UInt32(0)
+        if has_bucket
+            warp_prefix = shared_aux[Nbuckets + warp_id]
+            own_bds_reg = warp_prefix + val_exc_within
+            shared_aux[bucket] = own_bds_reg
+        end
         @synchronize
 
         # Phase 4 first: write warp_block_local_base into shared_hist.
@@ -194,13 +280,23 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 
         # Phase 5a: shuffle to shared_sorted. Bounds check uses the same strided
         # position formula as phase 1b.
+        #
+        # RR ("re-read"): re-load the item from `src` instead of carrying it in a
+        # register from phase 1b. `src` is not written during a pass, so the value
+        # is identical. It trades a second (already-cached) load for roughly half
+        # the live values, which is what stops the register allocator spilling at
+        # high items/thread. It wins on 4-byte keys and loses on 8-byte ones, so
+        # it is a tuning knob, not a default.
         if is_full_tile
             @nexprs $Nchunks c -> begin
+                chunk_base_5a_c = warp_first_pos + (c - 1) * warpsz * $Nitem
                 @nexprs $Nitem i -> begin
-                    key_5a_c_i = uint_map(by(item_c_i))
+                    pos_5a_c_i = chunk_base_5a_c + (i - 1) * warpsz + (lane - 1)
+                    it_5a_c_i = RR ? src[pos_5a_c_i] : item_c_i
+                    key_5a_c_i = uint_map(by(it_5a_c_i))
                     d_5a_c_i = Int((key_5a_c_i >> shift) & digit_mask) + 1
                     block_local_pos_c_i = shared_hist[d_5a_c_i, warp_id] + rank_c_i
-                    shared_sorted[Int(block_local_pos_c_i) + 1] = item_c_i
+                    shared_sorted[Int(block_local_pos_c_i) + 1] = it_5a_c_i
                 end
             end
         else
@@ -209,10 +305,11 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
                 @nexprs $Nitem i -> begin
                     pos_5a_c_i = chunk_base_5a_c + (i - 1) * warpsz + (lane - 1)
                     if pos_5a_c_i <= N
-                        key_5a_c_i = uint_map(by(item_c_i))
+                        it_5a_c_i = RR ? src[pos_5a_c_i] : item_c_i
+                        key_5a_c_i = uint_map(by(it_5a_c_i))
                         d_5a_c_i = Int((key_5a_c_i >> shift) & digit_mask) + 1
                         block_local_pos_c_i = shared_hist[d_5a_c_i, warp_id] + rank_c_i
-                        shared_sorted[Int(block_local_pos_c_i) + 1] = item_c_i
+                        shared_sorted[Int(block_local_pos_c_i) + 1] = it_5a_c_i
                     end
                 end
             end
@@ -252,13 +349,21 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
                 # trailing `@synchronize` divergent.
                 @synchronize
 
+                # `flg_val` / `b_val` are block-uniform (every thread just read the
+                # same slot behind a barrier), so `contains_prefix` is uniform too
+                # and the loop trip count is the same for every thread — which is
+                # what makes the @synchronize below legal.
                 if flg_val == UInt32(0x02)
-                    @access pval = partial2[bucket, b_val]
-                    cross_block_prefix += pval
+                    if has_bucket
+                        @access pval = partial2[bucket, b_val]
+                        cross_block_prefix += pval
+                    end
                     contains_prefix = true
                 else
-                    @access pval = partial1[bucket, b_val]
-                    cross_block_prefix += pval
+                    if has_bucket
+                        @access pval = partial1[bucket, b_val]
+                        cross_block_prefix += pval
+                    end
                     if b_val == 1
                         contains_prefix = true
                     else
@@ -271,14 +376,18 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             end
         end
 
-        @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+        if has_bucket
+            @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+        end
         @synchronize
         if lid == 1
             @access flag[gid] = 0x02
         end
 
         # Phase 4 second: write block_global_offset[d] into shared_hist[d, 1].
-        shared_hist[bucket, 1] = global_excl_hist[bucket] + cross_block_prefix - own_bds_reg
+        if has_bucket
+            shared_hist[bucket, 1] = global_excl_hist[bucket] + cross_block_prefix - own_bds_reg
+        end
         @synchronize
 
         # Phase 5b: stream-out. Recompute the key from the staged value
@@ -309,7 +418,8 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             ::Val{Nbuckets},
             ::Val{warpsz},
             ::Val{wpb},
-        ) where {F,M,Nbuckets,warpsz,wpb}
+            ::Val{RR},
+        ) where {F,M,Nbuckets,warpsz,wpb,RR}
             $body
         end
     end
