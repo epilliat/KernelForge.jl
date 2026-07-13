@@ -1,0 +1,65 @@
+{
+    "sort_override": true,
+    "arch": "A100",
+    "sort": {
+        "size_4": {
+            "100000000": {
+                "Nitem": 8,
+                "rr": true,
+                "default_us": 6323.2,
+                "tile": 32768,
+                "us": 4211.9,
+                "Nchunks": 4,
+                "workgroup": 1024
+            },
+            "10000000": {
+                "Nitem": 8,
+                "rr": true,
+                "default_us": 891.6,
+                "tile": 32768,
+                "us": 653.1,
+                "Nchunks": 4,
+                "workgroup": 1024
+            },
+            "1000000": {
+                "Nitem": 8,
+                "rr": false,
+                "default_us": 179.9,
+                "tile": 16384,
+                "us": 167.7,
+                "Nchunks": 4,
+                "workgroup": 512
+            }
+        },
+        "size_8": {
+            "100000000": {
+                "Nitem": 8,
+                "rr": false,
+                "default_us": 19301.9,
+                "tile": 16384,
+                "us": 12337.4,
+                "Nchunks": 4,
+                "workgroup": 512
+            },
+            "10000000": {
+                "Nitem": 8,
+                "rr": false,
+                "default_us": 2118.6,
+                "tile": 16384,
+                "us": 1495.7,
+                "Nchunks": 4,
+                "workgroup": 512
+            },
+            "1000000": {
+                "Nitem": 8,
+                "rr": false,
+                "default_us": 417.6,
+                "tile": 16384,
+                "us": 345,
+                "Nchunks": 8,
+                "workgroup": 256
+            }
+        }
+    },
+    "generated": "2026-07-13"
+}
