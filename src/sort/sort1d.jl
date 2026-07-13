@@ -5,6 +5,26 @@
 @inline default_workgroup(arch::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = 256
 @inline default_workgroup(::AMDArch,          ::Type{Sort1D}, n, ::Type{T}) where T = 256
 
+# The 8-bit radix always has 256 digit buckets.
+const SORT_NBUCKETS = 256
+
+"""
+    sort_workgroup(arch, n, T, decoupled) -> Int
+
+Workgroup size a given sort path is allowed to run at.
+
+Only the keys-only onesweep is workgroup-DECOUPLED (`has_bucket = lid <= Nbuckets`),
+and it is the ONLY path `default_workgroup(Sort1D, …)` is autotuned for — it can run
+at 256, 512 or 1024. The byte-sort kernel (`npasses == 1`) and the key/value onesweep
+still index `bucket = lid`, which pins them to `workgroup == Nbuckets`. Handing either
+of them a tuned 512 breaks them, so they take `SORT_NBUCKETS` and never consult the
+tuning. `get_allocation` must apply the SAME rule, or `tmp` gets sized for a different
+block count than the kernel launches with — which is an out-of-bounds write on `flag`,
+not a clean error.
+"""
+@inline sort_workgroup(arch, n, ::Type{T}, decoupled::Bool) where T =
+    decoupled ? default_workgroup(arch, Sort1D, n, T) : SORT_NBUCKETS
+
 # Sort1D's "Nitem" is the vector load width per warp lane.
 # Sweep on RTX 1000 Ada Laptop (sm_89) found (Nitem=16, Nchunks=2) the
 # all-N champion. Other architectures haven't been swept yet — same
@@ -155,7 +175,6 @@ function get_allocation(
     T = eltype(AT)
     n = length(src)
     arch = something(arch, detect_arch(src))
-    workgroup = something(workgroup, default_workgroup(arch, Sort1D, n, T))
 
     if keys === nothing
         Nitem = something(Nitem, default_nitem(arch, Sort1D, n, T))
@@ -170,6 +189,12 @@ function get_allocation(
         K <: Unsigned || error("`uint_map ∘ by` must return a UInt8/16/32/64; got $K")
     end
     npasses = sizeof(K)
+
+    # Same decoupled/coupled rule as the launch sites — see `sort_workgroup`. If
+    # these two disagree, `tmp` is sized for the wrong block count and the kernel
+    # writes past the end of `flag`.
+    workgroup = something(workgroup,
+                          sort_workgroup(arch, n, T, keys === nothing && npasses > 1))
 
     block_size_max = workgroup * Nchunks * Nitem
     nblocks = cld(n, block_size_max)
@@ -274,11 +299,13 @@ function sort!(dst::AbstractArray, src::AT;
         n = length(src)
         backend = get_backend(src)
         arch_ = something(arch, detect_arch(src))
-        workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, T))
         Nitem_ = something(Nitem, default_nitem(arch_, Sort1D, n, T))
         Nchunks_ = something(Nchunks, default_nchunks(arch_, Sort1D, n, T))
         rr_ = something(rr, default_sort_rr(arch_, Sort1D, n, T))
         npasses = sizeof(K)
+        # Only the multi-pass onesweep is workgroup-decoupled; the byte-sort
+        # kernel still indexes `bucket = lid`. See `sort_workgroup`.
+        workgroup_ = something(workgroup, sort_workgroup(arch_, n, T, npasses > 1))
 
         if npasses == 1
             _dispatch_byte_sort!(Val(Nitem_),
@@ -312,7 +339,10 @@ function sort!(dst::AbstractArray, src::AT;
 
         backend = get_backend(src)
         arch_ = something(arch, detect_arch(src))
-        workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, T))
+        # The key/value onesweep still indexes `bucket = lid`, so it is pinned to
+        # workgroup == Nbuckets and must NOT pick up the autotuned
+        # `default_workgroup` (which is tuned for the decoupled keys-only kernel).
+        workgroup_ = something(workgroup, sort_workgroup(arch_, n, T, false))
         Nitem_ = something(Nitem, default_nitem_keyval(arch_, n, T, KT))
         Nchunks_ = something(Nchunks, default_nchunks_keyval(arch_, n, T, KT))
         npasses = sizeof(K)
@@ -491,6 +521,14 @@ function _sort1d_impl_byte!(
     warpsz = get_warpsize(arch)
     wpb = workgroup ÷ warpsz
 
+    # This kernel indexes `bucket = lid`: unlike the keys-only onesweep it is NOT
+    # workgroup-decoupled, so at workgroup != Nbuckets the per-bucket scan is simply
+    # wrong. Refuse rather than corrupt.
+    workgroup == Nbuckets ||
+        throw(ArgumentError("the byte-sort path requires workgroup == $Nbuckets " *
+                            "(got $workgroup); only the keys-only radix onesweep " *
+                            "supports a larger workgroup"))
+
     hist = tmp.arrays.hist
 
     _sort_histograms!(by, uint_map, src, hist,
@@ -661,6 +699,12 @@ function _sort1d_keyval_impl!(
     Nbuckets = 256
     warpsz = get_warpsize(arch)
     wpb = workgroup ÷ warpsz
+
+    # `bucket = lid` again — the key/value onesweep is not workgroup-decoupled.
+    workgroup == Nbuckets ||
+        throw(ArgumentError("the key/value sort requires workgroup == $Nbuckets " *
+                            "(got $workgroup); only the keys-only radix onesweep " *
+                            "supports a larger workgroup"))
     block_size_max = workgroup * Nchunks * Nitem
     nblocks = cld(n, block_size_max)
 
