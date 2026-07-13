@@ -179,7 +179,11 @@ function sortperm!(perm::AbstractVector, src::AT;
 
     backend = get_backend(src)
     arch_ = something(arch, detect_arch(src))
-    workgroup_ = something(workgroup, default_workgroup(arch_, Sort1D, n, IT))
+    # sortperm runs on the KEY/VALUE onesweep, which still indexes `bucket = lid`
+    # and is therefore pinned to workgroup == Nbuckets. It must not pick up the
+    # autotuned `default_workgroup`, which is tuned for — and only valid on — the
+    # workgroup-decoupled keys-only kernel. See `sort_workgroup` in sort1d.jl.
+    workgroup_ = something(workgroup, sort_workgroup(arch_, n, IT, false))
     # Use the keyval defaults: shared_sorted (IT) + shared_keys (KT) must
     # fit alongside hist + aux in 48 KB.
     Nitem_   = something(Nitem,   default_nitem_keyval(arch_, n, IT, KT))
