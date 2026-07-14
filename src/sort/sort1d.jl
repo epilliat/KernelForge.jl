@@ -637,10 +637,11 @@ function _sort1d_impl!(
         a, b = scratch, dst
     end
 
-    # Zero ALL pass partials/flag in three launches before the pass loop
-    # (was 3 launches per pass = 3·npasses launches; saves 9 at npasses=4).
-    fill!(partial1, UInt32(0))
-    fill!(partial2, UInt32(0))
+    # Only `flag` needs zeroing. `partial1`/`partial2` do NOT: phase 3a writes every
+    # (bucket, gid) entry of both, and only then publishes flag[gid], and the lookback
+    # reads partial{1,2}[bucket, b] ONLY after it has seen flag[b] != 0 -- so no entry
+    # is ever read before it is written, whatever stale contents a reused `tmp` holds.
+    # Zeroing them cost two launches AND, at N=1e8, two 12.5 MB memsets of pure waste.
     fill!(flag, UInt8(0))
 
     for pass in 1:npasses
@@ -748,10 +749,11 @@ function _sort1d_keyval_impl!(
         a_k, b_k = scratch_keys, dst_keys
     end
 
-    # Zero ALL pass partials/flag in three launches before the pass loop
-    # (was 3 launches per pass = 3·npasses launches; saves 9 at npasses=4).
-    fill!(partial1, UInt32(0))
-    fill!(partial2, UInt32(0))
+    # Only `flag` needs zeroing. `partial1`/`partial2` do NOT: phase 3a writes every
+    # (bucket, gid) entry of both, and only then publishes flag[gid], and the lookback
+    # reads partial{1,2}[bucket, b] ONLY after it has seen flag[b] != 0 -- so no entry
+    # is ever read before it is written, whatever stale contents a reused `tmp` holds.
+    # Zeroing them cost two launches AND, at N=1e8, two 12.5 MB memsets of pure waste.
     fill!(flag, UInt8(0))
 
     for pass in 1:npasses

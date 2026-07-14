@@ -316,65 +316,49 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        # Phase 3b: warp-specialized lookback (warp 1 spins, others wait at sync).
-        if lid == 1
-            shared_hist[1, 1] = UInt32(gid - 1) << 8
-        end
-        @synchronize
-
+        # Phase 3b: decoupled lookback, BARRIER-FREE.
+        #
+        # Each of the Nbuckets bucket-carrying threads walks back on its own. They all
+        # poll the SAME flag[b], so `flg` and `b` advance identically across them: the
+        # loop is warp-uniform BY CONSTRUCTION and needs no barrier, no shared slot,
+        # and no descriptor hand-off. The 256 threads polling one address coalesce into
+        # a single request.
+        #
+        # The previous version centralised the poll on one lane and published through
+        # shared_hist[1, 1], which cost TWO block barriers per step of the walk -- and
+        # at wg=512/1024 a barrier is expensive. Measured on A100: -2.8% to -8.6% end
+        # to end. It also removes the read-then-overwrite race on shared_hist[1, 1]
+        # (fixed in 4a6848d) at the source: there is no shared descriptor left to race on.
+        #
+        # Threads with no bucket skip the loop entirely and wait at the barrier below --
+        # legal precisely because there is no @synchronize *inside* the loop.
         cross_block_prefix = UInt32(0)
-        if gid >= 2
-            contains_prefix = false
-            while !contains_prefix
-                if warp_id == 1 && lane == 1
-                    comb = shared_hist[1, 1]
-                    local_b = Int(comb >> 8)
-                    local_flg = UInt32(0)
-                    while local_flg == UInt32(0)
-                        @access tmp_flg = flag[local_b]
-                        local_flg = UInt32(tmp_flg)
-                    end
-                    shared_hist[1, 1] = (UInt32(local_b) << 8) | local_flg
+        if has_bucket && gid >= 2
+            b_lb = gid - 1
+            done_lb = false
+            while !done_lb
+                flg_lb = UInt32(0)
+                while flg_lb == UInt32(0)
+                    @access f_lb = flag[b_lb]
+                    flg_lb = UInt32(f_lb)
                 end
-                @synchronize
-
-                comb = shared_hist[1, 1]
-                flg_val = comb & UInt32(0xFF)
-                b_val = Int(comb >> 8)
-                # Every thread must finish reading shared_hist[1, 1] before the
-                # `lid == 1` store below overwrites it with the next block index.
-                # Without this barrier a fast warp clobbers the slot while a slow
-                # warp is still loading it: the warps then disagree on `b_val` and
-                # on `contains_prefix`, which both corrupts the prefix and makes the
-                # trailing `@synchronize` divergent.
-                @synchronize
-
-                # `flg_val` / `b_val` are block-uniform (every thread just read the
-                # same slot behind a barrier), so `contains_prefix` is uniform too
-                # and the loop trip count is the same for every thread — which is
-                # what makes the @synchronize below legal.
-                if flg_val == UInt32(0x02)
-                    if has_bucket
-                        @access pval = partial2[bucket, b_val]
-                        cross_block_prefix += pval
-                    end
-                    contains_prefix = true
+                if flg_lb == UInt32(0x02)
+                    # inclusive prefix published -> the walk ends here
+                    @access pv_lb = partial2[bucket, b_lb]
+                    cross_block_prefix += pv_lb
+                    done_lb = true
                 else
-                    if has_bucket
-                        @access pval = partial1[bucket, b_val]
-                        cross_block_prefix += pval
-                    end
-                    if b_val == 1
-                        contains_prefix = true
+                    @access pv_lb = partial1[bucket, b_lb]
+                    cross_block_prefix += pv_lb
+                    if b_lb == 1
+                        done_lb = true
                     else
-                        if lid == 1
-                            shared_hist[1, 1] = UInt32(b_val - 1) << 8
-                        end
-                        @synchronize
+                        b_lb -= 1
                     end
                 end
             end
         end
+        @synchronize
 
         if has_bucket
             @access partial2[bucket, gid] = cross_block_prefix + block_total_b
