@@ -124,11 +124,24 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         block_total_b = prefix_acc
 
         # Phase 3a: publish aggregate (transposed layout).
-        @access partial1[bucket, gid] = block_total_b
-        @access partial2[bucket, gid] = block_total_b
+        # `Bypass` (AMD): see sort_desc_bypass. The release fence runs on EVERY thread
+        # BEFORE the barrier — vmcnt is per-wave, so fencing on lid==1 alone would not
+        # drain the partial stores issued by the other waves.
+        if Bypass
+            @access Device Relaxed partial1[bucket, gid] = block_total_b
+            @access Device Relaxed partial2[bucket, gid] = block_total_b
+            @fence Workgroup Release
+        else
+            @access partial1[bucket, gid] = block_total_b
+            @access partial2[bucket, gid] = block_total_b
+        end
         @synchronize
         if lid == 1
-            @access flag[gid] = 0x01
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x01
+            else
+                @access flag[gid] = 0x01
+            end
         end
 
         # Phase 4.5: warp-totals reduction.
@@ -217,16 +230,24 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             while !done_lb
                 flg_lb = UInt32(0)
                 while flg_lb == UInt32(0)
-                    @access f_lb = flag[b_lb]
+                    # Device-scope RELAXED (Bypass): coherent, but no per-round acquire.
+                    # That acquire is what made this walk 66-68% of the sort on gfx942.
+                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
+                                    (@access flag[b_lb])        # Device Acquire
                     flg_lb = UInt32(f_lb)
+                end
+                if Bypass
+                    @fence Workgroup Acquire   # once per FOUND block, not per spin
                 end
                 if flg_lb == UInt32(0x02)
                     # inclusive prefix published -> the walk ends here
-                    @access pv_lb = partial2[bucket, b_lb]
+                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
+                                     (@access partial2[bucket, b_lb])
                     cross_block_prefix += pv_lb
                     done_lb = true
                 else
-                    @access pv_lb = partial1[bucket, b_lb]
+                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
+                                     (@access partial1[bucket, b_lb])
                     cross_block_prefix += pv_lb
                     if b_lb == 1
                         done_lb = true
@@ -238,10 +259,19 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+        if Bypass
+            @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
+            @fence Workgroup Release   # per-wave drain, BEFORE the barrier
+        else
+            @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+        end
         @synchronize
         if lid == 1
-            @access flag[gid] = 0x02
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x02
+            else
+                @access flag[gid] = 0x02
+            end
         end
 
         # Phase 4 second.
@@ -279,7 +309,8 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             ::Val{Nbuckets},
             ::Val{warpsz},
             ::Val{wpb},
-        ) where {F,M,Nbuckets,warpsz,wpb}
+            ::Val{Bypass},
+        ) where {F,M,Nbuckets,warpsz,wpb,Bypass}
             $body
         end
     end

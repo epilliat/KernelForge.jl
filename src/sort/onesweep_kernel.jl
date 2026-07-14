@@ -226,13 +226,28 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
 
         # Phase 3a: publish aggregate (TRANSPOSED layout for coalescing).
+        # `Bypass` (AMD): Device-scope RELAXED stores — coherent, but no ordering of
+        # their own. See sort_desc_bypass for why, and for why the release fence below
+        # must run on EVERY thread BEFORE the barrier (vmcnt is per-wave).
         if has_bucket
-            @access partial1[bucket, gid] = block_total_b
-            @access partial2[bucket, gid] = block_total_b
+            if Bypass
+                @access Device Relaxed partial1[bucket, gid] = block_total_b
+                @access Device Relaxed partial2[bucket, gid] = block_total_b
+            else
+                @access partial1[bucket, gid] = block_total_b
+                @access partial2[bucket, gid] = block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release   # every wave drains ITS OWN partial stores
         end
         @synchronize
         if lid == 1
-            @access flag[gid] = 0x01
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x01
+            else
+                @access flag[gid] = 0x01
+            end
         end
 
         # Phase 4.5: exclusive scan of the Nbuckets block totals, which live in
@@ -339,16 +354,30 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             while !done_lb
                 flg_lb = UInt32(0)
                 while flg_lb == UInt32(0)
-                    @access f_lb = flag[b_lb]
+                    # `Bypass` (AMD): Device-scope RELAXED load — always fresh from the
+                    # coherent point, but WITHOUT the per-round acquire, which on gfx942
+                    # L1-invalidates on every single spin. That acquire was the whole
+                    # bill: this walk is 66-68% of the sort on MI300A and 1.7% on A100.
+                    # A @sleep backoff on top of it is a WASH (+0.1%) — the cost was the
+                    # cache traffic, not the spinning.
+                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
+                                    (@access flag[b_lb])        # Device Acquire
                     flg_lb = UInt32(f_lb)
+                end
+                if Bypass
+                    # ONE acquire per FOUND block (not per spin): pairs with the
+                    # producer's release and orders the partial read after the flag read.
+                    @fence Workgroup Acquire
                 end
                 if flg_lb == UInt32(0x02)
                     # inclusive prefix published -> the walk ends here
-                    @access pv_lb = partial2[bucket, b_lb]
+                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
+                                     (@access partial2[bucket, b_lb])
                     cross_block_prefix += pv_lb
                     done_lb = true
                 else
-                    @access pv_lb = partial1[bucket, b_lb]
+                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
+                                     (@access partial1[bucket, b_lb])
                     cross_block_prefix += pv_lb
                     if b_lb == 1
                         done_lb = true
@@ -361,11 +390,22 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         @synchronize
 
         if has_bucket
-            @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+            if Bypass
+                @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
+            else
+                @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release   # per-wave drain, BEFORE the barrier (see phase 3a)
         end
         @synchronize
         if lid == 1
-            @access flag[gid] = 0x02
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x02
+            else
+                @access flag[gid] = 0x02
+            end
         end
 
         # Phase 4 second: write block_global_offset[d] into shared_hist[d, 1].
@@ -403,7 +443,8 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             ::Val{warpsz},
             ::Val{wpb},
             ::Val{RR},
-        ) where {F,M,Nbuckets,warpsz,wpb,RR}
+            ::Val{Bypass},
+        ) where {F,M,Nbuckets,warpsz,wpb,RR,Bypass}
             $body
         end
     end

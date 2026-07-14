@@ -61,6 +61,42 @@ not a clean error.
 @inline default_sort_rr(::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = false
 
 
+# Decoupled-lookback descriptor access — the SAME gate scan uses
+# (`scan_desc_bypass`, src/scan/scan.jl), for the same reason.
+#
+# The shipped lookback spins on `@access flag[b]`, which with no scope/ordering
+# is a DEVICE-scope ACQUIRE. On gfx942 that L1-invalidates on EVERY spin round,
+# and the walk is per-block: measured on MI300A, the lookback was 66-68% of the
+# whole sort (vs 1.7% on A100 — same code, wildly different bill).
+#
+# Bypass routes every descriptor access through Device-scope RELAXED atomics:
+# `Device` still gives cross-block COHERENCE (bypasses a stale L1), `Relaxed`
+# drops the per-round acquire. The cross-block ORDERING (partials drained before
+# the flag; flag read before the partials) is carried by WORKGROUP-scope
+# release/acquire fences — rocPRIM's WITHOUT_SLOW_FENCES gfx94x recipe.
+# MI300A 1e8: UInt32 77.0 -> 17.5 ms, UInt64 312.4 -> 59.6 ms.
+#
+# ⚠️ The release fence must be executed by EVERY THREAD, BEFORE the barrier.
+# Scan can fence on the publishing lane alone because that lane wrote the
+# partial itself; here the 256 partial stores come from wpb DIFFERENT WAVES and
+# only lid==1 publishes the flag. The AMD lowering is `s_waitcnt vmcnt(0)`, and
+# vmcnt is a PER-WAVE counter — wave 1 draining its own vmem says nothing about
+# waves 2..wpb. Fencing on lid==1 only left UInt64 silently WRONG (UInt32 passed
+# by luck, half the blocks).
+#
+# Gated on CDNA3 (gfx942), NOT on AMDArch: that is the only hardware the recipe
+# has been measured on. CDNA2 (gfx90a, MI250X) has a different cache/coherence
+# story and would silently inherit an unvalidated memory model — widen this only
+# after running the suite there.
+#
+# OFF on CUDA and on every untuned arch: the CUDA path stays byte-identical, so
+# this cannot regress A100/RTX1000. A relaxed flag is a genuine race on CUDA's
+# model — it needs the real acquire.
+@inline sort_desc_bypass(::CDNA3) = true
+@inline sort_desc_bypass(::CUDAArch) = false
+@inline sort_desc_bypass(::AbstractArch) = false
+
+
 # Keyval (`sort(...; keys=k)`) defaults: shared_sorted (T) AND shared_keys
 # (KT) both occupy block_size_max * size bytes, so the budget is tighter.
 # Want block_size_max * (sizeof(T) + sizeof(KT)) ≤ ~32 KB after subtracting
@@ -620,6 +656,7 @@ function _sort1d_impl!(
     inst = ker(backend, workgroup)
     ndrange = nblocks * workgroup
     rr_val = rr ? Val(true) : Val(false)   # keep the launch statically dispatched
+    bp_val = sort_desc_bypass(arch) ? Val(true) : Val(false)
 
     if dst === src
         if iseven(npasses)
@@ -652,7 +689,7 @@ function _sort1d_impl!(
         KernelIntrinsics.launch!(
             inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
             excl_col, p1_view, p2_view, fl_view,
-            Val(Nbuckets), Val(warpsz), Val(wpb), rr_val;
+            Val(Nbuckets), Val(warpsz), Val(wpb), rr_val, bp_val;
             ndrange, shmem)
         a, b = b, a
         # No-copy `dst !== src` + even npasses path: pass 1 reads src
@@ -763,7 +800,8 @@ function _sort1d_keyval_impl!(
         excl_col = @view hist[:, pass]
         inst(b_v, a_v, b_k, a_k, by, uint_map, Int32(8 * (pass - 1)),
              excl_col, p1_view, p2_view, fl_view,
-             Val(Nbuckets), Val(warpsz), Val(wpb))
+             Val(Nbuckets), Val(warpsz), Val(wpb),
+             sort_desc_bypass(arch) ? Val(true) : Val(false))
         a_v, b_v = b_v, a_v
         a_k, b_k = b_k, a_k
     end
