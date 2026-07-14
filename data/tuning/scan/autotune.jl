@@ -126,8 +126,19 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
     # applicable (wide isbits H) AND its tile fits shared. Benching BOTH families at
     # every (Ni,wg) — including `:blocked` at small tiles — is what lets the winner be
     # discovered per arch with no fit-gate blind spot (see scan.jl default_scan_family).
-    applicable = KF.scan_transposed_applicable(T_ref, T_ref)
+    # `:transposed` is only a real candidate where the runtime would actually LAUNCH it. Two
+    # gates, and the second one was missing:
+    #   * the transposed kernel must apply at all (wide isbits H);
+    #   * the packed-128 path must NOT pre-empt it. `_scan_impl!` tests `scan_use_packed128`
+    #     FIRST, so on CDNA3 with an 8-byte primitive H (MI300A + Float64) the transposed kernel
+    #     is never launched, whatever `family` says. Benching it there measured the SAME kernel
+    #     twice and let noise crown a "transposed" winner, which then got emitted as a
+    #     `default_scan_family` method the runtime ignores. It also fed non-pow-2 Nitem into a
+    #     path that rejects it, so half the grid died in the `catch` below without a word.
+    applicable = KF.scan_transposed_applicable(T_ref, T_ref) &&
+                 !(arch !== nothing && KF.scan_use_packed128(arch, T_ref))
     runs = NamedTuple[]
+    skipped = NamedTuple[]
     for Ni in NITEM_GRID, wg in wg_grid
         Ni * wg <= N || continue
         # Blocked `vload`/`vstore!` compiles ONLY for pow-2 Nitem (non-pow-2 hits
@@ -151,10 +162,22 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
                 _warmup(f)
                 us = _bench_us(f; trials)
                 push!(runs, (; Nitem=Ni, workgroup=wg, family=fam, us))
-            catch
+            catch e
+                # A config that will not compile or launch is expected (shared-memory limits,
+                # register pressure) — but count it and say so. This `catch` used to be silent,
+                # and it quietly ate every non-pow-2 Nitem on the packed-128 path: half the grid
+                # vanished without a word, which is exactly how a tuning table ends up wrong.
+                push!(skipped, (; Nitem=Ni, workgroup=wg, family=fam,
+                                  why=first(sprint(showerror, e), 60)))
             end
         end
     end
+    if verbose && !isempty(skipped)
+        @printf("  N=%d: %d/%d candidates skipped (e.g. Ni=%d wg=%d %s: %s)\n",
+                N, length(skipped), length(skipped) + length(runs),
+                skipped[1].Nitem, skipped[1].workgroup, skipped[1].family, skipped[1].why)
+    end
+
     # Never-worse-than-default guard: bench the current default heuristic as a candidate
     # so the per-N winner can never regress it. The wave64 wg grid ({512,1024}) can't
     # reach the 128/256 workgroups the default may use. IMPORTANT: label it with the
