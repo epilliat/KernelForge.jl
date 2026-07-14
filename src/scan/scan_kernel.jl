@@ -57,6 +57,28 @@ end
 @inline _scan_status(d::UInt64) = UInt32(d >> 32)
 @inline _scan_value(::Type{H}, d::UInt64) where {H} = _scan_from_u32(H, d % UInt32)
 
+# Warp-inclusive scan that hands its lane to the shuffle.
+#
+# `@warpreduce` cannot: its `lane` is only a GUARD index and callers are allowed to make it
+# segment-local (KernelForge's own `batched_radix` runs 32-wide scans on 64-wide AMD waves and
+# depends on the shuffle still moving data by PHYSICAL lane). `KI.shfl_at` is the opt-in for
+# callers whose lane IS the physical one — every scan kernel below computes it as
+# `(lid - 1) % warpsz + 1` with the hardware warp size, so they qualify.
+#
+# What it buys: on AMD the backend otherwise rederives the lane with two `mbcnt` per shuffle, and
+# the kernel carries two live registers for the same value. That was a 12-VGPR spill to `scratch`
+# (HBM-backed private memory) and ~3.5% on the MI300A F64 scan. On CUDA `shfl_at` forwards to the
+# ordinary shuffle — same code, no change either way.
+@inline function warpscan_at(op::OP, val, lane::Integer, ::Val{warpsz}) where {OP,warpsz}
+    offset = 1
+    while offset < warpsz
+        shuffled = KI.shfl_at(KI.Up, val, offset, lane, Val(warpsz))
+        val = ifelse(lane > offset, op(shuffled, val), val)
+        offset <<= 1
+    end
+    return val
+end
+
 # ── Split-path descriptor (partial1/partial2/flag) access — `Bypass` gate (see scan_desc_bypass)
 # On AMD (`Bypass` true) the decoupled-lookback descriptor is read/published through Device-scope
 # RELAXED atomics (a cache-BYPASSING coherent access on gfx942 — no per-round acquire, which would
@@ -108,7 +130,7 @@ end
     end
 
     val = values[end]
-    @warpreduce(val, op, lane, warpsz)
+    val = warpscan_at(op, val, lane, Val(warpsz))
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -119,7 +141,7 @@ end
     last_idx = Nitem * workgroup * gid
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, op, lane, warpsz)
+        val_acc = warpscan_at(op, val_acc, lane, Val(warpsz))
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
             # Bypass (AMD): publish the aggregate. ALL descriptor accesses (partial + flag,
@@ -323,7 +345,7 @@ end
     end
 
     val = values[end]
-    @warpreduce(val, op, lane, warpsz)
+    val = warpscan_at(op, val, lane, Val(warpsz))
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -335,7 +357,7 @@ end
     block_agg = val  # block aggregate, broadcast to all lanes of the last warp below
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, op, lane, warpsz)
+        val_acc = warpscan_at(op, val_acc, lane, Val(warpsz))
         # block total lives at lane == nwarps; broadcast it so lane 1 can publish
         # the PREFIX descriptor without re-reading global memory.
         block_agg = @shfl(Idx, val_acc, nwarps)
@@ -517,7 +539,7 @@ end
     end
 
     val = values[end]
-    @warpreduce(val, op, lane, warpsz)
+    val = warpscan_at(op, val, lane, Val(warpsz))
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -529,7 +551,7 @@ end
     block_agg = val  # block aggregate, broadcast to all lanes of the last warp below
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, op, lane, warpsz)
+        val_acc = warpscan_at(op, val_acc, lane, Val(warpsz))
         block_agg = @shfl(Idx, val_acc, nwarps)
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
@@ -714,7 +736,7 @@ end
 
     # ==================== block scan + decoupled lookback (== scan_kernel!) ========
     val = values[end]
-    @warpreduce(val, op, lane, warpsz)
+    val = warpscan_at(op, val, lane, Val(warpsz))
     stored_val = val
     if lane == warpsz
         shared[warp_id] = val
@@ -725,7 +747,7 @@ end
     last_idx = Nitem * workgroup * gid
     if warp_id == nwarps
         val_acc = shared[lane]
-        @warpreduce(val_acc, op, lane, warpsz)
+        val_acc = warpscan_at(op, val_acc, lane, Val(warpsz))
         shared[lane] = val_acc
         if lane == nwarps && last_idx <= N
             # Bypass (AMD): publish the aggregate. ALL descriptor accesses (partial + flag,
