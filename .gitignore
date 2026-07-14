@@ -41,3 +41,6 @@ AGENTS.md
 
 Manifest.toml
 docs/Manifest.toml
+
+# Cluster credentials — NEVER commit
+.secrets/
