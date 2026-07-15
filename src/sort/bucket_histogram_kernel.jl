@@ -69,10 +69,86 @@ end
 end
 
 
-# STAGE 1: per-block partial histograms. Each block accumulates a block-wide
-# shared histogram (LDS atomics — cheap, uncontended enough), then writes it —
-# EVERY (bucket, pass) entry, including zeros — to its own slice `hist_g[:,:,gid]`.
-# No cross-block atomics, so no fill! of `hist_g` is needed downstream.
+# SINGLE-STAGE (the original): every block atomic-adds its block-wide shared
+# histogram into ONE global `hist`. On NVIDIA the shared+global atomics are fast
+# (dedicated units), so this is NOT a bottleneck and BEATS the 2-stage — measured
+# on A100: 2-stage regressed UInt64/Float64 1e8 by +21%. So the 2-stage is gated
+# to CDNA3 (`sort_hist_2stage`) and every other arch keeps THIS path, byte-identical.
+@kernel inbounds = true unsafe_indices = true function bucket_histogram_kernel!(
+    hist,                                  # (Nbuckets, Npasses) UInt32
+    src::AbstractVector,
+    by::F,
+    uint_map::M,
+    ::Val{Nitem},
+    ::Val{Nbuckets},
+    ::Val{warpsz},
+    ::Val{Npasses},
+) where {F,M,Nitem,Nbuckets,warpsz,Npasses}
+
+    @uniform begin
+        N = length(src)
+        block_total = N ÷ Nitem
+        workgroup = Int(@groupsize()[1])
+        warps_per_block = workgroup ÷ warpsz
+    end
+
+    lid = Int(@index(Local))
+    gid = Int(@index(Group))
+    warp_id = (lid - 1) ÷ warpsz + 1
+    lane = (lid - 1) % warpsz + 1
+    global_warp = (gid - 1) * warps_per_block + warp_id
+
+    block_idx = (global_warp - 1) * warpsz + lane
+    warp_last_block = global_warp * warpsz
+
+    if warp_last_block <= block_total
+        items = vload(src, block_idx, Val(Nitem))
+        all_in_bounds = true
+    else
+        items = load_items_bounded(src, block_idx, N, Val(Nitem))
+        all_in_bounds = false
+    end
+
+    shared_hist = @localmem UInt32 (Nbuckets, Npasses)
+
+    let total = Nbuckets * Npasses
+        for k in lid:workgroup:total
+            shared_hist[k] = UInt32(0)
+        end
+    end
+    @synchronize
+
+    if all_in_bounds
+        for i in 1:Nitem
+            key_i = uint_map(by(items[i]))
+            bump_all_passes!(shared_hist, key_i, Val(Nbuckets), Val(Npasses))
+        end
+    else
+        for i in 1:Nitem
+            pos = (block_idx - 1) * Nitem + i
+            if pos <= N
+                key_i = uint_map(by(items[i]))
+                bump_all_passes!(shared_hist, key_i, Val(Nbuckets), Val(Npasses))
+            end
+        end
+    end
+    @synchronize
+
+    for p in 1:Npasses
+        for b in lid:workgroup:Nbuckets
+            v = shared_hist[b, p]
+            if v != UInt32(0)
+                @atomic hist[b, p] += v
+            end
+        end
+    end
+end
+
+
+# STAGE 1 (2-stage, CDNA3): per-block partial histograms. Each block accumulates
+# a block-wide shared histogram (LDS atomics — cheap, uncontended enough), then
+# writes it — EVERY (bucket, pass) entry, including zeros — to its own slice
+# `hist_g[:,:,gid]`. No cross-block atomics, so no fill! of `hist_g` downstream.
 @kernel inbounds = true unsafe_indices = true function bucket_histogram_count_kernel!(
     hist_g,                                # (Nbuckets, Npasses, nhblk) UInt32
     src::AbstractVector,                   # any T
