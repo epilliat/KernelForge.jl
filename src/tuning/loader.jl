@@ -34,6 +34,33 @@ read from `data/tuning/<tag>.jl`. Populated lazily by `load_tunings_for!`.
 """
 const TUNING_TABLE = Ref{Dict{Symbol,Any}}(Dict{Symbol,Any}())
 
+# ---------------------------------------------------------------------------
+# Lookup memoization.
+#
+# `lookup_{matvec,vecmat}` and `_arch_has_{rowthread,mlp}_tuning` traverse the
+# `Dict{String,Any}` payload on EVERY call. Because the payload values are
+# `Any`-typed, that traversal is fully dynamic (boxing every `.n`/`.p`/`log2`)
+# — measured at ~90 µs and ~44 KB allocated per call on MI300A. `matvec!`/
+# `vecmat!` call these two-to-three times per invocation, so a small matvec
+# whose GPU kernel is only 20-60 µs was floored at ~220 µs of pure HOST
+# dispatch (the "flat ~200-370 µs whatever the shape" anomaly). The table is
+# immutable after `__init__`, so the resolved answer is a pure function of the
+# key — memoize it. Caches are cleared whenever `load_tunings_for!` mutates
+# the table.
+const _LOOKUP_MISS = :__lookup_miss__
+const MATVEC_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int},Any}()
+const VECMAT_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int},Any}()
+const ARCH_ROWTHREAD_CACHE = Dict{Symbol,Bool}()
+const ARCH_MLP_CACHE       = Dict{Symbol,Bool}()
+
+@inline function _clear_lookup_caches!()
+    empty!(MATVEC_LOOKUP_CACHE)
+    empty!(VECMAT_LOOKUP_CACHE)
+    empty!(ARCH_ROWTHREAD_CACHE)
+    empty!(ARCH_MLP_CACHE)
+    return nothing
+end
+
 # Tags whose `<tag>_inline.jl` file has already been loaded (the file holds
 # autotune-generated `@inline default_*` method overrides for fast ops like
 # mapreduce1d/scan, where dict-based lookup at ~4 µs/call would dominate
@@ -98,6 +125,7 @@ function load_tunings_for!(tag::Symbol)
         return nothing
     end
     TUNING_TABLE[][tag] = payload
+    _clear_lookup_caches!()
     return payload
 end
 
@@ -110,6 +138,16 @@ Return `(; Nitem, chunksz, Nblocks, workgroup)` if a tuning entry exists for
 Nitem adapted by sizeof-ratio when reading the size-keyed entry.
 """
 function lookup_matvec(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
+    tag = nameof(typeof(arch))
+    key = (tag, T, n, p)
+    cached = get(MATVEC_LOOKUP_CACHE, key, _LOOKUP_MISS)
+    cached === _LOOKUP_MISS || return cached
+    val = _lookup_matvec_uncached(arch, T, n, p)
+    MATVEC_LOOKUP_CACHE[key] = val
+    return val
+end
+
+function _lookup_matvec_uncached(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
     tag = nameof(typeof(arch))
     haskey(TUNING_TABLE[], tag) || return nothing
     payload = TUNING_TABLE[][tag]
@@ -164,6 +202,15 @@ end
 # once the arch is re-tuned, its cells carry `kernel=:rowthread` and the
 # heuristic goes quiet.
 function _arch_has_rowthread_tuning(arch::AbstractArch)
+    tag = nameof(typeof(arch))
+    cached = get(ARCH_ROWTHREAD_CACHE, tag, nothing)
+    cached === nothing || return cached
+    val = _arch_has_rowthread_tuning_uncached(arch)
+    ARCH_ROWTHREAD_CACHE[tag] = val
+    return val
+end
+
+function _arch_has_rowthread_tuning_uncached(arch::AbstractArch)
     tag = nameof(typeof(arch))
     haskey(TUNING_TABLE[], tag) || return false
     payload = TUNING_TABLE[][tag]
@@ -289,6 +336,16 @@ Nitem scaled by sizeof-ratio).
 """
 function lookup_vecmat(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
     tag = nameof(typeof(arch))
+    key = (tag, T, n, p)
+    cached = get(VECMAT_LOOKUP_CACHE, key, _LOOKUP_MISS)
+    cached === _LOOKUP_MISS || return cached
+    val = _lookup_vecmat_uncached(arch, T, n, p)
+    VECMAT_LOOKUP_CACHE[key] = val
+    return val
+end
+
+function _lookup_vecmat_uncached(arch::AbstractArch, ::Type{T}, n::Int, p::Int) where T
+    tag = nameof(typeof(arch))
     haskey(TUNING_TABLE[], tag) || return nothing
     payload = TUNING_TABLE[][tag]
     haskey(payload, "vecmat") || return nothing
@@ -344,6 +401,15 @@ end
 # True if this arch's loaded vecmat tuning contains ≥1 mlp cell (mirrors
 # `_arch_has_rowthread_tuning` for matvec — self-resolving transition gate).
 function _arch_has_mlp_tuning(arch::AbstractArch)
+    tag = nameof(typeof(arch))
+    cached = get(ARCH_MLP_CACHE, tag, nothing)
+    cached === nothing || return cached
+    val = _arch_has_mlp_tuning_uncached(arch)
+    ARCH_MLP_CACHE[tag] = val
+    return val
+end
+
+function _arch_has_mlp_tuning_uncached(arch::AbstractArch)
     tag = nameof(typeof(arch))
     haskey(TUNING_TABLE[], tag) || return false
     payload = TUNING_TABLE[][tag]
