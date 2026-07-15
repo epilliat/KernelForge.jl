@@ -84,7 +84,7 @@ end
     if s <= 4
         n < 3162278 ? 8 :
             n < 31622777 ? 8 :
-            16
+            8
     elseif s <= 8
         n < 3162278 ? 8 :
             n < 31622777 ? 8 :
@@ -99,12 +99,12 @@ end
     s = sizeof(T)
     if s <= 4
         n < 3162278 ? 1 :
-            n < 31622777 ? 1 :
-            1
+            n < 31622777 ? 3 :
+            3
     elseif s <= 8
         n < 3162278 ? 1 :
-            n < 31622777 ? 1 :
-            1
+            n < 31622777 ? 3 :
+            3
     else
         KernelForge.default_nchunks(KernelForge.AbstractArch(), KernelForge.Sort1D, n, T)
     end
@@ -115,12 +115,12 @@ end
     s = sizeof(T)
     if s <= 4
         n < 3162278 ? 1024 :
-            n < 31622777 ? 1024 :
+            n < 31622777 ? 512 :
             512
     elseif s <= 8
         n < 3162278 ? 512 :
-            n < 31622777 ? 512 :
-            512
+            n < 31622777 ? 256 :
+            256
     else
         KernelForge.default_workgroup(KernelForge.AbstractArch(), KernelForge.Sort1D, n, T)
     end
@@ -135,7 +135,7 @@ end
             false
     elseif s <= 8
         n < 3162278 ? true :
-            n < 31622777 ? true :
+            n < 31622777 ? false :
             false
     else
         KernelForge.default_sort_rr(KernelForge.AbstractArch(), KernelForge.Sort1D, n, T)
@@ -143,4 +143,5 @@ end
 end
 
 # --- END Sort1D ---
+
 

@@ -4,29 +4,29 @@
     "sort": {
         "size_4": {
             "100000000": {
-                "Nitem": 16,
+                "Nitem": 8,
                 "rr": false,
-                "default_us": 16893.4,
-                "tile": 8192,
-                "us": 13180.6,
-                "Nchunks": 1,
+                "default_us": 7249.9,
+                "tile": 12288,
+                "us": 5768.7,
+                "Nchunks": 3,
                 "workgroup": 512
             },
             "10000000": {
                 "Nitem": 8,
                 "rr": false,
-                "default_us": 1503.1,
-                "tile": 8192,
-                "us": 1172.9,
-                "Nchunks": 1,
-                "workgroup": 1024
+                "default_us": 673.3,
+                "tile": 12288,
+                "us": 564.2,
+                "Nchunks": 3,
+                "workgroup": 512
             },
             "1000000": {
                 "Nitem": 8,
                 "rr": false,
-                "default_us": 210.2,
+                "default_us": 137.7,
                 "tile": 8192,
-                "us": 163.3,
+                "us": 137.7,
                 "Nchunks": 1,
                 "workgroup": 1024
             }
@@ -35,27 +35,27 @@
             "100000000": {
                 "Nitem": 8,
                 "rr": false,
-                "default_us": 59338,
-                "tile": 4096,
-                "us": 47365.1,
-                "Nchunks": 1,
-                "workgroup": 512
+                "default_us": 26717.2,
+                "tile": 6144,
+                "us": 21219.9,
+                "Nchunks": 3,
+                "workgroup": 256
             },
             "10000000": {
                 "Nitem": 8,
-                "rr": true,
-                "default_us": 5570.3,
-                "tile": 4096,
-                "us": 4526.8,
-                "Nchunks": 1,
-                "workgroup": 512
+                "rr": false,
+                "default_us": 2747.2,
+                "tile": 6144,
+                "us": 2090.6,
+                "Nchunks": 3,
+                "workgroup": 256
             },
             "1000000": {
                 "Nitem": 8,
                 "rr": true,
-                "default_us": 664.5,
+                "default_us": 331.6,
                 "tile": 4096,
-                "us": 499.7,
+                "us": 331.6,
                 "Nchunks": 1,
                 "workgroup": 512
             }
