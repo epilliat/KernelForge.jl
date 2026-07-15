@@ -29,6 +29,7 @@ include("../init.jl")
 using AcceleratedKernels
 
 const DEFAULT_CUB_EXE = cub_exe(joinpath(@__DIR__, "../../cuda_cpp/cub_nvcc/bin/cub_sort_benchmark"))
+const DEFAULT_ROCPRIM_EXE = joinpath(@__DIR__, "../../rocm_cpp/hipcub_hipcc/bin/rocprim_sort_benchmark")
 
 # Session-level GPU preheat — lock clock at sustained steady-state
 # BEFORE any bench begins. Without this, the first cell pays a ~10 %
@@ -96,6 +97,15 @@ function run_sort_benchmarks(::Type{T}, n::Int) where T
         GC.gc(true); CUDA.reclaim()
         s = bench_cub_or_nan(DEFAULT_CUB_EXE, n, T; safety_factor=1.5)
         push!(rows, (; n, type = label_T, method = "CUB",
+            s.mean_kernel_μs, s.std_kernel_μs,
+            mean_total_μs = NaN, std_total_μs = NaN))
+    end
+
+    if has_roc()
+        # AMD vendor baseline — rocPRIM (via hipCUB) DeviceRadixSort. Mirror of the
+        # CUB block above; no free-mem guard (MI300-class cards have ≥128 GB).
+        s = bench_rocprim_or_nan(DEFAULT_ROCPRIM_EXE, n, T)
+        push!(rows, (; n, type = label_T, method = "rocPRIM",
             s.mean_kernel_μs, s.std_kernel_μs,
             mean_total_μs = NaN, std_total_μs = NaN))
     end

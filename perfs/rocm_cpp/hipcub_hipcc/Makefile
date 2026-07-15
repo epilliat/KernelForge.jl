@@ -14,7 +14,7 @@ HIPCC_FLAGS := -O3 -std=c++17 --offload-arch=$(AMDARCH)
 
 BINDIR := bin
 
-BENCHMARKS := rocprim_scan_benchmark rocprim_sum_benchmark
+BENCHMARKS := rocprim_scan_benchmark rocprim_sum_benchmark rocprim_sort_benchmark
 BINARIES   := $(addprefix $(BINDIR)/, $(BENCHMARKS))
 
 .PHONY: all clean $(BENCHMARKS)
