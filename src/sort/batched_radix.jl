@@ -425,11 +425,26 @@ function _build_batch_radix_onesweep_def(name::Symbol, nitem::Int, nchunks::Int)
         block_total_b = prefix_acc
 
         # Phase 3a: publish aggregate to partial1 / partial2 (this column).
-        @access partial1[bucket, g_in_col, col_idx] = block_total_b
-        @access partial2[bucket, g_in_col, col_idx] = block_total_b
+        # `Bypass` (AMD/CDNA3): Device-scope RELAXED stores + a Workgroup release
+        # fence on EVERY thread (vmcnt is PER-WAVE — fencing on lid==1 alone leaves
+        # other waves' partial stores in flight → silent corruption) BEFORE the
+        # barrier, then a relaxed flag publish. Avoids the Device-ACQUIRE bare
+        # `@access` that L1-invalidates on every lookback spin round on gfx942.
+        if Bypass
+            @access Device Relaxed partial1[bucket, g_in_col, col_idx] = block_total_b
+            @access Device Relaxed partial2[bucket, g_in_col, col_idx] = block_total_b
+            @fence Workgroup Release
+        else
+            @access partial1[bucket, g_in_col, col_idx] = block_total_b
+            @access partial2[bucket, g_in_col, col_idx] = block_total_b
+        end
         @synchronize
         if lid == 1
-            @access flag[g_in_col, col_idx] = 0x01
+            if Bypass
+                @access Device Relaxed flag[g_in_col, col_idx] = 0x01
+            else
+                @access flag[g_in_col, col_idx] = 0x01
+            end
         end
 
         # Phase 4.5: warp-totals reduction.
@@ -506,7 +521,8 @@ function _build_batch_radix_onesweep_def(name::Symbol, nitem::Int, nchunks::Int)
                     local_b = Int(comb >> 8)
                     local_flg = UInt32(0)
                     while local_flg == UInt32(0)
-                        @access tmp_flg = flag[local_b, col_idx]
+                        tmp_flg = Bypass ? (@access Device Relaxed flag[local_b, col_idx]) :
+                                           (@access flag[local_b, col_idx])
                         local_flg = UInt32(tmp_flg)
                     end
                     shared_hist[1, 1] = (UInt32(local_b) << 8) | local_flg
@@ -517,12 +533,22 @@ function _build_batch_radix_onesweep_def(name::Symbol, nitem::Int, nchunks::Int)
                 flg_val = comb & UInt32(0xFF)
                 b_val   = Int(comb >> 8)
 
+                # `Bypass`: a Workgroup ACQUIRE fence pairs with the producer's
+                # release and orders the partial reads (below, on ALL threads)
+                # after the flag observation — L1-invalidate so the relaxed
+                # partial loads fetch fresh from L2.
+                if Bypass
+                    @fence Workgroup Acquire
+                end
+
                 if flg_val == UInt32(0x02)
-                    @access pval = partial2[bucket, b_val, col_idx]
+                    pval = Bypass ? (@access Device Relaxed partial2[bucket, b_val, col_idx]) :
+                                    (@access partial2[bucket, b_val, col_idx])
                     cross_block_prefix += pval
                     contains_prefix = true
                 else
-                    @access pval = partial1[bucket, b_val, col_idx]
+                    pval = Bypass ? (@access Device Relaxed partial1[bucket, b_val, col_idx]) :
+                                    (@access partial1[bucket, b_val, col_idx])
                     cross_block_prefix += pval
                     if b_val == 1
                         contains_prefix = true
@@ -536,10 +562,19 @@ function _build_batch_radix_onesweep_def(name::Symbol, nitem::Int, nchunks::Int)
             end
         end
 
-        @access partial2[bucket, g_in_col, col_idx] = cross_block_prefix + block_total_b
+        if Bypass
+            @access Device Relaxed partial2[bucket, g_in_col, col_idx] = cross_block_prefix + block_total_b
+            @fence Workgroup Release   # per-wave drain on EVERY thread, BEFORE the barrier
+        else
+            @access partial2[bucket, g_in_col, col_idx] = cross_block_prefix + block_total_b
+        end
         @synchronize
         if lid == 1
-            @access flag[g_in_col, col_idx] = 0x02
+            if Bypass
+                @access Device Relaxed flag[g_in_col, col_idx] = 0x02
+            else
+                @access flag[g_in_col, col_idx] = 0x02
+            end
         end
 
         # Phase 4 second: dst offset.
@@ -570,7 +605,8 @@ function _build_batch_radix_onesweep_def(name::Symbol, nitem::Int, nchunks::Int)
                 flag::AbstractMatrix{UInt8},
                 ::Val{K_per_col},
                 ::Val{nblocks_per_col},
-        ) where {F, UM, K_per_col, nblocks_per_col}
+                ::Val{Bypass},
+        ) where {F, UM, K_per_col, nblocks_per_col, Bypass}
             $body
         end
     end
@@ -695,6 +731,8 @@ function _batched_radix_largeK!(A::AbstractMatrix{T}, tmp::KernelBuffer,
     nblocks_per_col_hist = max(1, cld(K, items_per_hist_block))
 
     backend = get_backend(A)
+    arch    = detect_arch(A)
+    bp_val  = sort_desc_bypass(arch) ? Val(true) : Val(false)
     scratch  = tmp.arrays.scratch
     hist     = tmp.arrays.hist
     partial1 = tmp.arrays.partial1
@@ -734,7 +772,7 @@ function _batched_radix_largeK!(A::AbstractMatrix{T}, tmp::KernelBuffer,
         hist_view = @view hist[:, pass, :]
         inst(b, a, by, uint_map, Int32(8 * (pass - 1)),
              hist_view, p1_view, p2_view, fl_view,
-             Val(K), Val(nblocks_per_col))
+             Val(K), Val(nblocks_per_col), bp_val)
         a, b = b, a
     end
     if isodd(npasses)
