@@ -10,7 +10,7 @@
 # UInt8 inputs.
 #
 # Pipeline (drives from sort! with sizeof(K) == 1):
-#   1. bucket_histogram_kernel! → hist :: (256, 1) UInt32
+#   1. bucket_histogram_count_kernel! + _combine_kernel! → hist :: (256, 1) UInt32
 #   2. scan_histogram_kernel!   → hist holds exclusive prefix
 #   3. byte_sort_kernel_<Nitem> → reads hist as `global_counter` (mutated to
 #      cumulative running offsets), writes sorted dst.

@@ -1,27 +1,29 @@
-# Global byte-histogram of a source array. Output: `(Nbuckets, Npasses)`
-# UInt32 matrix; column p holds the Nbuckets-bucket count of digit
-# `(uint_map(by(x)) >> 8*(p-1)) & 0xff` over all `x` in `src`.
+# Global byte-histogram of a source array, computed in TWO STAGES to avoid the
+# global-atomic flush that dominated the single-stage version.
 #
-# Generic over the source eltype: `by(x)` extracts the field to sort by,
-# and `uint_map(...)` projects it to an unsigned integer (UInt8/16/32/64).
-# `Npasses == sizeof(K)` where K is the result type of `uint_map ∘ by` —
-# the wrapper computes it and passes via `Val(Npasses)`.
+# Output: `hist :: (Nbuckets, Npasses)` UInt32 — column p holds the Nbuckets-bucket
+# count of digit `(uint_map(by(x)) >> 8*(p-1)) & 0xff` over all `x` in `src`.
 #
-# Layout note (column-major): with `hist[bucket, pass]`, a fixed-pass column
-# is contiguous in memory — 256 threads writing `hist[lid, pass]` coalesce.
+# WHY TWO STAGES. The single-stage kernel had every block atomic-add its
+# block-wide shared histogram into ONE global `hist`. Profiled on MI300A (1e8
+# UInt32) that flush made the histogram 6.28 ms = 47% of the whole sort, at
+# 64 GB/s — the cost was the GLOBAL-ATOMIC CONTENTION, which scales with the
+# number of blocks (all blocks hit the same 1024 global slots). NOT the LDS
+# atomics: per-warp privatization of the shared histogram was measured at only
+# ~10%, while cutting the block count (or removing the global flush) was 5-13x.
 #
-# Per block (all Npasses fused into one inner loop):
-#   - zero shared_hist :: (Nbuckets, Npasses) once + @synchronize.
-#   - atomic-shared: workgroup * Nitem * Npasses ops; each item bumps all
-#     Npasses passes' bins (different shared addresses → different banks,
-#     pipelines well).
-#   - @synchronize.
-#   - atomic-global: Nbuckets * Npasses ops total per block (one per
-#     non-zero bin per pass).
+# So: STAGE 1 (`bucket_histogram_count_kernel!`) writes each block's partial
+# histogram to a DISTINCT global slice `hist_g[:, :, gid]` — plain stores, no
+# cross-block atomics. STAGE 2 (`bucket_histogram_combine_kernel!`) tree-sums the
+# `nhblk` slices into `hist`. MI300A 1e8: 6.28 -> 0.49 ms (12.8x). The launch
+# uses a dedicated (wg, Nitem) chosen to keep `nhblk` modest (fewer/fatter blocks
+# ⇒ cheaper combine) — see `_hist_launch_config` in sort1d.jl.
 #
-# Items are loaded once via `vload`; `src` is read exactly once for all
-# Npasses passes. Sync count and zero-init writes are constant in Npasses
-# (versus the original per-pass version which paid them Npasses times).
+# Generic over the source eltype: `by(x)` extracts the field to sort by, and
+# `uint_map(...)` projects it to an unsigned key. `Npasses == sizeof(K)`.
+#
+# Layout note (column-major): `hist[bucket, pass]` keeps a fixed-pass column
+# contiguous — 256 threads writing `hist[lid, pass]` coalesce.
 
 using KernelAbstractions
 using KernelIntrinsics
@@ -30,9 +32,8 @@ using KernelAbstractions: @atomic
 using Base.Cartesian: @nexprs
 
 
-# Bounded item loader for the last partial chunk. OOB slots get a dummy
-# load of `src[N]` (a valid memory read); the per-item bounds check
-# (`pos <= N`) skips them before they're counted.
+# Bounded item loader for the last partial chunk. OOB slots get a dummy load of
+# `src[N]` (a valid read); the per-item bounds check skips them before counting.
 @inline @generated function load_items_bounded(
     src::AbstractVector,
     block_idx::Int,
@@ -52,8 +53,6 @@ end
 
 
 # `@nexprs` needs Npasses as an integer literal at macro-expansion time.
-# Inside the kernel body Npasses is a Val type parameter; @generated lets
-# us substitute it as a literal (`$Npasses`) into the @nexprs count.
 @inline @generated function bump_all_passes!(
     shared_hist, key,
     ::Val{Nbuckets}, ::Val{Npasses},
@@ -70,8 +69,12 @@ end
 end
 
 
-@kernel inbounds = true unsafe_indices = true function bucket_histogram_kernel!(
-    hist,                                  # (Nbuckets, Npasses) UInt32
+# STAGE 1: per-block partial histograms. Each block accumulates a block-wide
+# shared histogram (LDS atomics — cheap, uncontended enough), then writes it —
+# EVERY (bucket, pass) entry, including zeros — to its own slice `hist_g[:,:,gid]`.
+# No cross-block atomics, so no fill! of `hist_g` is needed downstream.
+@kernel inbounds = true unsafe_indices = true function bucket_histogram_count_kernel!(
+    hist_g,                                # (Nbuckets, Npasses, nhblk) UInt32
     src::AbstractVector,                   # any T
     by::F,                                 # x -> field to sort by
     uint_map::M,                           # value -> Unsigned key
@@ -107,7 +110,6 @@ end
 
     shared_hist = @localmem UInt32 (Nbuckets, Npasses)
 
-    # Zero the whole (Nbuckets, Npasses) tile in one pass.
     let total = Nbuckets * Npasses
         for k in lid:workgroup:total
             shared_hist[k] = UInt32(0)
@@ -131,15 +133,34 @@ end
     end
     @synchronize
 
-    # Flush shared_hist → global hist. For each fixed pass, threads at
-    # stride `workgroup` write hist[b, pass] — column-major layout means
-    # stride-1 across threads → coalesced.
+    # Plain store of this block's partial to its own slice. Every (b, p) is
+    # written (zeros included) so `hist_g` is fully defined without a fill!.
     for p in 1:Npasses
         for b in lid:workgroup:Nbuckets
-            v = shared_hist[b, p]
-            if v != UInt32(0)
-                @atomic hist[b, p] += v
-            end
+            hist_g[b, p, gid] = shared_hist[b, p]
         end
+    end
+end
+
+
+# STAGE 2: sum the `nhblk` partial slices into the final histogram. One thread
+# per (bucket, pass); each sums the block dimension. `hist` is fully written, so
+# no fill! is needed before this either.
+@kernel inbounds = true unsafe_indices = true function bucket_histogram_combine_kernel!(
+    hist,                                  # (Nbuckets, Npasses) UInt32
+    hist_g,                                # (Nbuckets, Npasses, nhblk) UInt32
+    ::Val{Nbuckets},
+    ::Val{Npasses},
+    ::Val{nhblk},
+) where {Nbuckets,Npasses,nhblk}
+    idx = Int(@index(Global))              # 1 .. Nbuckets*Npasses
+    if idx <= Nbuckets * Npasses
+        b = (idx - 1) % Nbuckets + 1
+        p = (idx - 1) ÷ Nbuckets + 1
+        acc = UInt32(0)
+        for k in 1:nhblk
+            acc += hist_g[b, p, k]
+        end
+        hist[b, p] = acc
     end
 end

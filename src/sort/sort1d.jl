@@ -243,16 +243,20 @@ function get_allocation(
     # 2D / 1D view `[:, :, pass]` / `[:, pass]`. Memory overhead is
     # `(npasses - 1) × old_partials_size` — small compared to scratch.
     hist     = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses)
+    # 2-stage histogram partials: one (Nbuckets, npasses) slice per count block.
+    # `nhblk` MUST match `_hist_launch_config(n)` or the count kernel writes OOB.
+    _, _, nhblk = _hist_launch_config(n)
+    hist_g   = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses, nhblk)
     partial1 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
     partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
     flag     = KernelAbstractions.allocate(backend, UInt8,  nblocks, npasses)
     scratch  = KernelAbstractions.allocate(backend, T,      n)
     if keys === nothing
-        return KernelBuffer((; hist, partial1, partial2, flag, scratch))
+        return KernelBuffer((; hist, hist_g, partial1, partial2, flag, scratch))
     else
         KT = eltype(keys)
         scratch_keys = KernelAbstractions.allocate(backend, KT, n)
-        return KernelBuffer((; hist, partial1, partial2, flag, scratch, scratch_keys))
+        return KernelBuffer((; hist, hist_g, partial1, partial2, flag, scratch, scratch_keys))
     end
 end
 
@@ -515,16 +519,31 @@ end
 
 # Stage 1+2 are shared across the byte-sort fast path and the onesweep
 # multi-pass path. Mutates `hist` in place.
+# Dedicated histogram launch config — the SINGLE SOURCE OF TRUTH for the number
+# of partial slices `nhblk`. `get_allocation` sizes `hist_g` from this SAME nhblk,
+# so if the two disagree the count kernel writes past the end of `hist_g`. The
+# histogram uses FATTER blocks than the onesweep (bigger wg × Nitem) so `nhblk`
+# stays small — the 2-stage combine cost scales with it (see bucket_histogram_kernel.jl).
+@inline function _hist_launch_config(n::Int)
+    hwg = 1024
+    hni = 32
+    nhblk = cld(cld(n, hni), hwg)
+    return hwg, hni, nhblk
+end
+
 @inline function _sort_histograms!(
-        by, uint_map, src, hist,
-        Nitem::Int, Nbuckets::Int, warpsz::Int, wpb::Int, npasses::Int,
-        workgroup::Int, backend)
-    n = length(src)
-    fill!(hist, UInt32(0))
-    bucket_histogram_kernel!(backend, workgroup,
-                              cld(cld(n, Nitem), wpb * warpsz) * workgroup)(
-        hist, src, by, uint_map,
-        Val(Nitem), Val(Nbuckets), Val(warpsz), Val(npasses),
+        by, uint_map, src, hist, hist_g,
+        Nbuckets::Int, warpsz::Int, npasses::Int, backend)
+    hwg, hni, nhblk = _hist_launch_config(length(src))
+    # Stage 1: per-block partial histograms → hist_g[:, :, block] (plain stores,
+    # every entry written → no fill! of hist_g). Stage 2: sum the slices → hist
+    # (also fully written → no fill! of hist). See bucket_histogram_kernel.jl.
+    bucket_histogram_count_kernel!(backend, hwg, nhblk * hwg)(
+        hist_g, src, by, uint_map,
+        Val(hni), Val(Nbuckets), Val(warpsz), Val(npasses),
+    )
+    bucket_histogram_combine_kernel!(backend, 256, cld(Nbuckets * npasses, 256) * 256)(
+        hist, hist_g, Val(Nbuckets), Val(npasses), Val(nhblk),
     )
     scan_histogram_kernel!(backend, Nbuckets, Nbuckets * npasses)(hist, Val(Nbuckets))
     return nothing
@@ -566,9 +585,10 @@ function _sort1d_impl_byte!(
                             "supports a larger workgroup"))
 
     hist = tmp.arrays.hist
+    hist_g = tmp.arrays.hist_g
 
-    _sort_histograms!(by, uint_map, src, hist,
-                      Nitem, Nbuckets, warpsz, wpb, 1, workgroup, backend)
+    _sort_histograms!(by, uint_map, src, hist, hist_g,
+                      Nbuckets, warpsz, 1, backend)
 
     # Single-byte path: skip onesweep entirely. `hist[:, 1]` (after scan)
     # is the global exclusive prefix; the kernel mutates it into running
@@ -635,9 +655,10 @@ function _sort1d_impl!(
     partial2 = tmp.arrays.partial2
     flag     = tmp.arrays.flag
     scratch  = tmp.arrays.scratch
+    hist_g   = tmp.arrays.hist_g
 
-    _sort_histograms!(by, uint_map, src, hist,
-                      Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend)
+    _sort_histograms!(by, uint_map, src, hist, hist_g,
+                      Nbuckets, warpsz, npasses, backend)
 
     # Ping-pong between dst and scratch so the final write lands in dst
     # regardless of parity. Avoid all upfront copies when possible:
@@ -752,10 +773,11 @@ function _sort1d_keyval_impl!(
     flag         = tmp.arrays.flag
     scratch      = tmp.arrays.scratch
     scratch_keys = tmp.arrays.scratch_keys
+    hist_g       = tmp.arrays.hist_g
 
     # Histogram is built from the KEYS (digits come from `uint_map(by(keys))`).
-    _sort_histograms!(by, uint_map, src_keys, hist,
-                      Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend)
+    _sort_histograms!(by, uint_map, src_keys, hist, hist_g,
+                      Nbuckets, warpsz, npasses, backend)
 
     # Ping-pong between (dst, dst_keys) and (scratch, scratch_keys) so that
     # the final write lands in (dst, dst_keys) regardless of parity.
