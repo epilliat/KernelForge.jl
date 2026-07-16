@@ -127,6 +127,23 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
     # A100 NEUTRAL within 0.3% (its dedicated LDS atomics + occupancy already hide the
     # latency — ab_batched_a100.jl), so this is a UNIVERSAL structure, not a per-arch
     # knob. Only the full-tile branch is split; the partial last block stays interleaved.
+    # Phase-1b full-tile load/rank is CROSS-CHUNK MLP-BATCHED: the load pass of ALL
+    # Nchunks runs before ANY atomic, so Nchunks*Nitem global loads are in flight
+    # before the first `ds_add` and vmem latency overlaps maximally. This deepens the
+    # earlier per-chunk split (which only got Nitem loads in flight — the chunk
+    # boundary was an atomic, and the AMDGPU machine scheduler will NOT hoist a global
+    # load above an LDS atomic: verified, even a MONOTONIC atomic leaves
+    # loads_before_first_atomic=1; the ordering is NOT the lever, the source structure
+    # is — xp/sort/{mlp_sched_probe,xchunk_probe}.jl). STABILITY is byte-identical: the
+    # atomic pass is still `@nexprs (c,i)`, so per-(digit,warp) ranks stay in src-position
+    # order; only the LOADS move, and loads don't affect rank order. Register pressure is
+    # unchanged in practice — d_c_i/rank_c_i/key_c_i for all Nchunks*Nitem items are
+    # already live through phase 5, so hoisting the loads adds no new live state.
+    # MEASURED (interleaved min A/B): MI300A full sort 1.016-1.017x at 1e8 (both U32/U64,
+    # ISA proxy loads_before_first_atomic 8→24); A100 NEUTRAL within 0.2% (its dedicated
+    # LDS atomics + occupancy already hide the latency), so this is a UNIVERSAL structure,
+    # not a per-arch knob. Only the full-tile branch is batched; the partial last block
+    # stays interleaved.
     phase1b_full = quote
         @nexprs $Nchunks c -> begin
             chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
@@ -136,7 +153,10 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
                 key_c_i = uint_map(by(item_c_i))
                 d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
             end
-            # @atomic returns the NEW value; subtract 1 to get OLD = rank.
+        end
+        # @atomic returns the NEW value; subtract 1 to get OLD = rank. Atomic order
+        # (c outer, i inner) = the src-position order that makes each pass stable.
+        @nexprs $Nchunks c -> begin
             @nexprs $Nitem i -> begin
                 rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
             end
