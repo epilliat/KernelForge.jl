@@ -98,7 +98,7 @@ function run_sort_benchmarks(::Type{T}, n::Int) where T
         s = bench_cub_or_nan(DEFAULT_CUB_EXE, n, T; safety_factor=1.5)
         push!(rows, (; n, type = label_T, method = "CUB",
             s.mean_kernel_μs, s.std_kernel_μs,
-            mean_total_μs = NaN, std_total_μs = NaN))
+            s.mean_total_μs, s.std_total_μs))
     end
 
     if has_roc()
@@ -107,7 +107,7 @@ function run_sort_benchmarks(::Type{T}, n::Int) where T
         s = bench_rocprim_or_nan(DEFAULT_ROCPRIM_EXE, n, T)
         push!(rows, (; n, type = label_T, method = "rocPRIM",
             s.mean_kernel_μs, s.std_kernel_μs,
-            mean_total_μs = NaN, std_total_μs = NaN))
+            s.mean_total_μs, s.std_total_μs))
     end
 
     return rows

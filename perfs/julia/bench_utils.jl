@@ -444,9 +444,15 @@ function bench_cub(exe::String, n::Int, ::Type{T}; trials::Int=100,
 
     mean_kernel_μs = results[1]["mean_ms"] * 1000
     std_kernel_μs = results[1]["std_ms"] * 1000
+    # Total (host wall-clock: kernel + CPU dispatch/launch overhead) if the binary
+    # reports it — the sort binaries now do (mean_total_ms). Older binaries without
+    # it fall back to kernel time, preserving the previous behaviour.
+    r1 = results[1]
+    mean_total_μs = haskey(r1, "mean_total_ms") ? r1["mean_total_ms"] * 1000 : mean_kernel_μs
+    std_total_μs  = haskey(r1, "std_total_ms")  ? r1["std_total_ms"]  * 1000 : std_kernel_μs
 
-    println("Kernel time: $(mean_kernel_μs) ± $(std_kernel_μs) μs (n=$trials)")
-    return (; mean_kernel_μs, std_kernel_μs, mean_total_μs=mean_kernel_μs, std_total_μs=std_kernel_μs)
+    println("Kernel time: $(mean_kernel_μs) ± $(std_kernel_μs) μs (n=$trials)   Total: $(round(mean_total_μs; digits=2)) μs")
+    return (; mean_kernel_μs, std_kernel_μs, mean_total_μs, std_total_μs)
 end
 
 """

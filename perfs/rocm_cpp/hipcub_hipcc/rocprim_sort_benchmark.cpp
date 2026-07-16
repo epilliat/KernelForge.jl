@@ -21,6 +21,7 @@
 #include <sstream>
 #include <cstdint>
 #include <limits>
+#include <chrono>
 #include <hipcub/hipcub.hpp>
 #include <hip/hip_runtime.h>
 
@@ -46,8 +47,10 @@ struct BenchmarkResult
     double temp_storage_kb;
     int warmup_iterations;
     int benchmark_iterations;
-    double mean_ms;
+    double mean_ms;       // device (kernel) time via hipEvent
     double std_ms;
+    double mean_total_ms; // host wall-clock (kernel + CPU dispatch/launch overhead)
+    double std_total_ms;
     double min_ms;
     double max_ms;
     double coeff_var_percent;
@@ -270,20 +273,30 @@ BenchmarkResult benchmark_rocprim_radix_sort(size_t K, int M, BatchedMode mode, 
     print_info("Completed ", warmup_iterations, " warmup iters in ", elapsed_warmup, " ms\n");
     CHECK_HIP(hipDeviceSynchronize());
 
-    std::vector<float> times;
+    std::vector<float> times;        // device (kernel) ms via hipEvent
+    std::vector<double> wall_times;  // host wall-clock (total) ms via std::chrono
     times.reserve(num_iterations);
+    wall_times.reserve(num_iterations);
 
     print_info("Running ", num_iterations, " benchmark iterations...\n");
 
+    // Kernel time = the hipEvent bracket (device execution). Total time = the
+    // std::chrono bracket around the SAME iteration (launch dispatch + device +
+    // sync) — its excess over the kernel time is the CPU/launch overhead, which
+    // is what the KF `bench()` reports as mean_total_μs. Apple-to-apple with the
+    // Julia side, whose total also brackets one op with wall-clock.
     for (int i = 0; i < num_iterations; ++i)
     {
+        auto host_t0 = std::chrono::high_resolution_clock::now();
         CHECK_HIP(hipEventRecord(start));
         launch_sort();
         CHECK_HIP(hipEventRecord(stop));
         CHECK_HIP(hipEventSynchronize(stop));
+        auto host_t1 = std::chrono::high_resolution_clock::now();
         float milliseconds = 0;
         CHECK_HIP(hipEventElapsedTime(&milliseconds, start, stop));
         times.push_back(milliseconds);
+        wall_times.push_back(std::chrono::duration<double, std::milli>(host_t1 - host_t0).count());
     }
 
     float sum = 0.0f, min_time = times[0], max_time = times[0];
@@ -303,12 +316,22 @@ BenchmarkResult benchmark_rocprim_radix_sort(size_t K, int M, BatchedMode mode, 
     variance /= num_iterations;
     float std_dev = std::sqrt(variance);
 
+    double wall_sum = 0.0;
+    for (double t : wall_times) wall_sum += t;
+    double wall_mean = wall_sum / num_iterations;
+    double wall_var = 0.0;
+    for (double t : wall_times) { double d = t - wall_mean; wall_var += d * d; }
+    wall_var /= num_iterations;
+    double wall_std = std::sqrt(wall_var);
+
     double bytes_processed = 2.0 * N * sizeof(T);
     double gb_per_sec = (bytes_processed / (1024.0 * 1024.0 * 1024.0)) / (mean / 1000.0);
     double elements_per_sec = N / (mean / 1000.0) / 1e9;
 
     result.mean_ms = mean;
     result.std_ms = std_dev;
+    result.mean_total_ms = wall_mean;
+    result.std_total_ms = wall_std;
     result.min_ms = min_time;
     result.max_ms = max_time;
     result.coeff_var_percent = (std_dev / mean) * 100.0;
@@ -375,6 +398,8 @@ void print_json_results(const std::vector<BenchmarkResult> &results)
         print_json_int("benchmark_iterations", r.benchmark_iterations);
         print_json_number("mean_ms", r.mean_ms);
         print_json_number("std_ms", r.std_ms);
+        print_json_number("mean_total_ms", r.mean_total_ms);
+        print_json_number("std_total_ms", r.std_total_ms);
         print_json_number("min_ms", r.min_ms);
         print_json_number("max_ms", r.max_ms);
         print_json_number("coeff_var_percent", r.coeff_var_percent);
