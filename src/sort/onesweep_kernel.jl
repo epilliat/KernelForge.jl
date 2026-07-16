@@ -116,6 +116,33 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
     # forms, identical to a hand-written hardcoded body.
     Niter_5b = Nchunks * Nitem
 
+    # Phase-1b full-tile load/rank is MLP-BATCHED: each chunk's unrolled loop is split
+    # into a LOAD pass then an ATOMIC pass, so Nitem global loads are in flight before
+    # the first `ds_add` and vmem latency overlaps. The obvious per-item interleaved
+    # form (load;compute;atomic) serialises each chain — the AMDGPU machine scheduler
+    # does NOT hoist the independent global loads above the LDS atomic (verified: even a
+    # MONOTONIC atomic leaves loads_before_first_atomic=1; the seq_cst-vs-monotonic
+    # ordering is NOT the lever, the source structure is — xp/sort/mlp_sched_probe.jl).
+    # MEASURED: MI300A full sort 1.08-1.15x (load-latency-bound, ab_batched_fullsort.jl);
+    # A100 NEUTRAL within 0.3% (its dedicated LDS atomics + occupancy already hide the
+    # latency — ab_batched_a100.jl), so this is a UNIVERSAL structure, not a per-arch
+    # knob. Only the full-tile branch is split; the partial last block stays interleaved.
+    phase1b_full = quote
+        @nexprs $Nchunks c -> begin
+            chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+            @nexprs $Nitem i -> begin
+                pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
+                item_c_i = src[pos_c_i]
+                key_c_i = uint_map(by(item_c_i))
+                d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
+            end
+            # @atomic returns the NEW value; subtract 1 to get OLD = rank.
+            @nexprs $Nitem i -> begin
+                rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
+            end
+        end
+    end
+
     body = quote
         @uniform begin
             N = length(src)
@@ -182,17 +209,7 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         # OLD value gives rank, src-stable: within (digit, warp), items receive
         # ranks in src-position order (= the @nexprs (c, i, lane) time order).
         if is_full_tile
-            @nexprs $Nchunks c -> begin
-                chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
-                @nexprs $Nitem i -> begin
-                    pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
-                    item_c_i = src[pos_c_i]
-                    key_c_i = uint_map(by(item_c_i))
-                    d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
-                    # @atomic returns the NEW value; subtract 1 to get OLD = rank.
-                    rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
-                end
-            end
+            $phase1b_full
         else
             @nexprs $Nchunks c -> begin
                 chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
