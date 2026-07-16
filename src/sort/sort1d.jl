@@ -247,16 +247,18 @@ function get_allocation(
     # CDNA3; a dummy (nhblk=1) elsewhere so NVIDIA pays no extra memory. `_hist_nhblk`
     # MUST match what `_sort_histograms!` launches or the count kernel writes OOB.
     hist_g   = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses, _hist_nhblk(arch, n))
+    # 2-stage combine level-1 partials (KT slices on CDNA3, dummy elsewhere).
+    hist_partials = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses, _hist_combine_kt(arch))
     partial1 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
     partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
     flag     = KernelAbstractions.allocate(backend, UInt8,  nblocks, npasses)
     scratch  = KernelAbstractions.allocate(backend, T,      n)
     if keys === nothing
-        return KernelBuffer((; hist, hist_g, partial1, partial2, flag, scratch))
+        return KernelBuffer((; hist, hist_g, hist_partials, partial1, partial2, flag, scratch))
     else
         KT = eltype(keys)
         scratch_keys = KernelAbstractions.allocate(backend, KT, n)
-        return KernelBuffer((; hist, hist_g, partial1, partial2, flag, scratch, scratch_keys))
+        return KernelBuffer((; hist, hist_g, hist_partials, partial1, partial2, flag, scratch, scratch_keys))
     end
 end
 
@@ -546,22 +548,44 @@ end
 # the 2-stage path, so NVIDIA pays no extra memory.
 @inline _hist_nhblk(arch, n::Int) = sort_hist_2stage(arch) ? _hist_launch_config(n)[3] : 1
 
+# The 2-stage combine is done in TWO parallel levels (see bucket_histogram_kernel.jl):
+# level 1 = HIST_COMBINE_KT blocks each reduce a k-slab of `nhblk` into `hist_partials`,
+# level 2 = the plain combine over HIST_COMBINE_KT (≪ nhblk) slices. A fixed KT (not
+# scaled with n) keeps the buffer size and the launch n-independent; empty slabs at
+# small n write 0. `hist_partials` slice count — KT on the 2-stage path, else a dummy.
+const HIST_COMBINE_KT = 128
+@inline _hist_combine_kt(arch) = sort_hist_2stage(arch) ? HIST_COMBINE_KT : 1
+
 @inline function _sort_histograms!(
-        by, uint_map, src, hist, hist_g,
+        by, uint_map, src, hist, hist_g, hist_partials,
         Nitem::Int, Nbuckets::Int, warpsz::Int, wpb::Int, npasses::Int,
         workgroup::Int, backend, arch)
     n = length(src)
     if sort_hist_2stage(arch)
         # Stage 1: per-block partial histograms → hist_g[:, :, block] (plain stores,
-        # every entry written → no fill! of hist_g). Stage 2: sum the slices → hist
-        # (also fully written → no fill! of hist). See bucket_histogram_kernel.jl.
+        # every entry written → no fill! of hist_g). Stage 2 = a TWO-LEVEL parallel
+        # reduction of the nhblk slices (level 1 → hist_partials over KT k-slabs,
+        # level 2 → hist over KT slices), both fully written → no fill!. The old
+        # single-level combine launched only 4 workgroups (333 µs); this is ~30 µs.
+        # See bucket_histogram_kernel.jl.
         hwg, hni, nhblk = _hist_launch_config(n)
         bucket_histogram_count_kernel!(backend, hwg, nhblk * hwg)(
             hist_g, src, by, uint_map,
             Val(hni), Val(Nbuckets), Val(warpsz), Val(npasses),
         )
+        # ALTERNATIVE considered: a SINGLE-kernel "atomic-finalize" combine (KT
+        # blocks each reduce a k-slab, then `@atomic hist[b,p] += slab`) needs no
+        # `hist_partials` buffer and adds no named kernel — but it reintroduces a
+        # `fill!(hist,0)` and cross-block atomics, and measured ~57 µs vs ~30 µs for
+        # this two-level form at 1e8 UInt32 (both far below the old 333 µs). The
+        # launch count is identical either way (partial+combine ≡ fill+atomic), so
+        # the faster, atomic-free two-level path wins. See xp/sort/hist_combine_par.jl.
+        KT = HIST_COMBINE_KT
+        bucket_histogram_combine_partial_kernel!(backend, 256, KT * 256)(
+            hist_partials, hist_g, Val(Nbuckets), Val(npasses), Val(nhblk), Val(KT),
+        )
         bucket_histogram_combine_kernel!(backend, 256, cld(Nbuckets * npasses, 256) * 256)(
-            hist, hist_g, Val(Nbuckets), Val(npasses), Val(nhblk),
+            hist, hist_partials, Val(Nbuckets), Val(npasses), Val(KT),
         )
     else
         # Single-stage (original): one block-wide histogram, atomic-flushed to hist.
@@ -613,8 +637,9 @@ function _sort1d_impl_byte!(
 
     hist = tmp.arrays.hist
     hist_g = tmp.arrays.hist_g
+    hist_partials = tmp.arrays.hist_partials
 
-    _sort_histograms!(by, uint_map, src, hist, hist_g,
+    _sort_histograms!(by, uint_map, src, hist, hist_g, hist_partials,
                       Nitem, Nbuckets, warpsz, wpb, 1, workgroup, backend, arch)
 
     # Single-byte path: skip onesweep entirely. `hist[:, 1]` (after scan)
@@ -683,8 +708,9 @@ function _sort1d_impl!(
     flag     = tmp.arrays.flag
     scratch  = tmp.arrays.scratch
     hist_g   = tmp.arrays.hist_g
+    hist_partials = tmp.arrays.hist_partials
 
-    _sort_histograms!(by, uint_map, src, hist, hist_g,
+    _sort_histograms!(by, uint_map, src, hist, hist_g, hist_partials,
                       Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend, arch)
 
     # Ping-pong between dst and scratch so the final write lands in dst
@@ -801,9 +827,10 @@ function _sort1d_keyval_impl!(
     scratch      = tmp.arrays.scratch
     scratch_keys = tmp.arrays.scratch_keys
     hist_g       = tmp.arrays.hist_g
+    hist_partials = tmp.arrays.hist_partials
 
     # Histogram is built from the KEYS (digits come from `uint_map(by(keys))`).
-    _sort_histograms!(by, uint_map, src_keys, hist, hist_g,
+    _sort_histograms!(by, uint_map, src_keys, hist, hist_g, hist_partials,
                       Nitem, Nbuckets, warpsz, wpb, npasses, workgroup, backend, arch)
 
     # Ping-pong between (dst, dst_keys) and (scratch, scratch_keys) so that

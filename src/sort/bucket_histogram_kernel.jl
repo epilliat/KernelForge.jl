@@ -219,9 +219,46 @@ end
 end
 
 
-# STAGE 2: sum the `nhblk` partial slices into the final histogram. One thread
-# per (bucket, pass); each sums the block dimension. `hist` is fully written, so
-# no fill! is needed before this either.
+# STAGE 2a: PARALLEL first level of the combine. The naive one-thread-per-cell
+# combine below launches only Nbuckets*Npasses/wg = 4 workgroups, each walking the
+# full `nhblk` (~3052 at 1e8) strided slice dim on 4 of 228 CUs — memory-latency
+# bound (~333 µs on MI300A). All the parallelism is in the slice (k) dimension, so
+# split it: KT blocks each own a k-slab and sum it into `partials[:, :, gid]`. A
+# tiny STAGE 2b (the kernel below, over KT≪nhblk slices) finishes the reduction.
+# Consecutive threads sweep consecutive buckets → coalesced loads. `partials` is
+# fully written (empty slab ⇒ 0), so no fill!. Measured 333→30 µs at 1e8 UInt32.
+@kernel inbounds = true unsafe_indices = true function bucket_histogram_combine_partial_kernel!(
+    partials,                              # (Nbuckets, Npasses, KT) UInt32
+    hist_g,                                # (Nbuckets, Npasses, nhblk) UInt32
+    ::Val{Nbuckets},
+    ::Val{Npasses},
+    ::Val{nhblk},
+    ::Val{KT},
+) where {Nbuckets,Npasses,nhblk,KT}
+    lid = Int(@index(Local))
+    gid = Int(@index(Group))
+    wg = Int(@groupsize()[1])
+    per = cld(nhblk, KT)
+    kstart = (gid - 1) * per + 1
+    kend = min(gid * per, nhblk)
+    cell = lid
+    while cell <= Nbuckets * Npasses
+        b = (cell - 1) % Nbuckets + 1
+        p = (cell - 1) ÷ Nbuckets + 1
+        acc = UInt32(0)
+        for k in kstart:kend
+            acc += hist_g[b, p, k]
+        end
+        partials[b, p, gid] = acc
+        cell += wg
+    end
+end
+
+
+# STAGE 2 (2b when preceded by the partial kernel): sum the slices into the final
+# histogram. One thread per (bucket, pass); each sums the slice dimension. `hist`
+# is fully written, so no fill! is needed before this either. Reused as the cheap
+# level-2 over the KT partials (KT≪nhblk) as well as the standalone combine.
 @kernel inbounds = true unsafe_indices = true function bucket_histogram_combine_kernel!(
     hist,                                  # (Nbuckets, Npasses) UInt32
     hist_g,                                # (Nbuckets, Npasses, nhblk) UInt32
