@@ -125,6 +125,8 @@ struct SampleSortWorkspace{T, VecT, VecU32, VecBool, VecU16, ScanTmp}
                                                 # child_count — A3)
     slot_cache::VecU16                          # O(N) UInt16 cached slot
                                                 # (0=frozen): histogram→scatter
+    bc_chunks::VecU32                           # per-(parent,chunk,slot) partials
+                                                # for the parallel block-count scan
     scan_tmp::ScanTmp
 end
 
@@ -148,6 +150,11 @@ function sample_sort_workspace(::Type{T}, N::Int; backend) where {T}
     block_counts   = al(UInt32, block_counts_len)
     region_offsets = al(UInt32, max_buckets + 1)   # A3: region_sizes aliases child_count
     slot_cache = al(UInt16, N)
+    # Parallel block-count scan partials. `_bc_scan_kt` only returns KT ≥ 2 while
+    # B ≤ BC_SCAN_TARGET_WG, and KT ≤ cld(BC_SCAN_TARGET_WG, B) + 1 there, so the
+    # workgroup count B*KT never exceeds 2*BC_SCAN_TARGET_WG. Sizing on that bound
+    # keeps this a fixed ~1 MB regardless of N (KT==1 doesn't touch it at all).
+    bc_chunks = al(UInt32, 2 * BC_SCAN_TARGET_WG * FANOUT)
     scan_tmp = get_allocation(Scan1D, identity, +, scan_out)
     SampleSortWorkspace{T, typeof(buf_a), typeof(offsets), typeof(done), typeof(slot_cache), typeof(scan_tmp)}(
         N, max_active, max_buckets,
@@ -161,6 +168,7 @@ function sample_sort_workspace(::Type{T}, N::Int; backend) where {T}
         max_size,
         block_counts, region_offsets,
         slot_cache,
+        bc_chunks,
         scan_tmp,
     )
 end
@@ -597,6 +605,145 @@ end
     end
 end
 
+# --- Parallel block-count scan (reduce → scan-chunks → apply) ----------------
+# `block_count_scan_kernel!` above launches ONE workgroup per parent, and each
+# workgroup serially walks that parent's n block-rows carrying `run`. At level 0
+# there is exactly ONE parent (B=1), so a single workgroup walks n = cld(N, TILE)
+# rows — 24414 dependent iterations at N=1e8, measured at 8.68 ms for that single
+# call and 25.8% of the whole sample_sort (rocprofv3, MI300A, 2026-07-17). All the
+# parallelism lives in the block-row (k) dimension; splitting it is the same fix
+# shape as the histogram-combine launch bug ([[project_sort_mi300a_combine_parallelize]]),
+# in its scan form: reduce each k-slab, exclusive-scan the slab totals, re-apply.
+#
+# KT (chunks per parent) is ADAPTIVE and host-computed from B and `mx` (the max
+# active bucket size, already known host-side each level): KT ≈ 512/B, capped by
+# how many rows a parent can even have. So level 0 (B=1) gets 128 chunks, mid
+# levels get 2, and once B is large enough on its own KT collapses to 1 and we
+# take the ORIGINAL single-kernel path — zero extra launches, zero extra buffer.
+const BC_SCAN_TARGET_WG = 512     # workgroups we want the block-count scan to fill
+const BC_SCAN_KT_MAX    = 128     # cap on chunks per parent (bounds `bc_chunks`)
+
+# Chunks per parent. `mx` = max active bucket size (host-known). Returns 1 when the
+# plain kernel already has enough parallelism, which routes to the original path.
+@inline function _bc_scan_kt(B::Int, mx::Int)
+    TILE = PARTITION_GROUP * ITEMS_PER_THREAD
+    nmax = cld(max(mx, 1), TILE)               # no parent has more rows than this
+    kt   = cld(BC_SCAN_TARGET_WG, max(B, 1))
+    return clamp(min(kt, nmax), 1, BC_SCAN_KT_MAX)
+end
+
+# Half-open row range [k0, k1) of chunk `c`. MUST be identical in reduce and apply
+# or the seeds won't line up with the rows they seed.
+@inline function _bc_chunk_range(n::Int, KT::Int, c::Int)
+    per = cld(n, KT)
+    return (c - 1) * per, min(c * per, n)
+end
+
+# Row count / base for parent p (shared by both kernels; mirrors the plain kernel).
+@inline function _bc_parent_rows(off, bcoff, p::Int)
+    TILE = PARTITION_GROUP * ITEMS_PER_THREAD
+    o0 = Int(off[p]); o1 = Int(off[p + 1])
+    g0 = o0 ÷ TILE + 1
+    g1 = (o1 - 1) ÷ TILE + 1
+    return g1 - g0 + 1, Int(bcoff[p])
+end
+
+# Phase 1: per-(parent, chunk, slot) sum of that chunk's rows → csum.
+@kernel inbounds = true unsafe_indices = true function block_count_reduce_kernel!(
+        csum::AbstractVector{UInt32},
+        @Const(bc::AbstractVector{UInt32}),
+        @Const(off::AbstractVector{UInt32}),
+        @Const(isact::AbstractVector{UInt32}),
+        @Const(bcoff::AbstractVector{UInt32}),
+        B::Int, KT::Int,
+) where {}
+    @uniform R = FANOUT
+    lid = Int(@index(Local)); w = Int(@index(Group))
+    p = (w - 1) ÷ KT + 1
+    c = (w - 1) % KT + 1
+    acc = UInt32(0)
+    if p <= B && isact[p] == UInt32(1)
+        n, base = _bc_parent_rows(off, bcoff, p)
+        k0, k1 = _bc_chunk_range(n, KT, c)
+        kk = k0
+        while kk < k1
+            acc += bc[base + kk * R + (lid - 1) + 1]
+            kk += 1
+        end
+    end
+    csum[(w - 1) * R + lid] = acc          # always written (inactive ⇒ 0), no fill!
+end
+
+# Phase 2: exclusive scan of the KT chunk totals, per (parent, slot). One workgroup
+# per parent, KT (≤128) iterations — the serial walk that used to be n rows long.
+@kernel inbounds = true unsafe_indices = true function block_count_chunk_scan_kernel!(
+        csum::AbstractVector{UInt32}, B::Int, KT::Int,
+) where {}
+    @uniform R = FANOUT
+    lid = Int(@index(Local)); p = Int(@index(Group))
+    if p <= B
+        run = UInt32(0)
+        c = 1
+        while c <= KT
+            i = ((p - 1) * KT + (c - 1)) * R + lid
+            x = csum[i]
+            csum[i] = run
+            run += x
+            c += 1
+        end
+    end
+end
+
+# Phase 3: local exclusive scan of each chunk's rows, seeded by its scanned total.
+@kernel inbounds = true unsafe_indices = true function block_count_apply_kernel!(
+        bc::AbstractVector{UInt32},
+        @Const(csum::AbstractVector{UInt32}),
+        @Const(off::AbstractVector{UInt32}),
+        @Const(isact::AbstractVector{UInt32}),
+        @Const(bcoff::AbstractVector{UInt32}),
+        B::Int, KT::Int,
+) where {}
+    @uniform R = FANOUT
+    lid = Int(@index(Local)); w = Int(@index(Group))
+    p = (w - 1) ÷ KT + 1
+    c = (w - 1) % KT + 1
+    if p <= B && isact[p] == UInt32(1)
+        n, base = _bc_parent_rows(off, bcoff, p)
+        k0, k1 = _bc_chunk_range(n, KT, c)
+        run = csum[(w - 1) * R + lid]
+        kk = k0
+        while kk < k1
+            idx = base + kk * R + (lid - 1) + 1
+            x = bc[idx]
+            bc[idx] = run
+            run += x
+            kk += 1
+        end
+    end
+end
+
+# Driver: pick KT, then either the original single kernel (KT==1) or the 3 phases.
+@inline function _block_count_scan!(ws, B::Int, mx::Int, backend)
+    KT = _bc_scan_kt(B, mx)
+    if KT == 1
+        block_count_scan_kernel!(backend, FANOUT)(
+            ws.block_counts, ws.offsets, ws.is_active, ws.region_offsets, B;
+            ndrange = B * FANOUT)
+    else
+        nwg = B * KT
+        block_count_reduce_kernel!(backend, FANOUT)(
+            ws.bc_chunks, ws.block_counts, ws.offsets, ws.is_active, ws.region_offsets,
+            B, KT; ndrange = nwg * FANOUT)
+        block_count_chunk_scan_kernel!(backend, FANOUT)(
+            ws.bc_chunks, B, KT; ndrange = B * FANOUT)
+        block_count_apply_kernel!(backend, FANOUT)(
+            ws.block_counts, ws.bc_chunks, ws.offsets, ws.is_active, ws.region_offsets,
+            B, KT; ndrange = nwg * FANOUT)
+    end
+    return nothing
+end
+
+
 # P3: deterministic stable scatter.  dst_pos = new_off[c] +
 # crossblk(bc) + intra-block stable rank (rank in tile-position order
 # among same-slot elements of THIS block).  Intra-block rank via
@@ -810,8 +957,7 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
             ws.const_mask, ws.is_active, ws.active_prefix, ws.child_base, ws.histogram, B, N, newB;
             ndrange = cld(B, wg) * wg)
 
-        block_count_scan_kernel!(backend, FANOUT)(
-            ws.block_counts, ws.offsets, ws.is_active, ws.region_offsets, B; ndrange = B * FANOUT)
+        _block_count_scan!(ws, B, Int(mx), backend)
         stable_scatter_kernel!(backend, PARTITION_GROUP)(
             oth, cur, ws.offsets, ws.is_active, ws.active_prefix, ws.child_base,
             ws.new_offsets, ws.block_counts, ws.region_offsets, ws.slot_cache, B; ndrange = nblk * PARTITION_GROUP)
