@@ -276,7 +276,7 @@ function sort(src::AT;
                 tmp::TMP=nothing,
                 Nitem=nothing, Nchunks=nothing,
                 workgroup=nothing, rr=nothing, arch=nothing) where
-        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
+        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     if keys === nothing
         dst = similar(src)
         sort!(dst, src; algorithm, by, uint_map, lt, tmax, reverse,
@@ -306,7 +306,7 @@ function sort!(dst::AbstractArray, src::AT;
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
                  workgroup=nothing, rr=nothing, arch=nothing) where
-        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
+        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     T = eltype(AT)
     algorithm in (:auto, :radix, :sample) ||
         error("`algorithm` must be :auto, :radix, or :sample; got $algorithm")
@@ -323,13 +323,26 @@ function sort!(dst::AbstractArray, src::AT;
                          !reverse && (K <: Unsigned)
 
         if algorithm === :sample || (algorithm === :auto && !radix_eligible)
-            # Sample-sort path.
-            sample_view = sample_sort(src; lt = lt, tmax = tmax, reverse = reverse)
+            # Sample-sort path. `tmp` here is a `SampleSortWorkspace`
+            # (preallocate with `sample_sort_workspace(T, N)`); a radix
+            # `KernelBuffer` is meaningless for this path, so reject it rather
+            # than silently drop it and re-allocate.
+            tmp isa KernelBuffer && error(
+                "the sample-sort path needs a `SampleSortWorkspace` for `tmp` " *
+                "(build one with `sample_sort_workspace(eltype(src), length(src))`), " *
+                "not a radix `KernelBuffer`; omit `tmp` to allocate internally.")
+            sample_view = sample_sort(src; lt = lt, tmax = tmax,
+                                      reverse = reverse, ws = tmp)
             copyto!(dst, sample_view)
             return dst
         end
 
-        # Radix path (either :radix explicit or :auto-eligible).
+        # Radix path (either :radix explicit or :auto-eligible). Symmetric guard:
+        # a `SampleSortWorkspace` is the sample path's buffer, not the radix one.
+        tmp isa SampleSortWorkspace && error(
+            "the radix path needs a `KernelBuffer` for `tmp` " *
+            "(build one with `get_allocation(Sort1D, src)`), not a " *
+            "`SampleSortWorkspace`; omit `tmp` to allocate internally.")
         K <: Unsigned || error(
             "`uint_map ∘ by` must return a UInt8/16/32/64 for the radix " *
             "path; got $K. Use `algorithm = :sample` (or :auto with `lt=…`) " *
@@ -363,6 +376,9 @@ function sort!(dst::AbstractArray, src::AT;
         algorithm === :sample &&
             error("`keys=...` (keyval sort) is radix-only; `algorithm = :sample` " *
                   "is not supported with `keys`.")
+        tmp isa SampleSortWorkspace && error(
+            "`keys=...` (keyval sort) is radix-only; `tmp` must be a " *
+            "`KernelBuffer`, not a `SampleSortWorkspace`.")
         # Key-value path: `keys` provides the sort key for each position; both
         # `src` (values) and `keys` are permuted together so that
         # `keys_dst` is sorted ascending under `uint_map(by(·))` and `dst[i]`
@@ -420,7 +436,7 @@ function sort!(src::AT;
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
                  workgroup=nothing, rr=nothing, arch=nothing) where
-        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,Nothing}}
+        {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     if keys === nothing
         sort!(src, src; algorithm, by, uint_map, lt, tmax, reverse,
               tmp, Nitem, Nchunks, workgroup, rr, arch)
