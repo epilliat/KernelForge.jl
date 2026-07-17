@@ -415,6 +415,13 @@ end
     end
     @synchronize
 
+    # NOTE — a 16-wide MLP split of this loop (all 16 loads → all 16 binsearches →
+    # all 16 atomics, the restructure that paid twice on the radix onesweep in
+    # 817851b/99591b0) was tried and REGRESSED: MI300A 1e8 F32 21409→23417 µs, F64
+    # 26227→28599 µs (−9%), while small N was unaffected. 16 live values of T plus
+    # 16 pos/slot/predicate sets is past this kernel's register budget — the same
+    # cliff the radix hit at 24 items (2.5× slower) and avoided at 8. Do not re-try
+    # 16-wide; an 8-wide split is the only shape worth re-testing here.
     @nexprs 16 j -> begin
         pos_j = block_first + (j - 1) * PARTITION_GROUP + lid - 1
         if pos_j <= block_last
@@ -900,8 +907,18 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
     wg = 256
     sampm = samples_matrix(ws); pivm = pivots_matrix(ws)
     while level < MAX_LEVELS
-        mx = device_max_active_size(ws, B; backend)
-        mx <= LEAF_MAX && break
+        # The `mx = device_max_active_size(...); mx <= LEAF_MAX && break` that used to
+        # stand here was REDUNDANT with the `A == 0 && break` below, and it cost a
+        # kernel + a fill! + a full D2H drain EVERY level:
+        #   mx > LEAF_MAX  ⟺  ∃b: !done[b] ∧ sz(b) > LEAF_MAX  ⟺  A > 0
+        # because `max_active_size_kernel!` maxes sz over !done[b], and
+        # `flag_candidates_kernel!` sets iscand[b] = (sz > LEAF_MAX && !done[b]) with
+        # A = Σ iscand. The two predicates are literally the same set being tested.
+        # (`mx_final` after the loop still feeds the leaf; only the per-level call is
+        # gone.) `mx` was otherwise used only for `_bc_scan_kt(B, mx)` — see the N
+        # substitution note at that call — and for the debug hook, which now pays for
+        # its own value so production doesn't.
+        mx_dbg = dbg === nothing ? 0 : device_max_active_size(ws, B; backend)
 
         flag_candidates_kernel!(backend, wg)(
             ws.is_candidate, ws.offsets, ws.done, B; ndrange = cld(B, wg) * wg)
@@ -957,7 +974,13 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
             ws.const_mask, ws.is_active, ws.active_prefix, ws.child_base, ws.histogram, B, N, newB;
             ndrange = cld(B, wg) * wg)
 
-        _block_count_scan!(ws, B, Int(mx), backend)
+        # N, not `mx`: substituting the array length here is BIT-IDENTICAL. _bc_scan_kt
+        # returns clamp(min(cld(512,B), cld(mx,TILE)), 1, 128), and B is only ever 1 or
+        # ≥256 (newB = FANOUT*A + (B-A) ≥ FANOUT once A ≥ 1). At B==1 the single bucket
+        # IS the whole array, so mx == N. At B ≥ 256, cld(512,B) ≤ 2 while reaching this
+        # line implies A > 0 ⟹ some active bucket exceeds LEAF_MAX ⟹ cld(mx,TILE) ≥ 2,
+        # so the `min` picks cld(512,B) either way. Hence no per-level max is needed.
+        _block_count_scan!(ws, B, N, backend)
         stable_scatter_kernel!(backend, PARTITION_GROUP)(
             oth, cur, ws.offsets, ws.is_active, ws.active_prefix, ws.child_base,
             ws.new_offsets, ws.block_counts, ws.region_offsets, ws.slot_cache, B; ndrange = nblk * PARTITION_GROUP)
@@ -968,7 +991,7 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
         B = newB
         level += 1
         if dbg !== nothing
-            push!(dbg, (level = level, A = A, B = B, mx = mx,
+            push!(dbg, (level = level, A = A, B = B, mx = mx_dbg,
                         coff = sum(UInt64.(view(ws.offsets, 1:B + 1))),
                         csamp = sum(UInt64.(view(ws.samples, 1:SAMPLES_PER_BUCKET * A))),
                         cpiv = sum(UInt64.(vec(view(samples_matrix(ws), 1:FANOUT, 1:A)))),
