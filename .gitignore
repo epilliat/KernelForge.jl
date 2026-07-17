@@ -39,6 +39,10 @@ data/tuning/matvec/diag_hang.jl
 AGENTS.md
 **/AGENTS.md
 
+# Local-only release announcement drafts — not shipped.
+ANNOUNCE*.md
+announcement*.md
+
 Manifest.toml
 docs/Manifest.toml
 
