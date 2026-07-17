@@ -43,17 +43,27 @@ using Base.Cartesian: @nexprs
 const FANOUT        = 256              # fan-out per level
 const OVERSAMPLE     = 16               # oversample factor
 const SAMPLES_PER_BUCKET        = FANOUT * OVERSAMPLE # = 4096 samples / bucket (≤ oem max)
-const LEAF_MAX = 4096             # max bucket handed to the leaf (8-byte / default)
-# 4-byte keys get a bigger leaf: a bucket of 8192 fits in 32 KB of LDS — under the
-# 48 KB A100 static-@localmem cap and the 64 KB gfx942 LDS — so the partition loop
-# can STOP one level earlier. At N≈1e6 the mean post-level-0 bucket is ~3906 and its
-# overflow tail sits ~5500 ≤ 8192 ⇒ ONE level suffices instead of two (a whole
-# partition pass + ~23 launches + a 1.6 GB round-trip removed). 8-byte keys keep
-# 4096 (8192×8 B = 64 KB would blow the A100 static cap). At 1e8 the 8192 class never
-# fires (post-level-1 buckets ~1526), so this is a pure small-N lever. The workspace
-# stays sized on LEAF_MAX=4096 — an over-provision for the 8192 case, never an
-# under-provision (active buckets ≤ cld(N, leaf_max) ≤ cld(N, 4096) = max_active).
-@inline leaf_max(::Type{T}) where {T} = sizeof(T) <= 4 ? 8192 : 4096
+const LEAF_MAX = 4096             # workspace-sizing FLOOR + minimum leaf cap
+# The leaf cap (max bucket handed to the batched bitonic leaf) is a per-arch TUNABLE
+# knob — `default_leaf_max(arch, T)`, autotune-overridable like `default_nitem` — but
+# HARD-BOUNDED by the static-`@localmem` ceiling: an L-element leaf needs L·sizeof(T) B
+# of static LDS (+L B on the tag path) and the bitonic ladder tops at `Val(8192)`, so
+# the only valid caps are {4096, 8192} for 4-byte and {4096} for 8-byte (8192·8 B =
+# 64 KB blows the 48 KB static cap). `leaf_max_cap(T)` is that ceiling; every
+# `default_leaf_max` method MUST stay within it and `sample_sort` asserts LEAF_MAX ≤
+# leaf_max ≤ cap.
+#
+# Why a bigger 4-byte leaf helps: a bucket of 8192 (32 KB LDS, under the 48 KB static
+# cap and the 64 KB gfx942 LDS) lets the partition loop STOP one level earlier. At
+# N≈1e6 the mean post-level-0 bucket is ~3906 with an overflow tail ~5500 ≤ 8192 ⇒ ONE
+# level suffices instead of two (a whole partition pass + ~23 launches + a 1.6 GB
+# round-trip removed). At 1e8 the 8192 class never fires (post-level-1 buckets ~1526),
+# so it is a pure small-N lever. The workspace stays sized on LEAF_MAX=4096 — an
+# over-provision for any larger cap, never an under-provision (active buckets ≤
+# cld(N, leaf_max) ≤ cld(N, 4096) = max_active), which is WHY the tuned cap must be
+# ≥ LEAF_MAX.
+@inline leaf_max_cap(::Type{T}) where {T} = sizeof(T) <= 4 ? 8192 : 4096
+@inline default_leaf_max(::AbstractArch, ::Type{T}) where {T} = sizeof(T) <= 4 ? 8192 : 4096
 const PARTITION_GROUP       = 256              # partition workgroup
 const ITEMS_PER_THREAD    = 16               # items/thread → tile = 4096
 const LOG2_FANOUT    = 8                # log2(R): per-item sub-bucket binsearch depth
@@ -903,6 +913,7 @@ end
 
 function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
                                  lt_used = (<),
+                                 leaf_max_::Int = default_leaf_max(detect_arch(src), T),
                                  dbg::Union{Nothing,Vector} = nothing,
                                  backend = get_backend(src)) where {T}
     N = ws.N
@@ -932,7 +943,7 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
         mx_dbg = dbg === nothing ? 0 : device_max_active_size(ws, B; backend)
 
         flag_candidates_kernel!(backend, wg)(
-            ws.is_candidate, ws.offsets, ws.done, B, leaf_max(T); ndrange = cld(B, wg) * wg)
+            ws.is_candidate, ws.offsets, ws.done, B, leaf_max_; ndrange = cld(B, wg) * wg)
         scan!(identity, +, view(ws.candidate_prefix, 1:B), view(ws.is_candidate, 1:B);
                  tmp = ws.scan_tmp)
         A = Int(Array(view(ws.candidate_prefix, B:B))[1])
@@ -1531,9 +1542,11 @@ end
 function bigbucket_sort!(array::AbstractVector{T},
                               hoff::Vector{UInt32}, B::Int;
                               lt_used, padval::Union{Nothing,T},
-                              use_tag::Bool, backend) where {T}
+                              use_tag::Bool,
+                              leaf_max_::Int = default_leaf_max(detect_arch(array), T),
+                              backend) where {T}
     nfb = 0
-    lmax = leaf_max(T)
+    lmax = leaf_max_
     @inbounds for b in 1:B
         n = Int(hoff[b + 1]) - Int(hoff[b])
         n > lmax || continue
@@ -1587,19 +1600,20 @@ end
 # ≤BMAX → register Stage-C bitonic; 257..K_PAD → uniform shared kernel
 # (minsz=BMAX so it skips the ones the reg kernel already did).
 function leaf_sort!(array::AbstractVector{T}, off::AbstractVector{UInt32},
-                    B::Int, max_bucket::Int, ws::SampleSortWorkspace;
+                    B::Int, max_bucket::Int, ws::SampleSortWorkspace{T};
                     lt_used = (<),
                     padval::Union{Nothing,T} = nothing,
                     use_tag::Bool = false,
+                    leaf_max_::Int = default_leaf_max(detect_arch(array), T),
                     backend = get_backend(array)) where {T}
     # Fallback: sort any non-const bucket still > leaf cap (would overflow K_PAD).
-    # Rare/adversarial.  After this every remaining bucket ≤ leaf_max(T); the larger
+    # Rare/adversarial.  After this every remaining bucket ≤ leaf_max_; the larger
     # ones are sorted in place and skipped below (bsize > K_PAD).
-    lmax = leaf_max(T)
+    lmax = leaf_max_
     if max_bucket > lmax
         hoff = Array(view(off, 1:B + 1))
         bigbucket_sort!(array, hoff, B;
-                             lt_used, padval, use_tag, backend)
+                             lt_used, padval, use_tag, leaf_max_, backend)
         mx_small = 0
         @inbounds for b in 1:B
             n = Int(hoff[b + 1]) - Int(hoff[b])
@@ -1673,7 +1687,7 @@ function leaf_sort!(array::AbstractVector{T}, off::AbstractVector{UInt32},
     # 4-byte keys only: an 8192 bucket = 32 KB LDS (tag path +8 KB Bool = 40 KB),
     # both under the 48 KB A100 static cap. 8-byte keys never reach here (leaf_max
     # keeps them ≤ 4096). `@nexprs 13` in the bitonic kernels covers log2(8192)=13.
-    leaf_max(T) > 4096 && _leafclass!(4096, Val(8192))
+    leaf_max_ > 4096 && _leafclass!(4096, Val(8192))
     return array
 end
 
@@ -1711,10 +1725,21 @@ function sample_sort(src::AbstractVector{T};
                          lt = nothing,
                          tmax = nothing,
                          reverse::Bool = false,
+                         leaf_max = nothing,
+                         arch = nothing,
                          ws::Union{Nothing,SampleSortWorkspace{T}} = nothing) where {T}
     N = length(src)
     w = ws === nothing ? sample_sort_workspace(T, N; backend) : ws
     @assert w.N == N "workspace built for N=$(w.N), got N=$N"
+
+    # Leaf cap: autotune-overridable per-arch (`default_leaf_max`), or a caller
+    # override. HARD invariant — must sit in [LEAF_MAX, leaf_max_cap(T)] so it
+    # (a) never under-provisions the LEAF_MAX-sized workspace and (b) never blows
+    # the static-`@localmem` ceiling / overflows the bitonic ladder.
+    arch_ = arch === nothing ? detect_arch(src) : arch
+    leaf_max_ = something(leaf_max, default_leaf_max(arch_, T))
+    @assert LEAF_MAX <= leaf_max_ <= leaf_max_cap(T) "leaf_max=$leaf_max_ out of " *
+        "[$(LEAF_MAX), $(leaf_max_cap(T))] for $(T) (sizeof $(sizeof(T)))"
 
     lt_used = lt === nothing ? (<) : lt
     has_tmax = tmax !== nothing
@@ -1735,10 +1760,10 @@ function sample_sort(src::AbstractVector{T};
     end
 
     cur, oth, B, _level, mx =
-        partition_loop!(w, src; lt_used, backend)
+        partition_loop!(w, src; lt_used, leaf_max_, backend)
     if mx > 0
         leaf_sort!(view(cur, 1:N), view(w.offsets, 1:B + 1), B, mx, w;
-                   lt_used, padval, use_tag, backend)
+                   lt_used, padval, use_tag, leaf_max_, backend)
     end
     if reverse
         wg = 256
