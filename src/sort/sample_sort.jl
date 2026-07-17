@@ -43,7 +43,17 @@ using Base.Cartesian: @nexprs
 const FANOUT        = 256              # fan-out per level
 const OVERSAMPLE     = 16               # oversample factor
 const SAMPLES_PER_BUCKET        = FANOUT * OVERSAMPLE # = 4096 samples / bucket (≤ oem max)
-const LEAF_MAX = 4096             # max bucket size handed to the leaf
+const LEAF_MAX = 4096             # max bucket handed to the leaf (8-byte / default)
+# 4-byte keys get a bigger leaf: a bucket of 8192 fits in 32 KB of LDS — under the
+# 48 KB A100 static-@localmem cap and the 64 KB gfx942 LDS — so the partition loop
+# can STOP one level earlier. At N≈1e6 the mean post-level-0 bucket is ~3906 and its
+# overflow tail sits ~5500 ≤ 8192 ⇒ ONE level suffices instead of two (a whole
+# partition pass + ~23 launches + a 1.6 GB round-trip removed). 8-byte keys keep
+# 4096 (8192×8 B = 64 KB would blow the A100 static cap). At 1e8 the 8192 class never
+# fires (post-level-1 buckets ~1526), so this is a pure small-N lever. The workspace
+# stays sized on LEAF_MAX=4096 — an over-provision for the 8192 case, never an
+# under-provision (active buckets ≤ cld(N, leaf_max) ≤ cld(N, 4096) = max_active).
+@inline leaf_max(::Type{T}) where {T} = sizeof(T) <= 4 ? 8192 : 4096
 const PARTITION_GROUP       = 256              # partition workgroup
 const ITEMS_PER_THREAD    = 16               # items/thread → tile = 4096
 const LOG2_FANOUT    = 8                # log2(R): per-item sub-bucket binsearch depth
@@ -213,12 +223,13 @@ end
         @Const(off::AbstractVector{UInt32}),
         @Const(dn::AbstractVector{Bool}),
         B::Int,
+        leaf_max_::Int,                          # per-T leaf cap (8192 for 4-byte)
 ) where {}
     lid = Int(@index(Local)); gid = Int(@index(Group))
     b = (gid - 1) * Int(@groupsize()[1]) + lid
     if b <= B
         sz = Int(off[b + 1]) - Int(off[b])
-        iscand[b] = (sz > LEAF_MAX && !dn[b]) ? UInt32(1) : UInt32(0)
+        iscand[b] = (sz > leaf_max_ && !dn[b]) ? UInt32(1) : UInt32(0)
     end
 end
 
@@ -921,7 +932,7 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
         mx_dbg = dbg === nothing ? 0 : device_max_active_size(ws, B; backend)
 
         flag_candidates_kernel!(backend, wg)(
-            ws.is_candidate, ws.offsets, ws.done, B; ndrange = cld(B, wg) * wg)
+            ws.is_candidate, ws.offsets, ws.done, B, leaf_max(T); ndrange = cld(B, wg) * wg)
         scan!(identity, +, view(ws.candidate_prefix, 1:B), view(ws.is_candidate, 1:B);
                  tmp = ws.scan_tmp)
         A = Int(Array(view(ws.candidate_prefix, B:B))[1])
@@ -1050,9 +1061,9 @@ end
         end
         @synchronize
 
-        @nexprs 12 lvl_p -> begin
+        @nexprs 13 lvl_p -> begin
             if (1 << lvl_p) <= K_PAD
-                @nexprs 12 stg_q -> begin
+                @nexprs 13 stg_q -> begin
                     if stg_q <= lvl_p
                         q_idx = lvl_p - stg_q + 1
                         d_off = 1 << (q_idx - 1)
@@ -1120,9 +1131,9 @@ end
         end
         @synchronize
 
-        @nexprs 12 lvl_p -> begin
+        @nexprs 13 lvl_p -> begin
             if (1 << lvl_p) <= K_PAD
-                @nexprs 12 stg_q -> begin
+                @nexprs 13 stg_q -> begin
                     if stg_q <= lvl_p
                         q_idx = lvl_p - stg_q + 1
                         d_off = 1 << (q_idx - 1)
@@ -1522,9 +1533,10 @@ function bigbucket_sort!(array::AbstractVector{T},
                               lt_used, padval::Union{Nothing,T},
                               use_tag::Bool, backend) where {T}
     nfb = 0
+    lmax = leaf_max(T)
     @inbounds for b in 1:B
         n = Int(hoff[b + 1]) - Int(hoff[b])
-        n > LEAF_MAX || continue
+        n > lmax || continue
         nfb += 1
         base = Int(hoff[b])                       # 0-based start
         P = 1
@@ -1580,23 +1592,24 @@ function leaf_sort!(array::AbstractVector{T}, off::AbstractVector{UInt32},
                     padval::Union{Nothing,T} = nothing,
                     use_tag::Bool = false,
                     backend = get_backend(array)) where {T}
-    # Fallback: sort any non-const bucket still > TERMINAL (would overflow
-    # K_PAD).  Rare/adversarial.  After this every remaining bucket ≤ 4096,
-    # the >4096 ones are sorted in place and skipped below (bsize > K_PAD).
-    if max_bucket > LEAF_MAX
+    # Fallback: sort any non-const bucket still > leaf cap (would overflow K_PAD).
+    # Rare/adversarial.  After this every remaining bucket ≤ leaf_max(T); the larger
+    # ones are sorted in place and skipped below (bsize > K_PAD).
+    lmax = leaf_max(T)
+    if max_bucket > lmax
         hoff = Array(view(off, 1:B + 1))
         bigbucket_sort!(array, hoff, B;
                              lt_used, padval, use_tag, backend)
         mx_small = 0
         @inbounds for b in 1:B
             n = Int(hoff[b + 1]) - Int(hoff[b])
-            n <= LEAF_MAX && n > mx_small && (mx_small = n)
+            n <= lmax && n > mx_small && (mx_small = n)
         end
         max_bucket = mx_small
-        max_bucket == 0 && return array        # nothing ≤TERMINAL left
+        max_bucket == 0 && return array        # nothing ≤ leaf cap left
     end
 
-    @assert max_bucket <= LEAF_MAX "unreachable: bigbucket fallback did not cap max bucket (max=$max_bucket)"
+    @assert max_bucket <= lmax "unreachable: bigbucket fallback did not cap max bucket (max=$max_bucket)"
 
     # The ≤BMAX register Stage-C kernels use warp `@shfl`, which is only
     # safe for the standard numeric types (covers the default + any
@@ -1657,6 +1670,10 @@ function leaf_sort!(array::AbstractVector{T}, off::AbstractVector{UInt32},
     _leafclass!(512,  Val(1024))
     _leafclass!(1024, Val(2048))
     _leafclass!(2048, Val(4096))
+    # 4-byte keys only: an 8192 bucket = 32 KB LDS (tag path +8 KB Bool = 40 KB),
+    # both under the 48 KB A100 static cap. 8-byte keys never reach here (leaf_max
+    # keeps them ≤ 4096). `@nexprs 13` in the bitonic kernels covers log2(8192)=13.
+    leaf_max(T) > 4096 && _leafclass!(4096, Val(8192))
     return array
 end
 
