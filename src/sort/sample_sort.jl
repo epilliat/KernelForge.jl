@@ -914,7 +914,6 @@ end
 function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
                                  lt_used = (<),
                                  leaf_max_::Int = default_leaf_max(detect_arch(src), T),
-                                 dbg::Union{Nothing,Vector} = nothing,
                                  backend = get_backend(src)) where {T}
     N = ws.N
     # K2 sample sort: keep oem's fast typemax path for the default
@@ -938,10 +937,7 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
         # A = Σ iscand. The two predicates are literally the same set being tested.
         # (`mx_final` after the loop still feeds the leaf; only the per-level call is
         # gone.) `mx` was otherwise used only for `_bc_scan_kt(B, mx)` — see the N
-        # substitution note at that call — and for the debug hook, which now pays for
-        # its own value so production doesn't.
-        mx_dbg = dbg === nothing ? 0 : device_max_active_size(ws, B; backend)
-
+        # substitution note at that call.
         flag_candidates_kernel!(backend, wg)(
             ws.is_candidate, ws.offsets, ws.done, B, leaf_max_; ndrange = cld(B, wg) * wg)
         scan!(identity, +, view(ws.candidate_prefix, 1:B), view(ws.is_candidate, 1:B);
@@ -1012,14 +1008,6 @@ function partition_loop!(ws::SampleSortWorkspace{T}, src::AbstractVector{T};
         copyto!(view(ws.done, 1:newB), view(ws.new_done, 1:newB))
         B = newB
         level += 1
-        if dbg !== nothing
-            push!(dbg, (level = level, A = A, B = B, mx = mx_dbg,
-                        coff = sum(UInt64.(view(ws.offsets, 1:B + 1))),
-                        csamp = sum(UInt64.(view(ws.samples, 1:SAMPLES_PER_BUCKET * A))),
-                        cpiv = sum(UInt64.(vec(view(samples_matrix(ws), 1:FANOUT, 1:A)))),
-                        chist = sum(UInt64.(view(ws.histogram, 1:FANOUT * A))),
-                        ccur = sum(UInt64.(view(cur, 1:N)))))
-        end
     end
     mx_final = device_max_active_size(ws, B; backend)
     return cur, oth, B, level, mx_final
@@ -1719,6 +1707,16 @@ a `()`/`Type→value` function):
     validity-Bool tag leaf (no sentinel needed).  Note: for a custom `lt`,
     `typemax(T)` is NOT a valid sentinel unless `lt` agrees with bit order,
     so this case takes the tag path even when `typemax(T)` exists.
+
+!!! warning "The return value ALIASES the workspace"
+    `sorted` is a `view` into one of the workspace ping-pong buffers, NOT a
+    fresh array.  When you pass your own `ws`, the next `sample_sort(...; ws)`
+    call (or any mutation of `ws`'s buffers) CLOBBERS a previously-returned
+    result.  If you need the sorted output to outlive the next reuse of `ws`,
+    `copy(sorted)` (or `collect`) it first.  With the default (no `ws`) each
+    call allocates its own workspace, so the view stays valid for the caller —
+    but the workspace as a whole is retained by that view and only freed when
+    the view is.
 """
 function sample_sort(src::AbstractVector{T};
                          backend = get_backend(src),

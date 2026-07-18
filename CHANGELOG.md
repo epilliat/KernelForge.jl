@@ -48,6 +48,11 @@ under **Breaking changes** below.
 - `KernelForge.compile_kernel_only(kobj; ndrange)` — compile-only
   path for the autotune harness; mirrors KA's CUDA / ROC functor
   prelude up to `@cuda/@roc launch=false`.
+- `sample_sort` leaf cap is an autotunable per-arch hook
+  (`default_leaf_max(arch, T)`) with a caller override (`leaf_max=`)
+  and a new `data/tuning/sample_sort/autotune.jl` driver. The cap is
+  clamped to `[LEAF_MAX, leaf_max_cap(T)]` (the static-`@localmem`
+  ceiling: 8192 for ≤4-byte keys, 4096 for 8-byte).
 
 ### Changed
 - Benchmark result CSVs moved from in-tree `perfs/julia/results/` to
@@ -70,6 +75,19 @@ under **Breaking changes** below.
   instead of `lane` (warp-local). Same value when workgroup ≡ one
   warp, but wrong for multi-warp workgroups where multiple warps
   would each believe they owned the last row chunk.
+- `mapreduce` now coalesces loads of small isbits-**struct** eltypes.
+  For a 1/2/4/8/16-byte non-primitive isbits `T`, the 1-src path
+  reinterprets to the same-size unsigned (host-side, so the load
+  widens under the LLVM vectorizer) and reconstructs `T` per value
+  via a GPU-safe field decomposition. Fixes a ~1/16-bandwidth cliff:
+  A100 `UnitFloat8→Float32` at 1e9 went 3123→663 µs (4.71×), closing
+  the gap to CUB from 5.14× to ~1.09×.
+- `sort!` on the sample path now threads a caller-supplied
+  `SampleSortWorkspace` through the `tmp` argument (allocation
+  contract): the radix / keyval paths reject a `SampleSortWorkspace`
+  and the sample path rejects a plain `KernelBuffer`, each with a
+  clear error, so a mis-typed pre-allocation fails loudly instead of
+  silently re-allocating.
 
 ### Added (deps)
 - `Adapt` 4 — used by the tuning loader for backend-portable
