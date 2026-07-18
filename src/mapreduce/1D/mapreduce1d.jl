@@ -217,6 +217,44 @@ function mapreduce1d!(
     return mapreduce1d!(f, op, dst, (src,); kwargs...)
 end
 
+# ── Widen-aggregate load (coalescing fix for isbits-struct element types) ────
+# LLVM-NVPTX's SLP/load-combine vectorizer bails on AGGREGATE element types, so a
+# per-thread batch of `Nitem` struct loads (the kernel's KI `vload`) stays scalar
+# → catastrophic coalescing (~1/16 BW) for a small struct. Measured 2026-07-18:
+# A100 mapreduce `UnitFloat8→Float32` was 4.8× slower than the raw-UInt8 path (a
+# reinterpret-to-UInt8 A/B recovered it exactly). Fix: reinterpret the src to its
+# same-size unsigned HOST-SIDE (a real dense array → the load coalesces), then
+# reconstruct `T` per-value in registers. Reconstruction is GPU-SAFE field
+# decomposition + constructor (mirrors KI's `@shfl` `_shfl_recurse`); a value-level
+# `reinterpret(T, ::Unsigned)` to a STRUCT routes through reinterpretarray.jl and
+# FAULTS on GPU. Neutral on gfx942 (LLVM-AMDGPU widens aggregates → 1.01×) and
+# byte-identical for primitive `T` (gate is false).
+@inline _uintof_size(n::Int) = n == 1 ? UInt8 : n == 2 ? UInt16 : n == 4 ? UInt32 :
+                               n == 8 ? UInt64 : UInt128
+@inline _widen_aggregate_load(::Type{T}) where {T} =
+    isbitstype(T) && !isprimitivetype(T) && ispow2(sizeof(T)) && 1 <= sizeof(T) <= 16
+@generated function _bits_to(::Type{T}, raw::U) where {T,U}
+    isprimitivetype(T) && return :(reinterpret(T, raw))     # primitive→primitive: GPU-safe
+    field_exprs = Expr[]
+    for i in 1:fieldcount(T)
+        Fi   = fieldtype(T, i)
+        foff = Int(fieldoffset(T, i))                       # bytes (handles padding)
+        Ui   = _uintof_size(sizeof(Fi))
+        push!(field_exprs, :(_bits_to($Fi, (raw >> $(foff * 8)) % $Ui)))
+    end
+    T <: Tuple ? :(tuple($(field_exprs...))) : :(T($(field_exprs...)))
+end
+
+# Map wrapper for the reinterpret path: reconstruct T from the loaded unsigned,
+# then apply the user's `f`. `T` is a TYPE PARAMETER, never a field — a closure
+# capturing `T` would carry a `Type{T}` field, which is NOT isbits and the kernel
+# rejects it (`KernelError: passing non-bitstype argument`). The struct's only
+# field is `f`, so the whole functor stays isbits and launches.
+struct _WidenReinterp{T,F} <: Function
+    f::F
+end
+@inline (m::_WidenReinterp{T})(x) where {T} = m.f(_bits_to(T, x))
+
 # Main in-place entry point
 function mapreduce1d!(
     f::F, op::O,
@@ -230,6 +268,15 @@ function mapreduce1d!(
     arch=nothing
 ) where {U,DS<:AbstractArray,AT<:AbstractArray,F<:Function,O<:Function,G<:Function,TMP<:Union{KernelBuffer,Nothing}}
     T = eltype(AT)
+    # Coalesce isbits-struct loads (single-src only): reinterpret to the same-size
+    # unsigned host-side, reconstruct T per-value in-kernel via `_bits_to`. The
+    # recursion re-enters with a PRIMITIVE eltype (gate false) → no infinite loop;
+    # sizeof is preserved so a caller-supplied `tmp`/`H`/launch-shape still match.
+    if U == 1 && _widen_aggregate_load(T)
+        src2 = reinterpret(_uintof_size(sizeof(T)), srcs[1])
+        return mapreduce1d!(_WidenReinterp{T,typeof(f)}(f), op, dst, (src2,);
+                            g, tmp, Nitem, workgroup, blocks, arch)
+    end
     n = length(srcs[1])
     backend = get_backend(srcs[1])
     H = Base.promote_op(f, ntuple(_ -> T, Val(U))...)

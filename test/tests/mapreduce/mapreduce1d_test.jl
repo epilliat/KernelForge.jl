@@ -1,3 +1,9 @@
+# 4-byte, 2-field isbits struct for the widen-load field-decomposition test below.
+struct _MRPair16
+    a::Float16
+    b::Float16
+end
+
 @testset "mapreduce1d correctness" begin
     ns = reverse([33, 100, 10_001, 100_000])
     types = [Float32, Float64, Int32]
@@ -185,6 +191,27 @@ end
         result = KF.mapreduce1d((ai, bi, ci) -> ai * bi * ci, +, (a, b, c); g=cbrt, to_cpu=true)
         KA.synchronize(backend)
         @test isapprox(result, cbrt(sum(Array(a) .* Array(b) .* Array(c))))
+    end
+
+    # Widenable isbits-struct eltype exercises the reinterpret-coalesce path
+    # (mapreduce1d! reinterprets the src to its same-size unsigned + reconstructs T
+    # per-value via _bits_to). This is the ONLY coverage of that path: a primitive
+    # eltype never enters it, and a Type-capturing closure there fails to launch
+    # (non-isbits) — so without this test the widen-load fix is unguarded.
+    @testset "isbits-struct eltype (widen-load path)" begin
+        n = 50_000
+        # 1-byte single-field struct (the UnitFloat8→Float32 anomaly, A100 5.14×→~1.18×)
+        uf = AT([KF.UnitFloat8(Int8(((i * 37) % 255) - 127)) for i in 1:n])
+        res = KF.mapreduce1d(x -> Float32(x), +, uf; to_cpu=true)
+        KA.synchronize(backend)
+        @test isapprox(res, sum(Float32.(Array(uf))); rtol=1e-4)
+
+        # 4-byte 2-field struct exercises _bits_to field decomposition + constructor
+        pr = AT([_MRPair16(Float16(i % 7), Float16(-(i % 5))) for i in 1:n])
+        res2 = KF.mapreduce1d(p -> Float32(p.a) + Float32(p.b), +, pr; to_cpu=true)
+        KA.synchronize(backend)
+        ref2 = sum(p -> Float32(p.a) + Float32(p.b), Array(pr))
+        @test isapprox(res2, ref2; rtol=1e-3)
     end
 
     # Verify tmp blocks mismatch is caught
