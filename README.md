@@ -85,6 +85,10 @@ you can support its development and maintenance via
 Corporate sponsors receive priority support on issues and an acknowledgment
 in the documentation.
 
+Thanks to the people who support KernelForge.jl!
+
+- [@PraneethMerugu](https://github.com/PraneethMerugu)
+
 ## License
 
 MIT
