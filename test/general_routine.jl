@@ -31,6 +31,9 @@ end
 @testset "views" begin
     include("tests/views/views_test.jl")
 end
+@testset "eltype" begin
+    include("tests/eltype/eltype_matrix_test.jl")
+end
 @testset "argmax" begin
     include("tests/search/argmax_test.jl")
 end
