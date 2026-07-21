@@ -34,6 +34,10 @@ end
 @testset "eltype" begin
     include("tests/eltype/eltype_matrix_test.jl")
 end
+@testset "gemm" begin
+    include("tests/gemm/gemm_test.jl")
+    include("tests/gemm/gemm_mma_test.jl")
+end
 @testset "argmax" begin
     include("tests/search/argmax_test.jl")
 end

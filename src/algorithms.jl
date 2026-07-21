@@ -19,6 +19,7 @@ end
 @forge_algorithm MapReduceDims
 @forge_algorithm MatVec
 @forge_algorithm VecMat
+@forge_algorithm GEMM
 @forge_algorithm Scan
 @forge_algorithm Scan1D
 @forge_algorithm FindFirst

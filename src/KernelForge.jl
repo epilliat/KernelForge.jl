@@ -38,6 +38,10 @@ include("mapreduce/2D/matvec.jl")
 
 include("mapreduce/2D/mapreduce2d.jl")
 
+include("gemm/gemm_kernel.jl")
+include("gemm/gemm_mma_kernel.jl")
+include("gemm/gemm.jl")
+
 include("mapreduce/ND/mapreducedims_kernel.jl")
 include("mapreduce/ND/mapreducedims.jl")
 
