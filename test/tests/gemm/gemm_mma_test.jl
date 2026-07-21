@@ -27,7 +27,18 @@ else
     mma_tol(::Type{Float16}) = 1f-2
     mma_tol(::Type{Core.BFloat16}) = 5f-2
 
-    @testset "$CT MMA layouts vs CPU F32 + cross-family" for CT in (Float16, Core.BFloat16)
+    # `Core.BFloat16` is a bare primitive type in Base: usable only if some
+    # package supplies its conversions. The CUDA test env gets them transitively;
+    # the ROC env does NOT (`Core.BFloat16(::Float32)` is a MethodError on
+    # MI300A), so the reference values cannot even be built there. The GPU path
+    # is fine — gfx942 announces BF16 MFMA shapes — this is a host-side gap, so
+    # skip loudly rather than fail or pretend the coverage exists.
+    _bf16_usable = hasmethod(Core.BFloat16, Tuple{Float32})
+    _bf16_usable || @info "BFloat16 GEMM tests SKIPPED: Core.BFloat16 conversions \
+                           unavailable in this environment (host-side, not a kernel gap)"
+    _mma_eltypes = _bf16_usable ? (Float16, Core.BFloat16) : (Float16,)
+
+    @testset "$CT MMA layouts vs CPU F32 + cross-family" for CT in _mma_eltypes
         rng = Xoshiro(30)
         tol = mma_tol(CT)
         for (tA, tB) in [(:N, :N), (:T, :N), (:N, :T)],       # HW MMA layouts
@@ -35,8 +46,13 @@ else
             # deliberately non-multiples of the tile to exercise the edge masking.
             (M, N, K) in [(16, 16, 16), (64, 48, 32), (100, 80, 50),
                           (200, 137, 71), (512, 256, 128), (17, 19, 33)]
-            Astore = tA === :N ? rand(rng, CT, M, K) : rand(rng, CT, K, M)
-            Bstore = tB === :N ? rand(rng, CT, K, N) : rand(rng, CT, N, K)
+            # Draw in Float32 then convert: `rand(rng, Core.BFloat16, …)` needs a
+            # Random.Sampler that is NOT defined in every backend environment
+            # (present under the CUDA test env, absent under the ROC one — it
+            # errored on MI300A). Converting is portable and equally random.
+            _draw(::Type{T}, dims...) where {T} = T.(rand(rng, Float32, dims...))
+            Astore = tA === :N ? _draw(CT, M, K) : _draw(CT, K, M)
+            Bstore = tB === :N ? _draw(CT, K, N) : _draw(CT, N, K)
             opA = tA === :N ? Astore : permutedims(Astore)
             opB = tB === :N ? Bstore : permutedims(Bstore)
             ref = Float32.(opA) * Float32.(opB)               # Float32 CPU reference
