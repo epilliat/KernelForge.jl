@@ -61,6 +61,43 @@ not a clean error.
 @inline default_sort_rr(::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = false
 
 
+# Onesweep FAMILY selector — the scan blocked/transposed 2-family precedent
+# (`default_scan_family`, src/scan/scan.jl). Two SEPARATE kernels back this:
+#   :value    — shipped kernel, stages the fat T value in shared_sorted.
+#   :idxstage — stages a 2-byte UInt16 block-local source index; phase 5b
+#               re-gathers the value from src (see onesweep_kernel.jl).
+#
+# `:idxstage` is gated to CDNA3 (gfx942) AND 8-byte keys-only. On gfx942's 64 KB
+# LDS an 8-byte value halves the element-tile (2× blocks → 2× the lookback
+# chain); the UInt16 index buffer runs the big tile regardless of sizeof(T).
+# MEASURED (MI300A full-sort A/B): U64/F64/Int64 1e8 1.26–1.30×; U32/F32 LOSE
+# 0.80× (4-byte already fits the tile) → 8-byte-ONLY. The keys-only guard is the
+# call site: only the keys-only onesweep branch consults this.
+#
+# :value EVERYWHERE else (every untuned arch, CUDA, 4-byte keys) → byte-identical
+# to the shipped behaviour, so this cannot regress A100/RTX1000.
+@inline default_sort_family(::AbstractArch, ::Type{Sort1D}, n, ::Type{T}) where T = :value
+@inline default_sort_family(::CDNA3, ::Type{Sort1D}, n, ::Type{T}) where T =
+    sizeof(T) == 8 ? :idxstage : :value
+
+
+# Launch config for the :idxstage family — SEPARATE from the value family's
+# `default_nitem`/`default_nchunks`/`default_workgroup`. The whole win comes from
+# running the BIG tile (block_size_max >= 12288); the value family's tuned config
+# on CDNA3 can be the SMALL 6144-element tile (wg256/Ni8/Nc3), at which idxstage
+# would be correct but pay the extra phase-5b gather for NO tile benefit (a net
+# loss). Sharing the value config would silently give zero win.
+#
+# MEASURED winner (MI300A, fair full-sort A/B, min/100 iters, all correct+stable,
+# 1e8): wg1024 / Ni4 / Nc3 (tile 12288) — U64 1.250×, F64 1.294×, Int64 1.273×,
+# VGPR-clean (scratch 0). The ~1%-better wg768/Ni8/Nc2 spills (scratch 80), so the
+# clean config is the default. Consulted ONLY in the `family_ === :idxstage`
+# dispatch branch, and only where the caller left workgroup/Nitem/Nchunks unset.
+@inline default_idxstage_workgroup(::AbstractArch, ::Type{T}) where T = 1024
+@inline default_idxstage_nitem(::AbstractArch, ::Type{T}) where T = 4
+@inline default_idxstage_nchunks(::AbstractArch, ::Type{T}) where T = 3
+
+
 # Decoupled-lookback descriptor access — the SAME gate scan uses
 # (`scan_desc_bypass`, src/scan/scan.jl), for the same reason.
 #
@@ -275,19 +312,19 @@ function sort(src::AT;
                 keys=nothing,
                 tmp::TMP=nothing,
                 Nitem=nothing, Nchunks=nothing,
-                workgroup=nothing, rr=nothing, arch=nothing) where
+                workgroup=nothing, rr=nothing, family=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     if keys === nothing
         dst = similar(src)
         sort!(dst, src; algorithm, by, uint_map, lt, tmax, reverse,
-              tmp, Nitem, Nchunks, workgroup, rr, arch)
+              tmp, Nitem, Nchunks, workgroup, rr, family, arch)
         return dst
     else
         length(keys) == length(src) || error("`keys` must have the same length as `src`")
         dst = similar(src)
         keys_dst = similar(keys)
         sort!(dst, src; algorithm, keys, keys_dst, by, uint_map,
-              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, arch)
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, family, arch)
         return (dst, keys_dst)
     end
 end
@@ -305,7 +342,7 @@ function sort!(dst::AbstractArray, src::AT;
                  keys=nothing, keys_dst=nothing,
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
-                 workgroup=nothing, rr=nothing, arch=nothing) where
+                 workgroup=nothing, rr=nothing, family=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     T = eltype(AT)
     algorithm in (:auto, :radix, :sample) ||
@@ -361,11 +398,26 @@ function sort!(dst::AbstractArray, src::AT;
         # Only the multi-pass onesweep is workgroup-decoupled; the byte-sort
         # kernel still indexes `bucket = lid`. See `sort_workgroup`.
         workgroup_ = something(workgroup, sort_workgroup(arch_, n, T, npasses > 1))
+        # Family (:value | :idxstage). Only the keys-only onesweep path (npasses>1)
+        # consults it; :idxstage stages a UInt16 index instead of the T value. See
+        # `default_sort_family`. Default → :value everywhere but 8-byte CDNA3.
+        family_ = something(family, default_sort_family(arch_, Sort1D, n, T))
 
         if npasses == 1
             _dispatch_byte_sort!(Val(Nitem_),
                                  by, uint_map, dst, src, tmp,
                                  Nitem_, workgroup_, K, backend, arch_)
+        elseif family_ === :idxstage
+            # idxstage runs its OWN config (the BIG tile) — the value family's
+            # Nitem_/Nchunks_/workgroup_ above may be the small-tile CDNA3 tuning,
+            # at which idxstage gives no win. Respect explicit user kwargs; else
+            # take the measured idxstage default. See `default_idxstage_*`.
+            wg_idx = something(workgroup, default_idxstage_workgroup(arch_, T))
+            ni_idx = something(Nitem, default_idxstage_nitem(arch_, T))
+            nc_idx = something(Nchunks, default_idxstage_nchunks(arch_, T))
+            _dispatch_onesweep_idxstage!(Val(ni_idx), Val(nc_idx),
+                                by, uint_map, dst, src, tmp,
+                                ni_idx, nc_idx, wg_idx, npasses, K, backend, arch_)
         else
             _dispatch_onesweep!(Val(Nitem_), Val(Nchunks_),
                                 by, uint_map, dst, src, tmp,
@@ -435,16 +487,16 @@ function sort!(src::AT;
                  keys=nothing,
                  tmp::TMP=nothing,
                  Nitem=nothing, Nchunks=nothing,
-                 workgroup=nothing, rr=nothing, arch=nothing) where
+                 workgroup=nothing, rr=nothing, family=nothing, arch=nothing) where
         {AT<:AbstractArray,F,M,TMP<:Union{KernelBuffer,SampleSortWorkspace,Nothing}}
     if keys === nothing
         sort!(src, src; algorithm, by, uint_map, lt, tmax, reverse,
-              tmp, Nitem, Nchunks, workgroup, rr, arch)
+              tmp, Nitem, Nchunks, workgroup, rr, family, arch)
         return src
     else
         # Keys also sorted in-place: keys_dst === keys.
         sort!(src, src; algorithm, keys, keys_dst=keys, by, uint_map,
-              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, arch)
+              lt, tmax, reverse, tmp, Nitem, Nchunks, workgroup, rr, family, arch)
         return (src, keys)
     end
 end
@@ -502,6 +554,34 @@ function _dispatch_onesweep!(::Val{Nitem}, ::Val{Nchunks},
     Base.invokelatest(_sort1d_impl!, ker_fn,
                       by, uint_map, dst, src, tmp,
                       Nitem_int, Nchunks_int, workgroup, rr, npasses, K, backend, arch)
+end
+
+
+# --- Index-staging onesweep dispatch (family === :idxstage) ------------------
+# Mirrors `_dispatch_onesweep!` but fetches the idxstage kernel factory and has
+# no `rr` knob (phase 5b already re-reads). Default specs (16,1)/(16,2) are
+# pre-compiled in onesweep_kernel.jl, so they dispatch statically here.
+@inline _dispatch_onesweep_idxstage!(::Val{16}, ::Val{1},
+        by, uint_map, dst, src, tmp,
+        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+    _sort1d_impl_idxstage!(get_radix_kernel_idxstage(Val(16), Val(1)),
+                           by, uint_map, dst, src, tmp,
+                           Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+
+@inline _dispatch_onesweep_idxstage!(::Val{16}, ::Val{2},
+        by, uint_map, dst, src, tmp,
+        Nitem, Nchunks, workgroup, npasses, ::Type{K}, backend, arch) where K =
+    _sort1d_impl_idxstage!(get_radix_kernel_idxstage(Val(16), Val(2)),
+                           by, uint_map, dst, src, tmp,
+                           Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+
+function _dispatch_onesweep_idxstage!(::Val{Nitem}, ::Val{Nchunks},
+        by, uint_map, dst, src, tmp,
+        Nitem_int, Nchunks_int, workgroup, npasses, ::Type{K}, backend, arch) where {Nitem,Nchunks,K}
+    ker_fn = get_radix_kernel_idxstage(Val(Nitem), Val(Nchunks))
+    Base.invokelatest(_sort1d_impl_idxstage!, ker_fn,
+                      by, uint_map, dst, src, tmp,
+                      Nitem_int, Nchunks_int, workgroup, npasses, K, backend, arch)
 end
 
 
@@ -786,6 +866,115 @@ function _sort1d_impl!(
         # directly into scratch, then ping-pong (scratch, dst) so the
         # final pass writes to dst. The standard swap above would
         # otherwise leave `b = src` and clobber the user's input.
+        if pass == 1 && dst !== src && iseven(npasses)
+            a, b = scratch, dst
+        end
+    end
+    return dst
+end
+
+
+# --- Index-staging onesweep path (family === :idxstage) ----------------------
+# Structurally identical to `_sort1d_impl!` (same ping-pong, same histograms,
+# same tmp buffers), with two differences:
+#   * `shmem` sizes shared_sorted as UInt16 (2 B/elem), not sizeof(T);
+#   * the launch has no `rr` Val (phase 5b always re-reads from `src`).
+#
+# ⚠️ THE IN-PLACE PING-PONG (the crux): phase 5b gathers the value from the
+# kernel's `src` argument = `a` = this pass's READ buffer. The ping-pong keeps
+# `a` and `b` (=dst arg) as two DISTINCT buffers every pass (src ↔ scratch, or
+# scratch ↔ dst), so the pass never writes `a` while 5b reads it. The gather
+# therefore always sees the pass INPUT, never overwritten data — this is why an
+# 8-byte in-place sort (U64 = 8 even passes, lands back in src) stays correct.
+
+# Nothing-dispatch: allocate buffer then forward.
+function _sort1d_impl_idxstage!(
+    ker::KER, by::F, uint_map::M,
+    dst::DS, src::AT,
+    ::Nothing,
+    Nitem::Int, Nchunks::Int,
+    workgroup::Int,
+    npasses::Int, ::Type{K},
+    backend, arch,
+) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,K}
+    tmp = get_allocation(Sort1D, src;
+                         Nitem, Nchunks, workgroup, arch, by, uint_map)
+    _sort1d_impl_idxstage!(ker, by, uint_map, dst, src, tmp,
+                           Nitem, Nchunks, workgroup, npasses, K, backend, arch)
+end
+
+function _sort1d_impl_idxstage!(
+    ker::KER, by::F, uint_map::M,
+    dst::DS, src::AT,
+    tmp::KernelBuffer,
+    Nitem::Int, Nchunks::Int,
+    workgroup::Int,
+    npasses::Int, ::Type{K},
+    backend, arch,
+) where {KER,F,M,DS<:AbstractArray,AT<:AbstractArray,K}
+    n = length(src)
+    Nbuckets = 256
+    warpsz = get_warpsize(arch)
+    wpb = workgroup ÷ warpsz
+    block_size_max = workgroup * Nchunks * Nitem
+    nblocks = cld(n, block_size_max)
+
+    workgroup >= Nbuckets ||
+        throw(ArgumentError("sort workgroup must be >= $Nbuckets (got $workgroup): " *
+                            "the first $Nbuckets threads carry the per-digit buckets"))
+    # shared_sorted is UInt16 here — sizeof(T)-independent tile budget.
+    shmem = onesweep_idxstage_shmem(Nbuckets, warpsz, workgroup, Nchunks, Nitem)
+
+    hist     = tmp.arrays.hist
+    partial1 = tmp.arrays.partial1
+    partial2 = tmp.arrays.partial2
+    flag     = tmp.arrays.flag
+    scratch  = tmp.arrays.scratch
+    hist_g   = tmp.arrays.hist_g
+    hist_partials = tmp.arrays.hist_partials
+
+    # The single-stage histogram count kernel vloads `Nitem` items/thread; a
+    # NON-pow2 Nitem hits KI's `vload_multi` dynamic-dispatch which fails GPU
+    # codegen. The histogram Nitem is INDEPENDENT of the onesweep Nitem (the
+    # onesweep uses strided element loads, no vload), so force a pow2 for the
+    # histogram only. On CDNA3 the 2-stage histogram ignores this arg anyway.
+    hist_ni = ispow2(Nitem) ? Nitem : 16
+    _sort_histograms!(by, uint_map, src, hist, hist_g, hist_partials,
+                      hist_ni, Nbuckets, warpsz, wpb, npasses, workgroup, backend, arch)
+
+    inst = ker(backend, workgroup)
+    ndrange = nblocks * workgroup
+    bp_val = sort_desc_bypass(arch) ? Val(true) : Val(false)
+
+    # Identical ping-pong to `_sort1d_impl!`. `a` is the pass read buffer, `b`
+    # the write buffer; phase 5b gathers from the kernel's `src` arg (= `a`).
+    if dst === src
+        if iseven(npasses)
+            a, b = src, scratch
+        else
+            copyto!(scratch, src)
+            a, b = scratch, src
+        end
+    elseif iseven(npasses)
+        a, b = src, scratch
+    else
+        copyto!(scratch, src)
+        a, b = scratch, dst
+    end
+
+    fill!(flag, UInt8(0))
+
+    for pass in 1:npasses
+        p1_view = @view partial1[:, :, pass]
+        p2_view = @view partial2[:, :, pass]
+        fl_view = @view flag[:, pass]
+        excl_col = @view hist[:, pass]
+        KernelIntrinsics.launch!(
+            inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
+            excl_col, p1_view, p2_view, fl_view,
+            Val(Nbuckets), Val(warpsz), Val(wpb), bp_val;
+            ndrange, shmem)
+        a, b = b, a
         if pass == 1 && dst !== src && iseven(npasses)
             a, b = scratch, dst
         end

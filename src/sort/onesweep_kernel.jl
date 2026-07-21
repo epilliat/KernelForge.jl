@@ -522,3 +522,360 @@ end
 # @eval nor invokelatest at runtime.
 _define_kernel!(16, 1)
 _define_kernel!(16, 2)
+
+
+# ============================================================================
+# Index-staging onesweep family (8-byte keys-only, CDNA3)
+# ============================================================================
+#
+# SECOND kernel factory — a selectable FAMILY alongside `get_radix_kernel`,
+# mirroring scan's blocked/transposed 2-family split. The value-staged kernel
+# above is untouched (byte-identical); `default_sort_family` picks this one only
+# on CDNA3 for 8-byte keys-only sorts.
+#
+# THE CHANGE vs the value-staged kernel: `shared_sorted` stages a 2-byte
+# block-local SOURCE OFFSET (UInt16) instead of the fat T value. On gfx942's
+# 64 KB LDS an 8-byte value halves the element-tile (U64 6144 vs U32 12288),
+# doubling the block count and thus the decoupled-lookback dependency chain.
+# Staging a UInt16 index costs 2 B/elem regardless of sizeof(T), so an 8-byte
+# key runs the SAME big tile a 4-byte key does. Phase 5a stores the offset;
+# phase 5b re-gathers the value from `src` (the per-pass READ buffer — see the
+# in-place ping-pong note in sort1d.jl `_sort1d_impl_idxstage!`), recomputes the
+# digit, and scatters. The dst write stays coalesced.
+#
+# CORRECTNESS/STABILITY: ranks (phase 1b per-warp atomic histogram) and
+# block_local_pos (phase 5a) are computed BYTE-IDENTICALLY to the value-staged
+# kernel. Only the STAGED REPRESENTATION changes (index vs value); the value is
+# recovered by gathering `src` at the item's original position (`src` is not
+# written during a pass). The permutation is therefore identical → the output is
+# identical → stability is preserved by construction.
+#
+# MEASURED (fair full-sort A/B, min/100 iters, MI300A): U64 1e8 1.26×, F64 1.30×,
+# Int64 1.29× — all correct + stable. U32/F32 LOSE 0.80× (4-byte already fits the
+# big tile), so this family is 8-byte-ONLY. No `RR` knob (phase 5b already re-reads).
+
+@inline function onesweep_idxstage_shmem(
+        Nbuckets::Integer, warpsz::Integer, workgroup::Integer,
+        Nchunks::Integer, Nitem::Integer)
+    wpb = workgroup ÷ warpsz
+    nwg = Nbuckets ÷ warpsz
+    bsm = workgroup * Nchunks * Nitem
+    # Stage as UInt16 → shared_sorted is 2 B/elem, not sizeof(T).
+    return Int(onesweep_shared_layout(UInt16, Nbuckets, wpb, nwg, bsm)[4])
+end
+
+
+const _onesweep_idxstage_kernel_cache = Dict{Tuple{Int,Int},Any}()
+
+
+function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
+    Niter_5b = Nchunks * Nitem
+
+    # Phase 1b full-tile, cross-chunk MLP-batched — IDENTICAL to the value-staged
+    # kernel. Carries d_c_i + rank_c_i into phase 5a.
+    phase1b_full = quote
+        @nexprs $Nchunks c -> begin
+            chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+            @nexprs $Nitem i -> begin
+                pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
+                item_c_i = src[pos_c_i]
+                key_c_i = uint_map(by(item_c_i))
+                d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
+            end
+        end
+        @nexprs $Nchunks c -> begin
+            @nexprs $Nitem i -> begin
+                rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
+            end
+        end
+    end
+
+    body = quote
+        @uniform begin
+            N = length(src)
+            digit_mask = UInt32(Nbuckets - 1)
+            workgroup = wpb * warpsz
+            block_size_max = wpb * $Nchunks * warpsz * $Nitem
+            nwg = Nbuckets ÷ warpsz
+            # Stage as UInt16 → shared_sorted is 2 B/elem, decoupled from sizeof(T).
+            (off_hist, off_aux, off_sorted, _) =
+                onesweep_shared_layout(UInt16, Nbuckets, wpb, nwg, block_size_max)
+        end
+
+        lid = Int(@index(Local))
+        gid = Int(@index(Group))
+        warp_id = (lid - 1) ÷ warpsz + 1
+        lane = (lid - 1) % warpsz + 1
+        global_warp = (gid - 1) * wpb + warp_id
+
+        has_bucket = lid <= Nbuckets
+        bucket = has_bucket ? lid : 1
+
+        warp_first_pos = (global_warp - 1) * $Nchunks * warpsz * $Nitem + 1
+
+        block_first_pos_1 = (gid - 1) * block_size_max + 1
+        block_last_pos_1 = min(gid * block_size_max, N)
+        block_size_actual = max(0, block_last_pos_1 - block_first_pos_1 + 1)
+
+        shared_hist = KernelIntrinsics.@dynlocalmem UInt32 (Nbuckets, wpb) off_hist
+        shared_aux = KernelIntrinsics.@dynlocalmem UInt32 (Nbuckets + nwg,) off_aux
+        # *** THE CHANGE: UInt16 index buffer, not a T value buffer ***
+        shared_sorted = KernelIntrinsics.@dynlocalmem UInt16 (block_size_max,) off_sorted
+
+        is_full_tile = gid * block_size_max <= N
+
+        # Phase 1a: zero shared_hist.
+        for s in 1:(Nbuckets ÷ warpsz)
+            b_init = lane + (s - 1) * warpsz
+            shared_hist[b_init, warp_id] = UInt32(0)
+        end
+        @synchronize
+
+        # Phase 1b: strided load + atomic-add histogram (rank = src-stable).
+        if is_full_tile
+            $phase1b_full
+        else
+            @nexprs $Nchunks c -> begin
+                chunk_base_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_c_i = chunk_base_c + (i - 1) * warpsz + (lane - 1)
+                    in_bounds_c_i = pos_c_i <= N
+                    item_c_i = in_bounds_c_i ? src[pos_c_i] : src[N]
+                    if in_bounds_c_i
+                        key_c_i = uint_map(by(item_c_i))
+                        d_c_i = Int((key_c_i >> shift) & digit_mask) + 1
+                        rank_c_i = (@atomic shared_hist[d_c_i, warp_id] += UInt32(1)) - UInt32(1)
+                    else
+                        rank_c_i = UInt32(0)
+                    end
+                end
+            end
+        end
+        @synchronize
+
+        # Phase 2: per-bucket exclusive scan over warps.
+        block_total_b = UInt32(0)
+        if has_bucket
+            prefix_acc = UInt32(0)
+            for w in 1:wpb
+                v = shared_hist[bucket, w]
+                shared_hist[bucket, w] = prefix_acc
+                prefix_acc += v
+            end
+            block_total_b = prefix_acc
+        end
+
+        # Phase 3a: publish aggregate.
+        if has_bucket
+            if Bypass
+                @access Device Relaxed partial1[bucket, gid] = block_total_b
+                @access Device Relaxed partial2[bucket, gid] = block_total_b
+            else
+                @access partial1[bucket, gid] = block_total_b
+                @access partial2[bucket, gid] = block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release
+        end
+        @synchronize
+        if lid == 1
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x01
+            else
+                @access flag[gid] = 0x01
+            end
+        end
+
+        # Phase 4.5: exclusive scan of the Nbuckets block totals.
+        val_exc_within = UInt32(0)
+        if warp_id <= nwg
+            val_inc = block_total_b
+            @warpreduce(val_inc, +, lane, warpsz)
+            val_exc_within = val_inc - block_total_b
+            if lane == warpsz
+                shared_aux[Nbuckets + warp_id] = val_inc
+            end
+        end
+        @synchronize
+
+        if warp_id == 1
+            wt = lane <= nwg ? shared_aux[Nbuckets + lane] : UInt32(0)
+            inc_v = wt
+            @warpreduce(inc_v, +, lane, nwg)
+            excl_v = inc_v - wt
+            if lane <= nwg
+                shared_aux[Nbuckets + lane] = excl_v
+            end
+        end
+        @synchronize
+
+        own_bds_reg = UInt32(0)
+        if has_bucket
+            warp_prefix = shared_aux[Nbuckets + warp_id]
+            own_bds_reg = warp_prefix + val_exc_within
+            shared_aux[bucket] = own_bds_reg
+        end
+        @synchronize
+
+        # Phase 4 first: warp_block_local_base into shared_hist.
+        for s in 1:(Nbuckets ÷ warpsz)
+            b_seed = lane + (s - 1) * warpsz
+            my_excl_inline = shared_hist[b_seed, warp_id]
+            warp_block_local_base = shared_aux[b_seed] + my_excl_inline
+            shared_hist[b_seed, warp_id] = warp_block_local_base
+        end
+        @synchronize
+
+        # Phase 5a: stage the block-local SOURCE OFFSET (UInt16), NOT the value.
+        # block_local_pos is byte-identical to the value-staged kernel; d_c_i and
+        # rank_c_i are reused from phase 1b (no re-read, no key recompute here).
+        if is_full_tile
+            @nexprs $Nchunks c -> begin
+                chunk_base_5a_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_5a_c_i = chunk_base_5a_c + (i - 1) * warpsz + (lane - 1)
+                    block_local_pos_c_i = shared_hist[d_c_i, warp_id] + rank_c_i
+                    shared_sorted[Int(block_local_pos_c_i) + 1] =
+                        UInt16(pos_5a_c_i - block_first_pos_1)
+                end
+            end
+        else
+            @nexprs $Nchunks c -> begin
+                chunk_base_5a_c = warp_first_pos + (c - 1) * warpsz * $Nitem
+                @nexprs $Nitem i -> begin
+                    pos_5a_c_i = chunk_base_5a_c + (i - 1) * warpsz + (lane - 1)
+                    if pos_5a_c_i <= N
+                        block_local_pos_c_i = shared_hist[d_c_i, warp_id] + rank_c_i
+                        shared_sorted[Int(block_local_pos_c_i) + 1] =
+                            UInt16(pos_5a_c_i - block_first_pos_1)
+                    end
+                end
+            end
+        end
+        @synchronize
+
+        # Phase 3b: decoupled lookback, barrier-free (identical to value-staged).
+        cross_block_prefix = UInt32(0)
+        if has_bucket && gid >= 2
+            b_lb = gid - 1
+            done_lb = false
+            while !done_lb
+                flg_lb = UInt32(0)
+                while flg_lb == UInt32(0)
+                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
+                                    (@access flag[b_lb])
+                    flg_lb = UInt32(f_lb)
+                end
+                if Bypass
+                    @fence Workgroup Acquire
+                end
+                if flg_lb == UInt32(0x02)
+                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
+                                     (@access partial2[bucket, b_lb])
+                    cross_block_prefix += pv_lb
+                    done_lb = true
+                else
+                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
+                                     (@access partial1[bucket, b_lb])
+                    cross_block_prefix += pv_lb
+                    if b_lb == 1
+                        done_lb = true
+                    else
+                        b_lb -= 1
+                    end
+                end
+            end
+        end
+        @synchronize
+
+        if has_bucket
+            if Bypass
+                @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
+            else
+                @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release
+        end
+        @synchronize
+        if lid == 1
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x02
+            else
+                @access flag[gid] = 0x02
+            end
+        end
+
+        # Phase 4 second: block_global_offset[d] into shared_hist[d, 1].
+        if has_bucket
+            shared_hist[bucket, 1] = global_excl_hist[bucket] + cross_block_prefix - own_bds_reg
+        end
+        @synchronize
+
+        # Phase 5b: gather the value from `src` via the staged offset, recompute
+        # the digit, then scatter. `src` here is the kernel's read buffer (the
+        # per-pass ping-pong INPUT, never the OUTPUT `dst`), so the gather never
+        # reads data this pass has already overwritten. dst write stays coalesced.
+        @nexprs $Niter_5b c -> begin
+            p_c = (c - 1) * (wpb * warpsz) + lid
+            if p_c <= block_size_actual
+                src_pos_c = block_first_pos_1 + Int(shared_sorted[p_c])
+                item_5b_c = src[src_pos_c]
+                key_5b_c = uint_map(by(item_5b_c))
+                d_5b_c = Int((key_5b_c >> shift) & digit_mask) + 1
+                dst[Int(shared_hist[d_5b_c, 1]) + p_c] = item_5b_c
+            end
+        end
+    end
+
+    return quote
+        @kernel inbounds = true unsafe_indices = true function $(name)(
+            dst::AbstractVector,
+            src::AbstractVector,
+            by::F,
+            uint_map::M,
+            shift::Int32,
+            global_excl_hist::AbstractVector{UInt32},
+            partial1::AbstractMatrix{UInt32},
+            partial2::AbstractMatrix{UInt32},
+            flag::AbstractVector{UInt8},
+            ::Val{Nbuckets},
+            ::Val{warpsz},
+            ::Val{wpb},
+            ::Val{Bypass},
+        ) where {F,M,Nbuckets,warpsz,wpb,Bypass}
+            $body
+        end
+    end
+end
+
+
+function _define_idxstage_kernel!(Nitem::Int, Nchunks::Int)
+    name = Symbol("onesweep_idxstage_kernel_", Nitem, "_", Nchunks, "!")
+    fn = Core.eval(@__MODULE__, quote
+        $(build_idxstage_kernel_def(name, Nitem, Nchunks))
+        $name
+    end)
+    Core.eval(@__MODULE__,
+        :(@inline get_radix_kernel_idxstage(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
+    _onesweep_idxstage_kernel_cache[(Nitem, Nchunks)] = fn
+    return fn
+end
+
+
+function get_radix_kernel_idxstage(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
+    key = (Nitem, Nchunks)
+    haskey(_onesweep_idxstage_kernel_cache, key) && return _onesweep_idxstage_kernel_cache[key]
+    return _define_idxstage_kernel!(Nitem, Nchunks)
+end
+
+
+# The idxstage default config on CDNA3 8-byte is (Nitem=4, Nchunks=3) — the
+# BIG-tile (12288) measured winner; see `default_idxstage_*` in sort1d.jl. Also
+# pre-define (16,1)/(16,2) so a forced `family=:idxstage` with the value-family
+# Nitem still dispatches statically.
+_define_idxstage_kernel!(4, 3)
+_define_idxstage_kernel!(16, 1)
+_define_idxstage_kernel!(16, 2)
