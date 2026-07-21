@@ -231,15 +231,20 @@ function _resolve_family(family, backend, f::F, op::O,
                          ::Type{TA}, ::Type{TB}, ::Type{AccT},
                          M, N, K, tA::Symbol, tB::Symbol, user_generic_knobs::Bool) where {F,O,TA,TB,AccT}
     family === :generic && return (:generic, nothing)
-    # ⚠ `:mma` is OPT-IN ONLY (never auto-selected) on this toolchain. Under
-    # `--check-bounds=yes` (the Pkg.test default) Julia ignores `@inbounds`, and the
-    # injected bounds-check branches make the warp diverge inside the
-    # warp-cooperative WMMA region (all 32 lanes must execute every MMA call in
-    # lockstep) → silently WRONG numbers, not an error. Measured on RTX1000: 0/18
-    # shapes wrong with @inbounds honoured, 14/18 wrong under --check-bounds=yes.
-    # Auto-routing would therefore make plain F16/BF16 `gemm` silently incorrect for
-    # any user running with bounds checks on. Until the codegen issue is fixed
-    # (Step 5 blocker), auto ⇒ :generic, and `family=:mma` is an explicit opt-in.
+    # ⚠ `:mma` is OPT-IN ONLY (never auto-selected) — but no longer for the reason
+    # this comment used to give. The old rationale (bounds-check branches diverging
+    # the warp inside the WMMA region) was REFUTED: the real cause was in
+    # KernelIntrinsics, where overlay-installed MMA entry points left the K-loop
+    # accumulator phi initialised to `undef`, and it is FIXED in KI 0.1.14 (which
+    # this package now requires). Correctness is no longer the blocker: the suite is
+    # green with `:mma` active under `--check-bounds=yes` on both RTX1000 Ada (WMMA)
+    # and MI300A gfx942 (MFMA).
+    #
+    # It stays opt-in purely because it is not yet FASTER: K2 measures 0.85–1.07×
+    # K1 on F16 squares, since one 16×16 tile per warp plus a block barrier per K
+    # panel leaves the kernel staging-bound with no register reuse. Auto-routing a
+    # slower path would be a pessimisation. Flip this to auto once warp/register
+    # tiling clears the ≥2× gate — it is a one-line change here.
     family === nothing && return (:generic, nothing)
     plain = (f === Base.:*) && (op === Base.:+)
     # NOTE: the TT (both-RowMajor) MMA specialization miscompiles on the current

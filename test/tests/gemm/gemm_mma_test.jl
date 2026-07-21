@@ -1,5 +1,10 @@
 # Generalized GEMM — Phase 3: tensor-core (MMA) family (F16/BF16 → F32).
 #
+# BFloat16s is an EXPLICIT dep of both test envs: it supplies `Core.BFloat16`'s
+# conversions, which Base does not. It used to arrive transitively via CUDA.jl,
+# which meant the ROC env silently lacked it.
+using BFloat16s
+#
 # Separate file so gemm_test.jl's exact generic checks stay untouched. MMA cases use
 # relaxed tolerances (KI's measured values: ~1e-2 F16, ~5e-2 BF16) and are pinned
 # BOTH against a Float32 CPU reference AND against KF's own generic kernel on the
@@ -27,12 +32,13 @@ else
     mma_tol(::Type{Float16}) = 1f-2
     mma_tol(::Type{Core.BFloat16}) = 5f-2
 
-    # `Core.BFloat16` is a bare primitive type in Base: usable only if some
-    # package supplies its conversions. The CUDA test env gets them transitively;
-    # the ROC env does NOT (`Core.BFloat16(::Float32)` is a MethodError on
-    # MI300A), so the reference values cannot even be built there. The GPU path
-    # is fine — gfx942 announces BF16 MFMA shapes — this is a host-side gap, so
-    # skip loudly rather than fail or pretend the coverage exists.
+    # `Core.BFloat16` is a bare primitive type in Base: its conversions come from
+    # BFloat16s.jl, which both test envs now depend on EXPLICITLY. They used to be
+    # picked up transitively via CUDA.jl, so the ROC env silently lacked them and
+    # `Core.BFloat16(::Float32)` was a MethodError on MI300A — relying on a
+    # transitive dep for an API you call is what broke it. The guard stays as a
+    # safety net: if the conversions ever go missing again, skip loudly rather
+    # than fail, or worse, imply coverage that does not exist.
     _bf16_usable = hasmethod(Core.BFloat16, Tuple{Float32})
     _bf16_usable || @info "BFloat16 GEMM tests SKIPPED: Core.BFloat16 conversions \
                            unavailable in this environment (host-side, not a kernel gap)"
