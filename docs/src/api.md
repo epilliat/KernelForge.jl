@@ -42,6 +42,16 @@ KernelForge.vecmat
 KernelForge.vecmat!
 ```
 
+## Matrix-Matrix
+Generalized matrix–matrix product with custom element-wise, reduction and
+epilogue operations, all four transpose states, and an opt-in tensor-core
+family (`family=:mma`).
+
+```@docs
+KernelForge.gemm
+KernelForge.gemm!
+```
+
 ## Sort
 1D radix sort, permutation sort, general-comparator sample sort, and
 batched per-column sort. The `sort1d!` name from v0.1.x has been

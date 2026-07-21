@@ -13,9 +13,11 @@
 #              isbits eltype + ANY (f, op, g); the reduction is seeded from a real
 #              value (no operator identity needed).
 #   :mma     — K2 tensor-core core (`gemm_mma_kernel!`). PLAIN (*, +) only, HW MMA
-#              (WMMA/MFMA), CT ∈ {Float16, BFloat16} accumulating in Float32 on this
-#              device. Chosen by `_resolve_family` iff the HW path exists; a forced
-#              `family=:mma` on an unsupported config is a loud error (never silent).
+#              (WMMA/MFMA), for whatever (compute, acc) pairs the device announces
+#              via `KI.MMA.mma_shapes` — F16/BF16→F32, plus F64 (CDNA3 MFMA 16×16×4)
+#              and Int8→Int32 where the hardware has them. OPT-IN: `_resolve_family`
+#              never auto-selects it (see the comment there); a forced `family=:mma`
+#              on an unsupported config is a loud error (never a silent fallback).
 
 # ---------------------------------------------------------------------------
 # Generic (K1) per-arch tiling defaults. Returns (BM, BN, BK, TM, TN).
@@ -100,26 +102,48 @@ end
 """
     gemm([f, op,] A::AbstractMatrix, B::AbstractMatrix; kwargs...) -> C
 
-Generalized matrix–matrix product. Computes
-`C[m,n] = g(op_k f(A[m,k], B[k,n]))` — for standard GEMM (`f=*`, `op=+`,
+Generalized matrix-matrix operation with customizable element-wise and reduction
+operations.
+
+Computes `C[m,n] = g(op_k(f(A[m,k], B[k,n])))`, the reduction running over the
+inner dimension `k`. For standard matrix multiplication (`f=*`, `op=+`,
 `g=identity`) this is `C = A * B`. Returns a newly allocated result matrix.
 
-Supports arbitrary isbits element types (custom structs) and arbitrary operators
-(the reduction is seeded from a real product, so `op` needs no identity element).
-On NVIDIA/AMD with a HW MMA path, plain (`*`,`+`) `Float16`/`BFloat16` inputs can
-run on a warp/register-tiled tensor-core kernel accumulating in `Float32` — pass
-`family=:mma` (opt-in; see `_resolve_family` for why auto does not select it yet).
+Arbitrary isbits element types (custom structs included) and arbitrary operators
+are supported: `f` need not be a multiplication and may change type
+(`f: TA × TB → H`). The accumulator is seeded from a real computed value
+`f(A[m,1], B[1,n])` rather than `zero(H)`, so `op` needs no identity element; and
+because there is no split-K the reduction is a strictly ordered left fold, so `op`
+need not be associative or commutative either.
+
+# Arguments
+- `f`: Binary operation applied element-wise (default: `*`)
+- `op`: Reduction operation across the inner dimension (default: `+`)
+- `A`, `B`: Input matrices — logically `M×K` and `K×N` after the transpose flags
 
 # Keyword Arguments
-- `g=identity`: epilogue map applied to each reduced `C[m,n]`.
+- `g=identity`: epilogue map applied to each reduced `C[m,n]`; the output element
+  type is `Base.promote_op(g, accT)`.
 - `tA=:N`, `tB=:N`: per-operand transpose flags ∈ `{:N, :T}` → all four states
   NN / NT / TN / TT (real transpose; `:C` conjugate-transpose deferred to complex).
 - `accT=nothing`: accumulation-type override (both families). Defaults to `Float32`
-  for `Float16`/`BFloat16` inputs, else the natural map type.
-- `family=nothing`: `:generic` (K1) | `:mma` (K2 tensor-core) | `nothing` (auto).
-  A forced `:mma` on an unsupported config errors.
+  for `Float16`/`BFloat16` and `Int32` for `Int8` (so an `Int8` × `Int8` product
+  returns an `Int32` matrix), else the natural map type — in particular `Bool` stays
+  `Bool`, which the boolean semiring relies on.
+- `family=nothing`: `:generic` (K1, the universal path) | `:mma` (K2 tensor-core) |
+  `nothing` (auto). `:mma` is **opt-in** — auto always picks `:generic` — and a
+  forced `:mma` on an unsupported config is a loud error, never a silent fallback.
+  K2 needs plain (`*`,`+`), `eltype(A) === eltype(B)`, and a (compute, accumulate)
+  pair the device announces via `KI.MMA.mma_shapes`: `Float16`/`BFloat16` → `Float32`,
+  plus `Float64` (CDNA3 MFMA 16×16×4) and `Int8` → `Int32` where the hardware has
+  them. The silicon implements one fixed multiply-add, so a custom `(f, op)` can never
+  be hardware-accelerated — every such call correctly runs K1. K2 vs K1 on RTX1000 Ada,
+  F16 square: 0.90× @256, 2.97× @512, 5.81× @1024, 6.53× @2048, 7.49× @4096 (~10.3
+  TFLOP/s at 2048³ ≈ 54% of cuBLAS on the same part) — that small-size crossover is
+  why auto does not select it.
 - `BM,BN,BK,TM,TN=nothing`: generic (K1) tile knobs (auto per-arch if `nothing`;
-  supplying any of them forces the generic family).
+  supplying any of them forces the generic family, and is an error together with
+  `family=:mma`).
 - `WM,WN,NWM,NWN,WK=nothing`: MMA (K2) warp/register tiling knobs — MMA tiles per
   warp (`WM×WN`), warps per block (`NWM×NWN`), k-steps per staged panel (`WK`).
   The block tile follows: `BM = NWM·WM·Mt`, `BN = NWN·WN·Nt`, `BK = WK·Kt`.
@@ -130,6 +154,28 @@ run on a warp/register-tiled tensor-core kernel accumulating in `Float32` — pa
   TFLOP/s). `PC` carries essentially all of it; `PA` (the epilogue tile) is noise.
 - `arch=nothing`: architecture (auto-detected from `A`).
 
+# Examples
+```julia
+A = CUDA.rand(Float32, 512, 256)
+B = CUDA.rand(Float32, 256, 128)
+
+# Standard product: C = A * B
+C = gemm(A, B)
+
+# Transposed operand: C = Aᵀ * B, with A stored 256×512
+C = gemm(CUDA.rand(Float32, 256, 512), B; tA=:T)
+
+# Tropical (max, +) semiring: C[m,n] = max_k(A[m,k] + B[k,n])
+C = gemm(+, max, A, B)
+
+# Boolean semiring (reachability): C[m,n] = |_k (A[m,k] & B[k,n])
+R = gemm(&, |, CuArray(rand(Bool, 512, 256)), CuArray(rand(Bool, 256, 128)))
+
+# Tensor cores, opt-in: Float16 inputs accumulating in Float32
+A16 = CuArray(rand(Float16, 2048, 2048)); B16 = CuArray(rand(Float16, 2048, 2048))
+C16 = gemm(A16, B16; family=:mma)
+```
+
 See also: [`gemm!`](@ref).
 """
 function gemm end
@@ -137,14 +183,36 @@ function gemm end
 """
     gemm!([f, op,] C, A, B; kwargs...)
 
-In-place form of [`gemm`](@ref): writes `C[m,n] = g(op_k f(A[m,k], B[k,n]))`.
+In-place form of [`gemm`](@ref): writes `C[m,n] = g(op_k(f(A[m,k], B[k,n])))` into
+the caller's `C`, which must have size `(M, N)` and hold the epilogue's output type.
+
+# Examples
+```julia
+A = CUDA.rand(Float32, 512, 256)
+B = CUDA.rand(Float32, 256, 128)
+C = CUDA.zeros(Float32, 512, 128)
+
+gemm!(C, A, B)                       # C = A * B
+gemm!(+, max, C, A, B)               # tropical product, in place
+```
+
+See [`gemm`](@ref) for the full keyword-argument list.
 """
 function gemm! end
 
 # ============================================================================
-# Buffer allocation — GEMM needs no scratch (no split-K). Empty KernelBuffer so
-# `KernelForge.@allocate gemm(A, B)` resolves; the `tmp=` contract stays uniform.
+# Buffer allocation
 # ============================================================================
+
+"""
+    get_allocation(::Type{GEMM}, f, op, A, B, arch=nothing) -> KernelBuffer
+
+Allocate a `KernelBuffer` for `gemm!`. GEMM needs **no scratch**: every block owns
+a full tile of `C` and there is no split-K, so this returns an EMPTY buffer. It
+exists only so `KernelForge.@allocate gemm(*, +, A, B)` resolves and the allocation
+contract stays uniform across operations — `gemm!` has no `tmp` keyword, and
+repeated calls allocate nothing beyond `C` itself.
+"""
 function get_allocation(
     ::Type{GEMM},
     f::F, op::O,
@@ -313,7 +381,9 @@ function _resolve_family(family, backend, f::F, op::O,
                     "(compute=$TA, acc=$AccT, f=$f, op=$op) on this device (or output < one MMA tile)")
         return (:mma, shape)
     end
-    # auto: explicit generic knobs → generic; else :mma when available.
+    # Anything else (an unrecognised `family` symbol): explicit generic knobs →
+    # generic; else :mma when available. `family === nothing` returned above, so
+    # AUTO never reaches this line — flipping auto on is the single return above.
     (user_generic_knobs || !ok) && return (:generic, nothing)
     return (:mma, shape)
 end

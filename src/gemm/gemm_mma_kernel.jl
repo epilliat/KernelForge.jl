@@ -5,7 +5,8 @@
 # HW MMA engine for the PLAIN (*, +) path: C = A*B accumulated in AccT, epilogue
 # `g`. Consumes KI's `MMA` layer verbatim (WMMA on NVIDIA / MFMA on AMD / portable
 # fallback). `:mma` is MulAdd-only; the family gate in gemm.jl enforces `f===* &&
-# op===+`. CT ∈ {Float16, BFloat16}, AccT = Float32 on NVIDIA.
+# op===+`. (CT, AccT) is any pair the device announces through `KI.MMA.mma_shapes`
+# — F16/BF16→F32 everywhere, plus F64 (MFMA 16×16×4) and Int8→Int32 on CDNA3.
 #
 # ── Warp / register tiling ──────────────────────────────────────────────────
 # A block owns a BM×BN tile of C and streams K in BK-deep panels through shared

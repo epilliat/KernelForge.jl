@@ -5,6 +5,25 @@ versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Pre-1.0:
 minor bumps may include breaking changes; they will always be called out
 under **Breaking changes** below.
 
+## [Unreleased]
+
+### Added
+- `KernelForge.gemm` / `gemm!` — generalized matrix–matrix product
+  `C[m,n] = g(op_k f(A[m,k], B[k,n]))`. Arbitrary isbits element
+  types (custom structs) and arbitrary operators: the accumulator is
+  seeded from a real `f(A[m,1], B[1,n])` and there is no split-K, so
+  `op` needs neither an identity element nor associativity or
+  commutativity. All four transpose states via `tA`/`tB` ∈ `{:N, :T}`,
+  an `accT` accumulation-type override, and per-family tile knobs.
+  `Int8 × Int8` accumulates in — and returns — `Int32`.
+- `gemm(...; family=:mma)` — opt-in tensor-core (WMMA / MFMA) family
+  for plain (`*`, `+`) products whose (compute, accumulate) pair the
+  device announces: `Float16`/`BFloat16` → `Float32`, plus `Float64`
+  and `Int8` → `Int32` where the hardware exposes them. Auto never
+  selects it (it is slower than the generic kernel at small sizes);
+  forcing it on an unsupported configuration errors rather than
+  falling back silently.
+
 ## [0.2.0]
 
 ### Breaking changes

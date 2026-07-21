@@ -65,6 +65,8 @@ KernelForge.sort!(x)
 - **Map-reduce** with custom functions and operators, supporting arbitrary dimensions and multidimensional arrays
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
+- **Matrix-matrix product** (`gemm`) with customizable element-wise, reduction and
+  epilogue operations, all four transpose states, and an opt-in tensor-core path
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays
 - **Vectorized copy** with configurable load/store widths
 - Views and strided arrays supported throughout
