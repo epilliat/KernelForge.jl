@@ -55,11 +55,32 @@ function _mma_pick_shape(backend, ::Type{CT}, ::Type{AccT}) where {CT,AccT}
     return best
 end
 
-# MMA (K2) launch: v1 is ONE warp per block, ONE Mt×Nt MMA tile per block, one
-# `mma` per Kt-wide K panel. This is the proven-safe configuration on the current
-# toolchain (warp/register tiling miscompiles — see the wall note in
-# gemm_mma_kernel.jl). Only wg = warpsize; the block tile IS the MMA tile.
-@inline default_gemm_mma_wg(arch::AbstractArch) = get_warpsize(arch)
+# MMA (K2) warp/register tiling knobs. Returns (WM, WN, NWM, NWN, WK) — MMA tiles
+# per warp (WM×WN), warps per block (NWM×NWN), and k-steps per staged panel (WK).
+# The block tile follows by construction: BM = NWM·WM·Mt, BN = NWN·WN·Nt, BK = WK·Kt.
+#
+# Registers per lane scale as WM·WN·(acc frag) + (WM+WN)·(operand frag); shared
+# bytes as `_gemm_mma_shmem`. The tiers below are the measured RTX1000 Ada winners
+# (no autotune this pass — a hand sweep of ~50 configs at n=512/1024/2048).
+# WM=2, WN=4 is a broad plateau: growing either past that spills (WM=8 costs 3×)
+# and non-power-of-two WM/WN wrecks the shared leading dimension. Small outputs
+# step down so a block is not mostly padding, and so the grid still fills the
+# device.
+function default_gemm_mma_tile(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT},
+                               Mt, Nt, Kt) where {CT,AccT}
+    W4 = max(1, 64 ÷ Kt)                    # 64-deep K panel
+    W2 = max(1, 32 ÷ Kt)                    # 32-deep K panel
+    if M >= 64Mt && N >= 64Nt
+        return (2, 4, 8, 2, W4)             # 256×128×64, 16 warps, 32×64 per warp
+    elseif M >= 16Mt && N >= 16Nt
+        return (2, 4, 4, 2, W4)             # 128×128×64, 8 warps
+    elseif M >= 4Mt && N >= 4Nt
+        return (2, 2, 2, 2, W2)             # 64×64×32, 4 warps, 32×32 per warp
+    elseif M >= 2Mt && N >= 2Nt
+        return (1, 1, 2, 2, W2)             # 32×32×32, 4 warps
+    end
+    return (1, 1, 1, 1, W2)                 # one warp, one MMA tile
+end
 
 # ============================================================================
 # Public API docstrings
@@ -74,8 +95,9 @@ Generalized matrix–matrix product. Computes
 
 Supports arbitrary isbits element types (custom structs) and arbitrary operators
 (the reduction is seeded from a real product, so `op` needs no identity element).
-On NVIDIA/AMD with a HW MMA path, plain (`*`,`+`) `Float16`/`BFloat16` inputs
-auto-route to a tensor-core kernel accumulating in `Float32`.
+On NVIDIA/AMD with a HW MMA path, plain (`*`,`+`) `Float16`/`BFloat16` inputs can
+run on a warp/register-tiled tensor-core kernel accumulating in `Float32` — pass
+`family=:mma` (opt-in; see `_resolve_family` for why auto does not select it yet).
 
 # Keyword Arguments
 - `g=identity`: epilogue map applied to each reduced `C[m,n]`.
@@ -84,12 +106,17 @@ auto-route to a tensor-core kernel accumulating in `Float32`.
 - `accT=nothing`: accumulation-type override (both families). Defaults to `Float32`
   for `Float16`/`BFloat16` inputs, else the natural map type.
 - `family=nothing`: `:generic` (K1) | `:mma` (K2 tensor-core) | `nothing` (auto).
-  A forced `:mma` on an unsupported config errors. **`:mma` is currently OPT-IN
-  ONLY** — auto never selects it, because the WMMA path returns silently wrong
-  results under `--check-bounds=yes` (bounds-check branches diverge the warp inside
-  the lockstep MMA region). Use it only with bounds checks off, and validate.
+  A forced `:mma` on an unsupported config errors.
 - `BM,BN,BK,TM,TN=nothing`: generic (K1) tile knobs (auto per-arch if `nothing`;
   supplying any of them forces the generic family).
+- `WM,WN,NWM,NWN,WK=nothing`: MMA (K2) warp/register tiling knobs — MMA tiles per
+  warp (`WM×WN`), warps per block (`NWM×NWN`), k-steps per staged panel (`WK`).
+  The block tile follows: `BM = NWM·WM·Mt`, `BN = NWN·WN·Nt`, `BK = WK·Kt`.
+- `PC,PA=nothing`: shared-tile leading-dimension PADDING, in elements, for the
+  compute-type (As/Bs) and accumulator (Ds) tiles. Defaults to one 16-byte segment
+  (8 for `Float16`, 4 for `Float32`); `0` disables. Breaks the bank conflicts of the
+  column-strided fragment loads — worth ~1.33× on RTX1000 Ada (F16 2048³: 6.9 → 9.1
+  TFLOP/s). `PC` carries essentially all of it; `PA` (the epilogue tile) is noise.
 - `arch=nothing`: architecture (auto-detected from `A`).
 
 See also: [`gemm!`](@ref).
@@ -153,13 +180,16 @@ function gemm(
     f::F=*, op::O=+, g::G=identity,
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
+    WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
+    PC=nothing, PA=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
     backend = get_backend(A)
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
-    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family, BM, BN, BK, TM, TN, arch)
+    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
     return C
 end
 
@@ -169,13 +199,16 @@ function gemm(
     A::AbstractMatrix{TA}, B::AbstractMatrix{TB};
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
+    WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
+    PC=nothing, PA=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
     backend = get_backend(A)
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
-    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family, BM, BN, BK, TM, TN, arch)
+    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
     return C
 end
 
@@ -186,9 +219,12 @@ function gemm!(
     f::F=*, op::O=+, g::G=identity,
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
+    WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
+    PC=nothing, PA=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
-    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family, BM, BN, BK, TM, TN, arch)
+    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
     return C
 end
 
@@ -199,9 +235,12 @@ function gemm!(
     A::AbstractMatrix{TA}, B::AbstractMatrix{TB};
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
+    WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
+    PC=nothing, PA=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
-    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family, BM, BN, BK, TM, TN, arch)
+    _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
     return C
 end
 
@@ -231,33 +270,34 @@ function _resolve_family(family, backend, f::F, op::O,
                          ::Type{TA}, ::Type{TB}, ::Type{AccT},
                          M, N, K, tA::Symbol, tB::Symbol, user_generic_knobs::Bool) where {F,O,TA,TB,AccT}
     family === :generic && return (:generic, nothing)
-    # ⚠ `:mma` is OPT-IN ONLY (never auto-selected) — but no longer for the reason
-    # this comment used to give. The old rationale (bounds-check branches diverging
-    # the warp inside the WMMA region) was REFUTED: the real cause was in
-    # KernelIntrinsics, where overlay-installed MMA entry points left the K-loop
-    # accumulator phi initialised to `undef`, and it is FIXED in KI 0.1.14 (which
-    # this package now requires). Correctness is no longer the blocker: the suite is
-    # green with `:mma` active under `--check-bounds=yes` on both RTX1000 Ada (WMMA)
-    # and MI300A gfx942 (MFMA).
+    # ⚠ `:mma` is OPT-IN ONLY (never auto-selected). Not for correctness — the old
+    # rationale (bounds-check branches diverging the warp inside the WMMA region)
+    # was REFUTED; the real cause was KernelIntrinsics leaving the K-loop
+    # accumulator phi `undef` under overlay dispatch, FIXED in KI 0.1.14. The suite
+    # is green with `:mma` under `--check-bounds=yes`.
     #
-    # It stays opt-in purely because it is not yet FASTER: K2 measures 0.85–1.07×
-    # K1 on F16 squares, since one 16×16 tile per warp plus a block barrier per K
-    # panel leaves the kernel staging-bound with no register reuse. Auto-routing a
-    # slower path would be a pessimisation. Flip this to auto once warp/register
-    # tiling clears the ≥2× gate — it is a one-line change here.
+    # Nor is it speed any more. Warp/register tiling (`gemm_mma_kernel!`) took K2
+    # from 0.85–1.07× K1 to (RTX1000 Ada, F16 square, xp screen — NOT a deposited
+    # benchmark) 2.97× @512, 5.81× @1024, 6.53× @2048, 7.49× @4096, i.e. 10.3
+    # TFLOP/s and ~54% of cuBLAS `gemmEx`.
+    #
+    # What is left is the CROSSOVER: at n=256 K2 is still 0.90× K1 (both are
+    # launch-overhead bound there), so flipping auto would regress small F16
+    # products. Auto-selection wants a measured size gate, ideally from autotune,
+    # across more than one arch — a maintainer decision, not a silent default.
+    # When it is taken, it is this one line.
     family === nothing && return (:generic, nothing)
     plain = (f === Base.:*) && (op === Base.:+)
-    # NOTE: the TT (both-RowMajor) MMA specialization miscompiles on the current
-    # toolchain (WMMA + KA, see gemm_mma_kernel.jl) → excluded from :mma; it routes
-    # to the correct generic K1 (accumulating in AccT). NN/NT/TN are HW MMA.
-    tt = (tA === :T && tB === :T)
-    shape = (plain && TA === TB && !tt) ? _mma_pick_shape(backend, TA, AccT) : nothing
+    # All FOUR transpose states are HW MMA. TT used to be excluded here because it
+    # "miscompiled" — that was the KI `undef`-accumulator bug wearing another mask,
+    # and TT is exact (rel err ~1e-6) since KI 0.1.14. The Phase-2 staging already
+    # normalises every layout into col-major-logical shared tiles, so there is no
+    # per-layout MMA variant to get wrong.
+    shape = (plain && TA === TB) ? _mma_pick_shape(backend, TA, AccT) : nothing
     ok = shape !== nothing && M >= shape.Mt && N >= shape.Nt && K >= 1
     if family === :mma
         user_generic_knobs && error("gemm: family=:mma does not accept generic tile " *
                                      "knobs (BM/BN/BK/TM/TN)")
-        tt && error("gemm: family=:mma is not supported for the TT layout " *
-                    "(tA=:T, tB=:T) on this toolchain; use the generic family")
         ok || error("gemm: family=:mma requested but no HW tensor-core path for " *
                     "(compute=$TA, acc=$AccT, f=$f, op=$op) on this device (or output < one MMA tile)")
         return (:mma, shape)
@@ -275,6 +315,7 @@ function _gemm_entry!(
     tA::Symbol, tB::Symbol,
     accT, family,
     BM, BN, BK, TM, TN,
+    WM, WN, NWM, NWN, WK, PC, PA,
     arch
 ) where {S,TA,TB,F,O,G}
     layA = _gemm_layout(tA)
@@ -297,7 +338,8 @@ function _gemm_entry!(
                                  M, N, K, tA, tB, user_generic_knobs)
 
     if fam === :mma
-        return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT, M, N, K, arch)
+        return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT,
+                                 WM, WN, NWM, NWN, WK, PC, PA, M, N, K, arch)
     end
     return _gemm_launch_generic!(f, op, g, C, A, B, layA, layB, AccT,
                                  BM, BN, BK, TM, TN, M, N, K, arch)
@@ -320,20 +362,45 @@ function _gemm_launch_generic!(
     return C
 end
 
+# Resolve the MMA warp/register tiling. Returns everything the launcher needs;
+# `shmem` comes from the ONE pure sizing fn the kernel also uses.
+function resolve_gemm_mma_parameters(
+    arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
+    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA
+) where {CT,AccT}
+    dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
+    WM = something(WM, dWM); WN = something(WN, dWN)
+    NWM = something(NWM, dNWM); NWN = something(NWN, dNWN); WK = something(WK, dWK)
+    PC = something(PC, default_mma_pad(CT)); PA = something(PA, default_mma_pad(AccT))
+    @assert WM >= 1 && WN >= 1 && NWM >= 1 && NWN >= 1 && WK >= 1 "MMA tile knobs must be ≥ 1"
+    ws = get_warpsize(arch)
+    wg = NWM * NWN * ws
+    @assert wg <= 1024 "workgroup ($wg) exceeds 1024; shrink NWM/NWN"
+    BM = NWM * WM * Mt; BN = NWN * WN * Nt; BK = WK * Kt
+    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, NWN * Nt, PC, PA)
+    cap = KI.max_dynamic_localmem(backend)
+    @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory, device cap is $cap B; shrink WM/WN/NWM/NWN/WK"
+    return (; WM, WN, NWM, NWN, WK, PC, PA, ws, wg, BM, BN, BK, shmem)
+end
+
 function _gemm_launch_mma!(
-    g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT}, M, N, K, arch
+    g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
+    WM, WN, NWM, NWN, WK, PC, PA, M, N, K, arch
 ) where {G,CT,AccT}
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
     cfg = KI.MMA.MMAConfig{Mt,Nt,Kt,CT,AccT}()
-    ws = default_gemm_mma_wg(arch)     # one warp per block (v1)
-    nbx = cld(M, Mt); nby = cld(N, Nt)
-    ndrange = nbx * nby * ws
-    gemm_mma_kernel!(backend, ws)(
+    p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA)
+    nbx = cld(M, p.BM); nby = cld(N, p.BN)
+    ndrange = nbx * nby * p.wg          # exact workgroup multiple → no bare-@index OOB
+    KI.launch!(
+        gemm_mma_kernel!(backend, p.wg),
         g, C, A, B, layA, layB, cfg,
-        Val(Mt), Val(Nt), Val(Kt), Val(ws),
+        Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
+        Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
         AccT, M, N, K;
-        ndrange = ndrange,
+        ndrange = ndrange, shmem = p.shmem,
     )
     return C
 end

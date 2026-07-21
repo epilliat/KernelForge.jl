@@ -21,8 +21,9 @@ using BFloat16s
 # section « Jeton matériel »). These tests now run and pass in BOTH check-bounds
 # modes; do not re-add the skip.
 #
-# The HW MMA path covers NN/NT/TN; the TT layout (and F32/F64) route to the generic
-# K1 — `_resolve_family` rejects a forced `:mma` for TT, so TT is checked on generic.
+# The HW MMA path covers ALL FOUR transpose states (TT was excluded until the KI
+# 0.1.14 fix — the exclusion was the `undef`-accumulator bug, not a layout gap).
+# F32/F64 have no HW path here and route to the generic K1.
 
 if !KF.KI.MMA.mma_supported(backend, KF.KI.MMA.MMAConfig{16,16,16,Float16,Float32}())
     @info "gemm MMA tests SKIPPED — no HW F16→F32 MMA path on this device"
@@ -47,7 +48,7 @@ else
     @testset "$CT MMA layouts vs CPU F32 + cross-family" for CT in _mma_eltypes
         rng = Xoshiro(30)
         tol = mma_tol(CT)
-        for (tA, tB) in [(:N, :N), (:T, :N), (:N, :T)],       # HW MMA layouts
+        for (tA, tB) in [(:N, :N), (:T, :N), (:N, :T), (:T, :T)],   # all four → HW MMA
             # all ≥ one 16×16 MMA tile (smaller outputs route to generic by design);
             # deliberately non-multiples of the tile to exercise the edge masking.
             (M, N, K) in [(16, 16, 16), (64, 48, 32), (100, 80, 50),
@@ -72,7 +73,7 @@ else
         end
     end
 
-    @testset "TT layout routes to generic and is correct" begin
+    @testset "TT on the generic family too (cross-check)" begin
         rng = Xoshiro(33)
         for (M, N, K) in [(64, 48, 32), (200, 137, 71)]
             Astore = rand(rng, Float16, K, M); Bstore = rand(rng, Float16, N, K)
@@ -102,8 +103,32 @@ else
                        Array(KF.gemm(A16, B16; family=:generic, accT=Float32)); rtol=1f-2)
         # forced :mma on an unsupported config errors (never silent).
         @test_throws ErrorException KF.gemm(A32, B32; family=:mma)               # F32: no HW path
-        @test_throws ErrorException KF.gemm(A16, B16; tA=:T, tB=:T, family=:mma) # TT excluded
         @test_throws ErrorException KF.gemm(A16, B16; family=:mma, BM=32)        # generic knobs
+    end
+
+    # Warp/register tiling: the accumulator grid is an NTuple of MMA fragments held
+    # in registers across the K-loop. Every knob combination is a DIFFERENT unrolled
+    # kernel, so correctness has to be checked per shape of the grid — in particular
+    # WM>1 (several A-fragments reused across B), WN>1 (the epilogue runs in WN
+    # column chunks through a compacted D-tile), and NWM/NWN>1 (several warps
+    # composing one block tile). Shapes are deliberately non-multiples of the block
+    # tile so the zero-padded staging and the masked epilogue are exercised too.
+    @testset "warp/register tiling knobs (WM,WN,NWM,NWN,WK)" begin
+        rng = Xoshiro(33)
+        M, N, K = 300, 211, 137
+        A = rand(rng, Float16, M, K); B = rand(rng, Float16, K, N)
+        ref = Float32.(A) * Float32.(B)
+        dA = AT(A); dB = AT(B)
+        for (WM, WN, NWM, NWN, WK) in [(1, 1, 1, 1, 1), (1, 1, 1, 1, 2), (2, 1, 1, 1, 2),
+                                       (1, 2, 1, 1, 2), (2, 2, 1, 1, 2), (1, 1, 2, 2, 2),
+                                       (2, 4, 4, 2, 2), (4, 2, 2, 4, 1), (3, 1, 2, 3, 2)]
+            C = KF.gemm(dA, dB; family=:mma, WM, WN, NWM, NWN, WK)
+            @test maximum(abs.(Array(C) .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+        end
+        # A tile that cannot fit the device's workgroup-memory cap must fail LOUDLY
+        # at resolve time, not launch and corrupt memory.
+        @test_throws AssertionError KF.gemm(dA, dB; family=:mma,
+                                            WM=8, WN=8, NWM=4, NWN=4, WK=8)
     end
 
     @testset "mma_shapes sweep — announced F16 shapes" begin
