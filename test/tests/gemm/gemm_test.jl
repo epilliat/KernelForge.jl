@@ -201,4 +201,22 @@ const GEMM_SHAPES = [
         @test_throws ErrorException KF.gemm(A, B; tA=:C)
         @test_throws ErrorException KF.gemm(A, B; tB=:Z)
     end
+
+    @testset "unknown family rejected" begin
+        # A typo'd family symbol used to fall through to the auto branch with
+        # :mma enabled — silently giving behaviour the caller never asked for.
+        A = AT(rand(Float32, 8, 8)); B = AT(rand(Float32, 8, 8))
+        @test_throws ErrorException KF.gemm(A, B; family=:mmma)
+        @test_throws ErrorException KF.gemm(A, B; family=:genric)
+        @test KF.gemm(A, B; family=:generic) isa AbstractMatrix   # valid ones still work
+        @test KF.gemm(A, B; family=nothing)  isa AbstractMatrix
+    end
+
+    @testset "@allocate resolves at the simplified arity" begin
+        # `@allocate gemm(A, B)` must resolve like the `gemm(A, B)` call it
+        # mirrors, not just the explicit `gemm(*, +, A, B)` form.
+        A = AT(rand(Float32, 16, 16)); B = AT(rand(Float32, 16, 16))
+        @test (KF.@allocate gemm(A, B))       isa KF.KernelBuffer
+        @test (KF.@allocate gemm(*, +, A, B)) isa KF.KernelBuffer
+    end
 end

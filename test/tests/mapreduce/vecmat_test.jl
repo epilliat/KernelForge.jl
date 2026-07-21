@@ -142,4 +142,13 @@ end
         end
     end
 
+
+    @testset "@allocate resolves at the simplified arity" begin
+        # `@allocate vecmat(x, A)` must resolve like the `vecmat(x, A)` call it
+        # mirrors (which defaults f=*, op=+), not only the explicit f,op form.
+        A = AT(rand(Float32, 32, 32)); x = AT(rand(Float32, 32))
+        @test (KF.@allocate vecmat(x, A))       isa KF.KernelBuffer
+        @test (KF.@allocate vecmat(*, +, x, A)) isa KF.KernelBuffer
+    end
+
 end

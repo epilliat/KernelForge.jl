@@ -289,6 +289,20 @@ for i in 1:100
 end
 ```
 """
+# Convenience arity matching the simplified `vecmat(x, src)` entry point (which
+# defaults `f=*`, `op=+`), so `KernelForge.@allocate vecmat(x, A)` resolves like
+# the call it mirrors. No ambiguity with the `f, op` method below: the second
+# positional here is an array/nothing, never a `Function`.
+function get_allocation(
+    ::Type{VecMat},
+    x::Union{AbstractArray,Nothing},
+    src::AbstractMatrix,
+    args...;
+    kwargs...
+)
+    return get_allocation(VecMat, *, +, x, src, args...; kwargs...)
+end
+
 function get_allocation(
     ::Type{VecMat},
     f::F,

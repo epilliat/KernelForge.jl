@@ -222,6 +222,17 @@ function get_allocation(
     return KernelBuffer((;))
 end
 
+# Convenience arity matching the simplified `gemm(A, B)` entry point, so
+# `KernelForge.@allocate gemm(A, B)` resolves like the call it mirrors. No
+# ambiguity with the method above: an `AbstractMatrix` is never a `Function`.
+function get_allocation(
+    ::Type{GEMM},
+    A::AbstractMatrix, B::AbstractMatrix,
+    arch=nothing
+)
+    return get_allocation(GEMM, *, +, A, B, arch)
+end
+
 # ============================================================================
 # Type + parameter resolution
 # ============================================================================
@@ -348,6 +359,12 @@ end
 function _resolve_family(family, backend, f::F, op::O,
                          ::Type{TA}, ::Type{TB}, ::Type{AccT},
                          M, N, K, tA::Symbol, tB::Symbol, user_generic_knobs::Bool) where {F,O,TA,TB,AccT}
+    # Validate FIRST: an unrecognised symbol (a typo like `:mmma`) used to fall
+    # through to the auto branch with `:mma` enabled, silently giving behaviour the
+    # caller did not ask for. A wrong knob must fail loudly, like every other
+    # unsupported request here.
+    family === nothing || family === :generic || family === :mma ||
+        error("gemm: unknown family=$(repr(family)); expected :generic, :mma, or nothing (auto)")
     family === :generic && return (:generic, nothing)
     # ⚠ `:mma` is OPT-IN ONLY (never auto-selected). Not for correctness — the old
     # rationale (bounds-check branches diverging the warp inside the WMMA region)

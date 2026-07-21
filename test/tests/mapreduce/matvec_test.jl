@@ -154,4 +154,13 @@ KF.matvec!(*, +, dst, src, x)
         end
     end
 
+
+    @testset "@allocate resolves at the simplified arity" begin
+        # `@allocate matvec(A, x)` must resolve like the `matvec(A, x)` call it
+        # mirrors (which defaults f=*, op=+), not only the explicit f,op form.
+        A = AT(rand(Float32, 32, 32)); x = AT(rand(Float32, 32))
+        @test (KF.@allocate matvec(A, x))       isa KF.KernelBuffer
+        @test (KF.@allocate matvec(*, +, A, x)) isa KF.KernelBuffer
+    end
+
 end
