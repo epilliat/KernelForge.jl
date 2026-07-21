@@ -131,6 +131,44 @@ else
                                             WM=8, WN=8, NWM=4, NWN=4, WK=8)
     end
 
+    # Non-float-16 hardware paths. These exist on CDNA3 (gfx942) and NOT on the
+    # NVIDIA parts KI currently exposes, so each gates on its own `mma_supported`
+    # and simply does not run where the hardware (or KI's ext) lacks it. Both are
+    # EXACT: F64 MFMA is exact for these operands, and Int8→Int32 is integer.
+    @testset "Float64 tensor cores (CDNA3 MFMA 16×16×4)" begin
+        shp = KF._mma_pick_shape(backend, Float64, Float64)
+        if shp === nothing
+            @info "F64 MMA not available on this device — skipped"
+        else
+            rng = Xoshiro(34)
+            for (M, N, K) in [(64, 64, 32), (200, 137, 71)]   # incl. non-tile-multiple
+                A = rand(rng, Float64, M, K); B = rand(rng, Float64, K, N)
+                C = KF.gemm(AT(A), AT(B); family=:mma)
+                @test eltype(C) === Float64
+                @test Array(C) ≈ A * B rtol=1e-12
+            end
+        end
+    end
+
+    @testset "Int8 → Int32 tensor cores" begin
+        shp = KF._mma_pick_shape(backend, Int8, Int32)
+        if shp === nothing
+            @info "Int8 MMA not available on this device — skipped"
+        else
+            rng = Xoshiro(35)
+            for (M, N, K) in [(64, 64, 64), (100, 80, 96)]
+                # Small magnitudes so the generic cross-check (which multiplies in
+                # the INPUT type before widening) cannot overflow Int8.
+                A = rand(rng, Int8.(0:5), M, K); B = rand(rng, Int8.(0:5), K, N)
+                ref = Int32.(A) * Int32.(B)
+                C = KF.gemm(AT(A), AT(B))          # accT now defaults to Int32
+                @test eltype(C) === Int32
+                @test Array(C) == ref
+                @test Array(KF.gemm(AT(A), AT(B); family=:mma)) == ref
+            end
+        end
+    end
+
     @testset "mma_shapes sweep — announced F16 shapes" begin
         rng = Xoshiro(32)
         for s in KF.KI.MMA.mma_shapes(backend)

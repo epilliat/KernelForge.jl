@@ -37,6 +37,17 @@ end
 # its natural map type. `accT` kwarg overrides this for BOTH families.
 @inline _default_acc_type(::Type{Float16})      = Float32
 @inline _default_acc_type(::Type{Core.BFloat16}) = Float32
+# Int8 accumulates in Int32 — the same widening every BLAS and the Int8 MMA
+# hardware itself does. An Int8 accumulator overflows at 127, i.e. after a
+# handful of terms, so `Int8` was the wrong default for any real GEMM; it also
+# made `_mma_pick_shape(Int8, Int8)` return nothing and silently miss the
+# Int8→Int32 tensor-core path (16×16×32 / 32×32×16 on gfx942).
+# NOTE: deliberately NOT extended to Int16/UInt8/UInt16 — the same overflow
+# argument applies, but widening them is a visible output-eltype change with no
+# hardware path to justify it, so it stays a maintainer decision.
+# `Bool` must keep mapping to itself: the boolean-semiring path (f=&, op=|)
+# depends on the accumulator staying Bool.
+@inline _default_acc_type(::Type{Int8})         = Int32
 @inline _default_acc_type(::Type{H}) where {H}   = H
 
 # Pick an MMA (Mt,Nt,Kt) for (CT, AccT) from the device's `mma_shapes` — prefer the
