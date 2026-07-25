@@ -127,7 +127,14 @@ end
 # `default_gemm_mma_async` returns false; the per-operand ENABLE (layout + alignment
 # + `async_copy_supported`) is computed in `_gemm_launch_mma!`, never here.
 function default_gemm_mma_async(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT}) where {CT,AccT}
-    return false
+    # Default ON. Safe unconditionally: this only sets the FLAG; the authoritative
+    # enable is `_gemm_async_flags`, which requires `async_copy_supported(backend)`
+    # (true only on NVIDIA sm_80+; false on AMD — deferred — and pre-Ampere) AND
+    # 16-byte alignment per operand. So on any device or shape that can't do it,
+    # staging falls back to the byte-identical register path. Measured pure win on
+    # RTX1000 Ada (async single-buffered ≥ register at every size: 1024 62%→88%,
+    # 2048 43%→73% cuBLAS), so there is no size regime where turning it on hurts.
+    return true
 end
 
 # ============================================================================
