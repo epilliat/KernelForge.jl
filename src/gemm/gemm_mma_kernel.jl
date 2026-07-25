@@ -113,6 +113,95 @@ end
     end
 end
 
+# ── cp.async staging (CUDA sm_80+; `ASYNC` knob) ────────────────────────────
+# Move the tile global→shared WITHOUT a register hop, via `KI.async_copy!`
+# (`cp.async.ca.shared.global.16` on NVIDIA). A 16-byte chunk is `EPB = 16÷sizeof(CT)`
+# contiguous elements (8 for F16/BF16), which cp.async copies with NO per-element
+# masking and NO OOB zero-fill — so a chunk is async-copyable ONLY when all EPB
+# elements are in-bounds AND both the global source and the shared dest are 16-byte
+# aligned. The HOST gate (`_gemm_launch_mma!`) guarantees the *alignment*
+# precondition (ColMajor operand, `M%EPB==0`/`K%EPB==0`, `ld%EPB==0`); what stays a
+# per-chunk RUNTIME decision here is only the in-bounds test at the block/K edges.
+# So this is HYBRID: fully-in-bounds chunks go async; edge chunks fall back to the
+# byte-identical zero-filling register element path (`_stage_*_mma!`'s inner body).
+#
+# ColMajor ONLY. Async needs the staged-contiguous direction (rows of As, k-rows of
+# Bs) to match the global-contiguous direction; a RowMajor operand is transposed in
+# global, so its chunk is strided and cp.async cannot serve it — the host never sets
+# the async flag for a RowMajor operand, and the RowMajor method here delegates to
+# the register path as a defensive guarantee.
+@inline function _stage_a_mma_async!(As, A, ::ColMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                                     ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    EPB = 16 ÷ sizeof(eltype(As))       # elements per 16-byte cp.async chunk
+    nr = BM ÷ EPB                        # EPB-row chunks down a column
+    p = lid
+    while p <= nr * BK
+        e = p - 1
+        rc  = e % nr
+        kk  = e ÷ nr
+        row0 = rc * EPB
+        k  = kt * BK + kk + 1
+        m0 = brow * BM + row0 + 1
+        if k <= K && m0 + (EPB - 1) <= M
+            KI.async_copy!(pointer(As, sh0 + kk * ldA + row0 + 1),
+                           pointer(A, (k - 1) * M + m0), Val(16))
+        else
+            r = 0
+            while r < EPB
+                row = row0 + r
+                m = brow * BM + row + 1
+                @inbounds As[sh0 + kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(k - 1) * M + m]) : z
+                r += 1
+            end
+        end
+        p += wg
+    end
+end
+@inline _stage_a_mma_async!(As, A, lay::RowMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                            vBM::Val, vBK::Val) =
+    _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldA, sh0, vBM, vBK)
+
+@inline function _stage_b_mma_async!(Bs, B, ::ColMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                                     ::Val{BK}, ::Val{BN}) where {BK,BN}
+    z = zero(eltype(Bs))
+    EPB = 16 ÷ sizeof(eltype(Bs))
+    nk = BK ÷ EPB                        # EPB-deep chunks down a Bs column
+    p = lid
+    while p <= nk * BN
+        e = p - 1
+        kc  = e % nk
+        col = e ÷ nk
+        k0off = kc * EPB
+        n  = bcol * BN + col + 1
+        k0 = kt * BK + k0off + 1
+        if n <= N && k0 + (EPB - 1) <= K
+            KI.async_copy!(pointer(Bs, sh0 + col * ldB + k0off + 1),
+                           pointer(B, (n - 1) * K + k0), Val(16))
+        else
+            r = 0
+            while r < EPB
+                kk = k0off + r
+                k = kt * BK + kk + 1
+                @inbounds Bs[sh0 + col * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(n - 1) * K + k]) : z
+                r += 1
+            end
+        end
+        p += wg
+    end
+end
+@inline _stage_b_mma_async!(Bs, B, lay::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                            vBK::Val, vBN::Val) =
+    _stage_b_mma!(Bs, B, lay, bcol, kt, K, N, lid, wg, ldB, sh0, vBK, vBN)
+
+# Compile-time dispatch between register and async staging. `Val{true}` only ever
+# reaches a ColMajor operand (host gate); with `Val{false}` the async code is not
+# generated at all and staging is byte-identical to the pre-async kernel.
+@inline _stage_a(::Val{false}, args...) = _stage_a_mma!(args...)
+@inline _stage_a(::Val{true},  args...) = _stage_a_mma_async!(args...)
+@inline _stage_b(::Val{false}, args...) = _stage_b_mma!(args...)
+@inline _stage_b(::Val{true},  args...) = _stage_b_mma_async!(args...)
+
 # ── Register-tile primitives (TOP-LEVEL — see the closure-boxing note) ──────
 # One k-step for one warp: WM A-fragments × WN B-fragments → WM·WN `mma`s.
 #
@@ -224,12 +313,19 @@ end
     cfg::CFG,
     ::Val{Mt}, ::Val{Nt}, ::Val{Kt}, ::Val{WS},
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
-    ::Val{DB},
+    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB},
     ::Type{AccT},
     M::Int, N::Int, K::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
-         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,AccT}
+         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,AccT}
     @uniform begin
+        # `ASYNC` gates the cp.async commit/wait scaffolding: emit it only when at
+        # least one operand actually stages asynchronously, else the pipeline ops
+        # would fire around a purely register-staged loop. `va`/`vb` are the
+        # per-operand staging selectors (see `_stage_a`/`_stage_b`).
+        ASYNC = ASYNCA || ASYNCB
+        va = Val(ASYNCA)
+        vb = Val(ASYNCB)
         BM  = NWM * WM * Mt
         BN  = NWN * WN * Nt
         BK  = WK * Kt
@@ -278,46 +374,110 @@ end
         # the same memory.) The barrier AFTER the loop is not optional: the last
         # iteration's fragment reads of As/Bs must be fenced before the epilogue
         # writes `Ds`, which ALIASES the blob at offset 0.
-        _stage_a_mma!(As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-        _stage_b_mma!(Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
-        pb = 0
-        kt = 0
-        while kt < nkt
-            @synchronize
-            qb = 1 - pb
-            if kt + 1 < nkt
-                _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
-                              qb * BK * ldA, Val(BM), Val(BK))
-                _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
-                              qb * BN * ldB, Val(BK), Val(BN))
+        if ASYNC
+            # cp.async variant: mirror the register hazard argument but overlap the
+            # global→shared copy with the tensor-core math. Ordering per iteration is
+            # ISSUE(qb) → COMMIT → COMPUTE(pb) → WAIT(0) → barrier → swap: the next
+            # panel's copies are in flight across the whole MMA sequence of the
+            # current one (the overlap), and the `wait(0)` before the barrier drains
+            # them so buffer `qb` is fully landed before it is read next iteration.
+            # `wait(Val(0))` (drain-all) is the conservative granularity the prototype
+            # proved; `Val(1)` to keep the next tile in flight is a later refinement.
+            # The HYBRID staging also emits register stores for edge/misaligned
+            # chunks — synchronous, made visible by the same barrier.
+            _stage_a(va, As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_b(vb, Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+            KI.async_commit()
+            KI.async_wait(Val(0))
+            pb = 0
+            kt = 0
+            while kt < nkt
+                @synchronize
+                qb = 1 - pb
+                if kt + 1 < nkt
+                    _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
+                             qb * BK * ldA, Val(BM), Val(BK))
+                    _stage_b(vb, Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                             qb * BN * ldB, Val(BK), Val(BN))
+                    KI.async_commit()
+                end
+                koffA0 = pb * BK + 1
+                wcolp  = wcol0 + pb * BN
+                ks = 0
+                while ks < WK
+                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                                          koffA0 + ks * Kt, ks * Kt + 1, accs,
+                                          Val(WM), Val(WN), Val(Mt), Val(Nt))
+                    ks += 1
+                end
+                if kt + 1 < nkt
+                    KI.async_wait(Val(0))   # buffer qb landed before next-iter read
+                end
+                pb = qb
+                kt += 1
             end
-            koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
-            wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
-            ks = 0
-            while ks < WK
-                accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
-                                      koffA0 + ks * Kt, ks * Kt + 1, accs,
-                                      Val(WM), Val(WN), Val(Mt), Val(Nt))
-                ks += 1
+            @synchronize                # fences As/Bs before Ds reuses the blob
+        else
+            _stage_a_mma!(As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_b_mma!(Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+            pb = 0
+            kt = 0
+            while kt < nkt
+                @synchronize
+                qb = 1 - pb
+                if kt + 1 < nkt
+                    _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
+                                  qb * BK * ldA, Val(BM), Val(BK))
+                    _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                                  qb * BN * ldB, Val(BK), Val(BN))
+                end
+                koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
+                wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
+                ks = 0
+                while ks < WK
+                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                                          koffA0 + ks * Kt, ks * Kt + 1, accs,
+                                          Val(WM), Val(WN), Val(Mt), Val(Nt))
+                    ks += 1
+                end
+                pb = qb
+                kt += 1
             end
-            pb = qb
-            kt += 1
+            @synchronize                # fences As/Bs before Ds reuses the blob
         end
-        @synchronize                # fences As/Bs before Ds reuses the blob
     else
-        kt = 0
-        while kt < nkt
-            _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-            _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
-            @synchronize
-            ks = 0
-            while ks < WK
-                accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
-                                      accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
-                ks += 1
+        if ASYNC
+            kt = 0
+            while kt < nkt
+                _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_b(vb, Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                KI.async_commit()
+                KI.async_wait(Val(0))
+                @synchronize
+                ks = 0
+                while ks < WK
+                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
+                                          accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                    ks += 1
+                end
+                @synchronize            # also fences As/Bs before Ds reuses the blob
+                kt += 1
             end
-            @synchronize            # also fences As/Bs before Ds reuses the blob
-            kt += 1
+        else
+            kt = 0
+            while kt < nkt
+                _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                @synchronize
+                ks = 0
+                while ks < WK
+                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
+                                          accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                    ks += 1
+                end
+                @synchronize            # also fences As/Bs before Ds reuses the blob
+                kt += 1
+            end
         end
     end
 

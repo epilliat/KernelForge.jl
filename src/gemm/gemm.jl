@@ -114,6 +114,22 @@ function default_gemm_mma_db(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT},
     return false
 end
 
+# ── cp.async global→shared staging (`ASYNC` knob) ───────────────────────────
+# On sm_80+ NVIDIA, `KI.async_copy!` emits `cp.async` (LDGSTS): the tile moves
+# global→shared WITHOUT a register hop, so a double-buffered K-loop can overlap the
+# copy with the tensor-core math instead of stalling on a global→register→shared
+# round trip. It is an OPT-IN KNOB, defaulted OFF, for the same reasons DB is: the
+# win only materialises paired with DB at a WK=2 tile that fits the doubled As/Bs
+# (the default WK=4 tiers already amortize staging AND overflow the cap when
+# doubled), and the register path must stay reachable for an honest A/B. When OFF —
+# or on any device without a hardware cp.async path, or on a misaligned/transposed
+# operand the host gate rejects — staging is byte-identical to the register kernel.
+# `default_gemm_mma_async` returns false; the per-operand ENABLE (layout + alignment
+# + `async_copy_supported`) is computed in `_gemm_launch_mma!`, never here.
+function default_gemm_mma_async(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT}) where {CT,AccT}
+    return false
+end
+
 # ============================================================================
 # Public API docstrings
 # ============================================================================
@@ -290,7 +306,7 @@ function gemm(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -298,7 +314,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
     return C
 end
 
@@ -309,7 +325,7 @@ function gemm(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -317,7 +333,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
     return C
 end
 
@@ -329,11 +345,11 @@ function gemm!(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
     return C
 end
 
@@ -345,11 +361,11 @@ function gemm!(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
     return C
 end
 
@@ -432,7 +448,7 @@ function _gemm_entry!(
     tA::Symbol, tB::Symbol,
     accT, family,
     BM, BN, BK, TM, TN,
-    WM, WN, NWM, NWN, WK, PC, PA, DB,
+    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC,
     arch
 ) where {S,TA,TB,F,O,G}
     layA = _gemm_layout(tA)
@@ -456,7 +472,7 @@ function _gemm_entry!(
 
     if fam === :mma
         return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT,
-                                 WM, WN, NWM, NWN, WK, PC, PA, DB, M, N, K, arch)
+                                 WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, M, N, K, arch)
     end
     return _gemm_launch_generic!(f, op, g, C, A, B, layA, layB, AccT,
                                  BM, BN, BK, TM, TN, M, N, K, arch)
@@ -508,15 +524,36 @@ function resolve_gemm_mma_parameters(
     return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
 end
 
+# Per-operand cp.async enable. A 16-byte chunk is `EPB = 16÷sizeof(CT)` contiguous
+# elements, so cp.async serves an operand ONLY when it is ColMajor (staged-contiguous
+# ⇒ global-contiguous), the leading global dimension is a multiple of EPB (source
+# 16-byte alignment: A's is `M`, B's is `K`), and the padded shared ld is too (dest
+# alignment). Everything here is host-known; the per-CHUNK edge in-bounds test is the
+# kernel's. `false` whenever the device lacks a hardware cp.async path — the fallback
+# would still be correct but pointless, so we keep the register kernel instead.
+@inline function _gemm_async_flags(backend, ::Type{CT}, layA, layB, M, N, K,
+                                   BM, BK, PC, ASYNC::Bool) where {CT}
+    ASYNC && KI.async_copy_supported(backend) || return (false, false)
+    EPB = 16 ÷ sizeof(CT)
+    ldA = BM + PC; ldB = BK + PC
+    asyncA = (layA isa ColMajor) && (M % EPB == 0) && (ldA % EPB == 0) && (BM % EPB == 0)
+    asyncB = (layB isa ColMajor) && (K % EPB == 0) && (ldB % EPB == 0) && (BK % EPB == 0)
+    return (asyncA, asyncB)
+end
+
 function _gemm_launch_mma!(
     g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
-    WM, WN, NWM, NWN, WK, PC, PA, DB, M, N, K, arch
+    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, M, N, K, arch
 ) where {G,CT,AccT}
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
     cfg = KI.MMA.MMAConfig{Mt,Nt,Kt,CT,AccT}()
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
                                     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB)
+    dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT)
+    asyncflag = something(ASYNC, dASYNC)::Bool
+    asyncA, asyncB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
+                                       p.BM, p.BK, p.PC, asyncflag)
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
     ndrange = nbx * nby * p.wg          # exact workgroup multiple → no bare-@index OOB
     KI.launch!(
@@ -524,7 +561,7 @@ function _gemm_launch_mma!(
         g, C, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), AccT, M, N, K;
+        Val(p.DB), Val(asyncA), Val(asyncB), AccT, M, N, K;
         ndrange = ndrange, shmem = p.shmem,
     )
     return C

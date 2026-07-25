@@ -150,6 +150,58 @@ else
         end
     end
 
+    @testset "cp.async staging (ASYNC=true) matches register + hybrid edges" begin
+        # cp.async (`KI.async_copy!`) stages global→shared WITHOUT a register hop.
+        # It is CUDA sm_80+ ONLY and per-operand: a chunk is async-copyable only when
+        # the operand is ColMajor AND aligned (M/K and the padded shared ld multiples
+        # of 16÷sizeof), else that operand — or that block/K edge chunk — falls back to
+        # the byte-identical zero-filling register path. So a wrong async/edge path is
+        # SILENTLY wrong numbers, not a crash: assert async == register bit-for-bit on
+        # the SAME inputs, at aligned shapes (async engages) AND M%8≠0 shapes (A must
+        # fall back). Equality assertions run on every backend (the fallback must match
+        # too); the host-gate assertions gate on real hardware support.
+        supported = KF.KI.async_copy_supported(backend)
+        if supported
+            # Host gate (`_gemm_async_flags`): aligned NN engages both operands;
+            # M%8≠0 disables A; a RowMajor (transposed) operand is never async; the
+            # OFF knob disables both. BM=256, BK=32, PC=8 = the champion DB tile.
+            @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
+                                       256, 256, 256, 256, 32, 8, true) == (true, true)
+            @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
+                                       255, 256, 256, 256, 32, 8, true)[1] == false
+            @test KF._gemm_async_flags(backend, Float16, KF.RowMajor(), KF.ColMajor(),
+                                       256, 256, 256, 256, 32, 8, true)[1] == false
+            @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
+                                       256, 256, 256, 256, 32, 8, false) == (false, false)
+        end
+        rng = Xoshiro(41)
+        CH = (WM=4, WN=4, NWM=4, NWN=2, WK=2)   # WK=2 DB-fitting tile (the overlap path)
+        _draw(::Type{T}, dims...) where {T} = T.(rand(rng, Float32, dims...))
+        for (M, N, K) in [(256, 256, 256),   # aligned NN → async engages both operands
+                          (512, 384, 128),   # aligned, multi-panel prefetch
+                          (300, 211, 137),   # M%8≠0 AND K%8≠0 → both operands fall back
+                          (255, 256, 128),   # M%8≠0 only → A register, B async (edge mix)
+                          (17, 19, 33)],      # tiny non-multiple, forced through big tile
+            (tA, tB) in [(:N, :N), (:T, :N), (:N, :T), (:T, :T)]
+            Astore = tA === :N ? _draw(Float16, M, K) : _draw(Float16, K, M)
+            Bstore = tB === :N ? _draw(Float16, K, N) : _draw(Float16, N, K)
+            opA = tA === :N ? Astore : permutedims(Astore)
+            opB = tB === :N ? Bstore : permutedims(Bstore)
+            ref = Float32.(opA) * Float32.(opB)
+            dA = AT(Astore); dB = AT(Bstore)
+            # default tile (async single-buffered where it engages)
+            Ca = Array(KF.gemm(dA, dB; tA, tB, family=:mma, ASYNC=true))
+            Cr = Array(KF.gemm(dA, dB; tA, tB, family=:mma, ASYNC=false))
+            @test Ca == Cr                                          # async ≠ bits ⇒ bug
+            @test maximum(abs.(Ca .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+            # champion DB tile (the double-buffered cp.async overlap path)
+            Cad = Array(KF.gemm(dA, dB; tA, tB, family=:mma, CH..., DB=true, ASYNC=true))
+            Crd = Array(KF.gemm(dA, dB; tA, tB, family=:mma, CH..., DB=true, ASYNC=false))
+            @test Cad == Crd
+            @test maximum(abs.(Cad .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+        end
+    end
+
     # Non-float-16 hardware paths. These exist on CDNA3 (gfx942) and NOT on the
     # NVIDIA parts KI currently exposes, so each gates on its own `mma_supported`
     # and simply does not run where the hardware (or KI's ext) lacks it. Both are
