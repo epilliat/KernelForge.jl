@@ -6,10 +6,12 @@
     ::Val{Nitem},
     ::Val{Nthreads},
     partial::Union{Nothing,AbstractArray{H}},
-    flag::Union{Nothing,AbstractArray{UInt8}},
+    flag::Union{Nothing,AbstractArray{UInt32}},
+    gen::UInt32,
     ::Type{H},
-    ::Val{warpsz}
-) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads,warpsz}
+    ::Val{warpsz},
+    ::Val{Bypass}
+) where {F<:Function,O<:Function,G<:Function,T,H,S,Nitem,Nthreads,warpsz,Bypass}
     @uniform begin
         n, p = size(src)
         workgroup = Int(@groupsize()[1])
@@ -127,8 +129,14 @@
     if Nthreads > workgroup
         if local_wid == 1 && lane == cld(workgroup, warpsz)
             idx = (chid - 1) * Nblocks + local_gid
-            partial[idx] = val_acc
-            @access flag[idx] = 0x01
+            if Bypass
+                @access Device Relaxed partial[idx] = val_acc
+                @fence Workgroup Release          # drain the partial store (s_waitcnt vmcnt) before the flag
+                @access Device Relaxed flag[idx] = gen
+            else
+                partial[idx] = val_acc
+                @access flag[idx] = gen          # Device Release
+            end
         end
     end
     Nthreads <= workgroup && Base.@goto done
@@ -138,16 +146,24 @@
     i = lid
     idx = (chid - 1) * Nblocks + i
     while i <= Nblocks
-        (@access flag[idx]) == 0x01 && break
+        flg = Bypass ? (@access Device Relaxed flag[idx]) : (@access flag[idx])
+        flg == gen && break
     end
-    i <= Nblocks && (val = partial[idx])
+    if Bypass
+        @fence Workgroup Acquire   # pair the producer release; order the partial read after the flag read
+    end
+    i <= Nblocks && (val = Bypass ? (@access Device Relaxed partial[idx]) : partial[idx])
     i += workgroup
     while i <= Nblocks
         idx = (chid - 1) * Nblocks + i
         while true
-            (@access flag[idx]) == 0x01 && break
+            flg = Bypass ? (@access Device Relaxed flag[idx]) : (@access flag[idx])
+            flg == gen && break
         end
-        val = op(val, partial[idx])
+        if Bypass
+            @fence Workgroup Acquire
+        end
+        val = op(val, Bypass ? (@access Device Relaxed partial[idx]) : partial[idx])
         i += workgroup
     end
     @warpreduce(val, op, lane)

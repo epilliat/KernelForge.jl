@@ -43,6 +43,12 @@ end
 
 function _unsafe_free! end
 
+# Non-array buffer fields (e.g. a `Ref{UInt32}` generation counter carried in the
+# `arrays` NamedTuple to amortise the descriptor `fill!` — see vecmat) have no
+# device memory to release; skip them so `_unsafe_free!(::KernelBuffer)` still
+# iterates cleanly.
+_unsafe_free!(::Base.RefValue) = nothing
+
 function _unsafe_free!(tmp::KernelBuffer)
     for arr in tmp.arrays
         _unsafe_free!(arr)

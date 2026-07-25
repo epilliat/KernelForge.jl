@@ -80,6 +80,19 @@ function vecmat! end
 @inline use_simple_kernel(::AbstractArch) = false
 @inline use_simple_kernel(::AMDArch) = false # TODO: maybe write a simple kernel for AMD which doesn't incurr runtime errors because of registers
 
+# Cross-block partial-combine descriptor: on CDNA the bare `@access` spin is a
+# DEVICE-scope ACQUIRE → it invalidates L1 every loop iteration, so the tall/
+# skinny multi-block path (few columns, many blocks per column) sits on a flat
+# ~200-370 µs plateau that is L1-thrash, not bandwidth. The bypass publishes/reads
+# `partial`+`flag` as Device-scope RELAXED atomics (coherence, no per-spin
+# invalidate) and orders them with WORKGROUP-scope release/acquire fences — the
+# same WITHOUT_SLOW_FENCES gfx94x recipe already shipped for scan and onesweep
+# ([[project_scan_lookback_is_the_gap]], [[project_sort_mi300a_lookback_bypass]]).
+# CUDA keeps the real Device Acquire/Release flag (free on one die).
+@inline vecmat_desc_bypass(::AMDArch) = true
+@inline vecmat_desc_bypass(::CUDAArch) = false
+@inline vecmat_desc_bypass(::AbstractArch) = false
+
 @inline function default_nitem(::AbstractArch, ::Type{VecMat}, n, p, ::Type{T}) where {T}
     Nitem = prevpow(2, cld(16, cld(sizeof(T), 2)))
     return Nitem
@@ -310,8 +323,18 @@ function get_allocation(
     backend = get_backend(src)
     if FA
         partial = KernelAbstractions.allocate(backend, H, Nblocks * p)      # 2D: (Nblocks, p)
-        flag = KernelAbstractions.allocate(backend, UInt8, Nblocks * p) # 2D: (Nblocks, p)
-        return KernelBuffer((; partial, flag))
+        # Generation-tagged descriptor: `flag` holds the call generation that last
+        # published each (block, column) partial. The producer writes `gen`, the
+        # consumer waits for `flag == gen`; since `gen` strictly increases and every
+        # slot is overwritten every call, a slot left at `gen-1` reads as NOT-ready
+        # with NO per-call reset — the per-call `fill!` (a whole extra kernel launch,
+        # ~⅓ of the small-cell fixed-overhead floor on MI300A) is gone. One zeroing
+        # here is required because `allocate` returns uninitialised memory and the
+        # first call uses `gen == 1`. See `_vecmat_impl_multi!`.
+        flag = KernelAbstractions.allocate(backend, UInt32, Nblocks * p) # 2D: (Nblocks, p)
+        fill!(flag, UInt32(0))
+        gen = Ref(UInt32(0))
+        return KernelBuffer((; partial, flag, gen))
     else
         partial = KernelAbstractions.allocate(backend, H, Nblocks, p)
         return KernelBuffer((; partial))
@@ -498,8 +521,10 @@ function _vecmat_impl_single!(
     backend = get_backend(src)
     ndrange = Nthreads * p
     warpsz = get_warpsize(arch)
+    # Single-block path never reads the descriptor (returns before the combine); the
+    # gen arg is unused, pass 0.
     vecmat_kernel!(backend, workgroup)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, H, Val(warpsz);
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), nothing, nothing, UInt32(0), H, Val(warpsz), Val(vecmat_desc_bypass(arch));
         ndrange = ndrange,
     )
 end
@@ -522,10 +547,13 @@ function _vecmat_impl_multi!(
     backend = get_backend(src)
     ndrange = Nthreads * p
     local_tmp = isnothing(tmp)
-    fill!(tmp.arrays.flag, 0x00)
+    # Generation-tagged descriptor: bump the counter and publish/wait on THIS gen
+    # instead of zeroing `flag` every call. The buffer was zeroed once at allocation
+    # (see get_allocation); `gen` starts at 1 and never collides a stale slot.
+    gen = (tmp.arrays.gen[] += UInt32(1))
     warpsz = get_warpsize(arch)
     vecmat_kernel!(backend, workgroup)(
-        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, H, Val(warpsz);
+        f, op, g, dst, x, src, Val(Nitem), Val(Nthreads), tmp.arrays.partial, tmp.arrays.flag, gen, H, Val(warpsz), Val(vecmat_desc_bypass(arch));
         ndrange = ndrange,
     )
 end
