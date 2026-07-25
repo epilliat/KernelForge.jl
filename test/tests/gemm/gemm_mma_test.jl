@@ -131,6 +131,25 @@ else
                                             WM=8, WN=8, NWM=4, NWN=4, WK=8)
     end
 
+    @testset "double-buffered staging (DB=true) matches single-buffered" begin
+        # DB defaults OFF (it measured a wash on the default path; see
+        # default_gemm_mma_db). It stays a knob, so its kernel path must keep
+        # explicit coverage — a wrong prefetch/swap or a weakened barrier gives
+        # SILENTLY wrong numbers, not a crash. Non-tile-multiple shape, several
+        # grids, and both DB values must agree with the CPU reference.
+        rng = Xoshiro(37)
+        M, N, K = 300, 211, 137          # >1 K panel, so DB actually prefetches
+        A = rand(rng, Float16, M, K); B = rand(rng, Float16, K, N)
+        ref = Float32.(A) * Float32.(B)
+        dA = AT(A); dB = AT(B)
+        for (WM, WN, NWM, NWN, WK) in [(1, 1, 1, 1, 2), (2, 2, 1, 1, 2), (2, 2, 2, 2, 2)]
+            Con  = KF.gemm(dA, dB; family=:mma, WM, WN, NWM, NWN, WK, DB=true)
+            Coff = KF.gemm(dA, dB; family=:mma, WM, WN, NWM, NWN, WK, DB=false)
+            @test maximum(abs.(Array(Con) .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+            @test Array(Con) == Array(Coff)        # DB must not change the result
+        end
+    end
+
     # Non-float-16 hardware paths. These exist on CDNA3 (gfx942) and NOT on the
     # NVIDIA parts KI currently exposes, so each gates on its own `mma_supported`
     # and simply does not run where the hardware (or KI's ext) lacks it. Both are

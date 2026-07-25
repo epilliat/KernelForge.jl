@@ -49,7 +49,12 @@
 # `KI.max_dynamic_localmem` at RUNTIME (never an arch table).
 
 # ── Zero-padding shared staging (K2-only; 1-based loops) ────────────────────
-@inline function _stage_a_mma!(As, A, ::ColMajor, brow, kt, M, K, lid, wg, ldA,
+#
+# `sh0` is the LINEAR element offset of the destination buffer inside the (possibly
+# double-width) shared tile — 0 for the single-buffered path, `p*BK*ldA` (resp.
+# `p*BN*ldB`) to address buffer `p` when `DB` is on. It shifts only the destination:
+# the global read is identical, so the double-buffered staging costs nothing extra.
+@inline function _stage_a_mma!(As, A, ::ColMajor, brow, kt, M, K, lid, wg, ldA, sh0,
                                ::Val{BM}, ::Val{BK}) where {BM,BK}
     z = zero(eltype(As))
     p = lid
@@ -59,11 +64,11 @@
         kk  = e ÷ BM
         m = brow * BM + row + 1
         k = kt * BK + kk + 1
-        @inbounds As[kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(k - 1) * M + m]) : z
+        @inbounds As[sh0 + kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(k - 1) * M + m]) : z
         p += wg
     end
 end
-@inline function _stage_a_mma!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, ldA,
+@inline function _stage_a_mma!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, ldA, sh0,
                                ::Val{BM}, ::Val{BK}) where {BM,BK}
     # Contiguous SHARED write `As[p]`; the transposed source makes the GLOBAL read
     # scattered (A stored K×M, Aop[m,k] = A[(m-1)*K+k]).
@@ -75,11 +80,11 @@ end
         kk  = e ÷ BM
         m = brow * BM + row + 1
         k = kt * BK + kk + 1
-        @inbounds As[kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
+        @inbounds As[sh0 + kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
         p += wg
     end
 end
-@inline function _stage_b_mma!(Bs, B, ::ColMajor, bcol, kt, K, N, lid, wg, ldB,
+@inline function _stage_b_mma!(Bs, B, ::ColMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
                                ::Val{BK}, ::Val{BN}) where {BK,BN}
     z = zero(eltype(Bs))
     p = lid
@@ -89,11 +94,11 @@ end
         col = e ÷ BK
         k = kt * BK + kk + 1
         n = bcol * BN + col + 1
-        @inbounds Bs[col * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(n - 1) * K + k]) : z
+        @inbounds Bs[sh0 + col * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(n - 1) * K + k]) : z
         p += wg
     end
 end
-@inline function _stage_b_mma!(Bs, B, ::RowMajor, bcol, kt, K, N, lid, wg, ldB,
+@inline function _stage_b_mma!(Bs, B, ::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
                                ::Val{BK}, ::Val{BN}) where {BK,BN}
     z = zero(eltype(Bs))
     p = lid
@@ -103,17 +108,23 @@ end
         col = e ÷ BK
         k = kt * BK + kk + 1
         n = bcol * BN + col + 1
-        @inbounds Bs[col * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(k - 1) * N + n]) : z
+        @inbounds Bs[sh0 + col * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(k - 1) * N + n]) : z
         p += wg
     end
 end
 
 # ── Register-tile primitives (TOP-LEVEL — see the closure-boxing note) ──────
 # One k-step for one warp: WM A-fragments × WN B-fragments → WM·WN `mma`s.
-@inline function _mma_tile_step(cfg, As, Bs, wrow0, wcol0, koff, accs,
+#
+# `koffA` and `koffB` are the SAME k-step in the two tiles but are NOT the same
+# number under double buffering: buffer `p` is a COLUMN offset in both tiles, and k
+# is the column of As but the ROW of Bs. So As shifts by `p·BK` in `koffA` while
+# Bs shifts by `p·BN` in `wcol0` and its row index `koffB` stays put. They coincide
+# (`ks·Kt+1`) on the single-buffered path.
+@inline function _mma_tile_step(cfg, As, Bs, wrow0, wcol0, koffA, koffB, accs,
                                 ::Val{WM}, ::Val{WN}, ::Val{Mt}, ::Val{Nt}) where {WM,WN,Mt,Nt}
-    af = ntuple(i -> KI.MMA.load_a(cfg, As, wrow0 + (i - 1) * Mt, koff, KI.MMA.ColMajor), Val(WM))
-    bf = ntuple(j -> KI.MMA.load_b(cfg, Bs, koff, wcol0 + (j - 1) * Nt, KI.MMA.ColMajor), Val(WN))
+    af = ntuple(i -> KI.MMA.load_a(cfg, As, wrow0 + (i - 1) * Mt, koffA, KI.MMA.ColMajor), Val(WM))
+    bf = ntuple(j -> KI.MMA.load_b(cfg, Bs, koffB, wcol0 + (j - 1) * Nt, KI.MMA.ColMajor), Val(WN))
     return ntuple(Val(WM * WN)) do l
         i = (l - 1) % WM + 1
         j = (l - 1) ÷ WM + 1
@@ -160,16 +171,49 @@ end
 # essentially all of it from `PC` (As/Bs); padding the epilogue tile is noise.
 @inline default_mma_pad(::Type{T}) where {T} = 16 ÷ sizeof(T)
 
+# ── DOUBLE BUFFERING (`DB`) ────────────────────────────────────────────────
+# Single-buffered, staging and compute strictly ALTERNATE: the tensor cores idle
+# while the memory pipes fill As/Bs, and vice versa. The second `@synchronize`
+# exists only for the write-after-read hazard — the next panel overwrites As/Bs
+# while warps may still be reading them.
+#
+# With `DB` the shared tiles are TWICE as wide (2·BK columns of As, 2·BN of Bs) and
+# the loop computes on buffer `p` while staging panel `kt+1` into buffer `1-p`.
+# The loads for the next panel are therefore in flight across the whole MMA
+# sequence of the current one. It also HALVES the barrier count: one barrier per
+# panel instead of two, because within an iteration the writes (buffer q) and the
+# reads (buffer p) touch disjoint memory, and every cross-iteration hazard on a
+# given buffer is separated by exactly one barrier. See the K-loop for the proof.
+#
+# WHY IT IS AFFORDABLE HERE (measured, RTX1000 Ada — `xp/gemm/db_occupancy.jl`):
+# forcing 2 blocks/SM → 1 with the K-loop bit-identical costs 1.41×, so the kernel
+# is LATENCY-bound and leans on inter-block overlap. But the fast tiers run 32
+# warps = 1024 threads/block, and Ada caps an SM at 1536 threads, so those tiers
+# are already 1 block/SM for a reason that has NOTHING to do with shared memory —
+# doubling As/Bs there costs no occupancy at all, as long as the total still fits
+# `KI.max_dynamic_localmem`. On the tiers where `Ds` dominates the union it is
+# free outright. `DB` is a KNOB, defaulted per tier by `default_gemm_mma_db`, so
+# the single-buffered path stays available for an honest A/B and for tiers (and
+# devices) where the doubled footprint would in fact cost a block.
+
 # `Ds` (BM × NWN·Nt, one epilogue chunk) unions with `As`/`Bs` at offset 0 — both
 # are dead after the K-loop's trailing `@synchronize` ⇒ max, not sum. `_align16`
 # keeps the Bs sub-blob 16-byte aligned inside the one dynamic allocation.
 @inline _align16(nbytes) = ((nbytes + 15) ÷ 16) * 16
-@inline function _gemm_mma_shmem(::Type{CT}, ::Type{AccT}, BM, BN, BK, DN, PC, PA) where {CT,AccT}
-    ab = _gemm_mma_off_b(CT, BM, BK, PC) + (BK + PC) * BN * sizeof(CT)
+# `NB` = number of shared buffers (1 single-, 2 double-buffered). With NB=1 both
+# expressions below reduce EXACTLY to the pre-DB layout, byte for byte.
+@inline function _gemm_mma_shmem(::Type{CT}, ::Type{AccT}, BM, BN, BK, DN, PC, PA,
+                                 NB::Int=1) where {CT,AccT}
+    # As and Bs are each ONE array of NB·(BK resp. BN) columns, so the buffers are
+    # separated by a plain column stride — the 16-byte round-up applies once, to
+    # the whole As blob, never between buffers (padding between them would desync
+    # the element-offset `sh0` the kernel uses to address buffer `p`).
+    ab = _gemm_mma_off_b(CT, BM, BK, PC, NB) + (BK + PC) * BN * NB * sizeof(CT)
     d  = (BM + PA) * DN * sizeof(AccT)
     return max(ab, d)
 end
-@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC) where {CT} = _align16((BM + PC) * BK * sizeof(CT))
+@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1) where {CT} =
+    _align16((BM + PC) * BK * NB * sizeof(CT))
 
 @kernel unsafe_indices = true function gemm_mma_kernel!(
     g::G,
@@ -180,10 +224,11 @@ end
     cfg::CFG,
     ::Val{Mt}, ::Val{Nt}, ::Val{Kt}, ::Val{WS},
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
+    ::Val{DB},
     ::Type{AccT},
     M::Int, N::Int, K::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
-         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,AccT}
+         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,AccT}
     @uniform begin
         BM  = NWM * WM * Mt
         BN  = NWN * WN * Nt
@@ -195,13 +240,16 @@ end
         ldA = BM + PC             # padded leading dims — see `default_mma_pad`
         ldB = BK + PC
         ldD = BM + PA
-        offB = _gemm_mma_off_b(CT, BM, BK, PC)
+        NB  = DB ? 2 : 1          # shared buffers (see the DOUBLE BUFFERING note)
+        offB = _gemm_mma_off_b(CT, BM, BK, PC, NB)
     end
 
-    # 2D tiles — ld = size(·,1) is what the fragment loads consume (W2-ld).
+    # 2D tiles — ld = size(·,1) is what the fragment loads consume (W2-ld), and it
+    # is INDEPENDENT of NB: widening the tile adds columns, so the fragment loads
+    # are bit-identical and buffer `p` is reached by a pure column offset.
     # Ds aliases As/Bs at offset 0 (both dead after the K-loop).
-    As = KI.@dynlocalmem CT (ldA, BK) 0
-    Bs = KI.@dynlocalmem CT (ldB, BN) offB
+    As = KI.@dynlocalmem CT (ldA, BK * NB) 0
+    Bs = KI.@dynlocalmem CT (ldB, BN * NB) offB
     Ds = KI.@dynlocalmem AccT (ldD, DN) 0
 
     lid  = Int(@index(Local))
@@ -216,19 +264,61 @@ end
 
     accs = ntuple(_ -> KI.MMA.fill_c(cfg, KI.MMA.acc_identity(cfg)), Val(WM * WN))
 
-    kt = 0
-    while kt < nkt
-        _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, Val(BM), Val(BK))
-        _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, Val(BK), Val(BN))
-        @synchronize
-        ks = 0
-        while ks < WK
-            accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, accs,
-                                  Val(WM), Val(WN), Val(Mt), Val(Nt))
-            ks += 1
+    if DB
+        # ── Double-buffered K-loop ──────────────────────────────────────────
+        # Prologue stages panel 0 into buffer 0; iteration `kt` computes on buffer
+        # `pb` while staging panel `kt+1` into `qb = 1-pb`.
+        #
+        # ONE barrier per panel is sufficient, and this is the whole correctness
+        # argument. Per iteration the order is: barrier — write qb — read pb.
+        #   • write(qb)@kt vs read(qb)@kt+1  → separated by the barrier at kt+1 ✓
+        #   • read(pb)@kt  vs write(pb)@kt+1 → separated by the barrier at kt+1 ✓
+        #   • write(qb) vs read(pb) within one iteration → DISJOINT buffers ✓
+        # (Single-buffered needs two because those first two hazards collapse onto
+        # the same memory.) The barrier AFTER the loop is not optional: the last
+        # iteration's fragment reads of As/Bs must be fenced before the epilogue
+        # writes `Ds`, which ALIASES the blob at offset 0.
+        _stage_a_mma!(As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+        _stage_b_mma!(Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+        pb = 0
+        kt = 0
+        while kt < nkt
+            @synchronize
+            qb = 1 - pb
+            if kt + 1 < nkt
+                _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
+                              qb * BK * ldA, Val(BM), Val(BK))
+                _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                              qb * BN * ldB, Val(BK), Val(BN))
+            end
+            koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
+            wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
+            ks = 0
+            while ks < WK
+                accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                                      koffA0 + ks * Kt, ks * Kt + 1, accs,
+                                      Val(WM), Val(WN), Val(Mt), Val(Nt))
+                ks += 1
+            end
+            pb = qb
+            kt += 1
         end
-        @synchronize                # also fences As/Bs before Ds reuses the blob
-        kt += 1
+        @synchronize                # fences As/Bs before Ds reuses the blob
+    else
+        kt = 0
+        while kt < nkt
+            _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+            @synchronize
+            ks = 0
+            while ks < WK
+                accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
+                                      accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                ks += 1
+            end
+            @synchronize            # also fences As/Bs before Ds reuses the blob
+            kt += 1
+        end
     end
 
     # Epilogue, in WN column chunks: register grid → shared D-tile → masked

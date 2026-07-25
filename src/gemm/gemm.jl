@@ -95,6 +95,25 @@ function default_gemm_mma_tile(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT}
     return (1, 1, 1, 1, W2)                 # one warp, one MMA tile
 end
 
+# Double-buffered shared staging (see the DOUBLE BUFFERING note in
+# gemm_mma_kernel.jl). Correct and worth 1.08–1.29× at a FIXED WK=2 tile, but
+# MEASURED a wash on the shipped default path (RTX1000 Ada, F16 square: DB-auto vs
+# DB-off = 0.98–1.02×). The reason is structural: the default tile tiers pick
+# WK=4 deep-K panels, which already amortize staging (so DB helps them least) and
+# whose doubled As/Bs exceed the device cap (256×128×64 → 104 KB > 99 KB on Ada),
+# so DB cannot even engage there; the tiles where DB wins are non-default WK=2
+# wide-warp configs an autotuner would pick. And the real gap to cuBLAS is the
+# async global→shared copy (`cp.async`), which KI does not yet expose — our
+# staging goes global→register→shared, capping the overlap any DB can extract.
+# So DB stays an OPT-IN knob (pass `DB=true`, or let a future autotune set it per
+# tile); the DEFAULT is OFF, making the shipped path identical to the pre-DB one.
+# The fit rule below is what a caller/autotune gets when it asks for `DB=true` via
+# the resolver default only where sensible — here we simply return false.
+function default_gemm_mma_db(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT},
+                             BM, BN, BK, DN, PC, PA, cap) where {CT,AccT}
+    return false
+end
+
 # ============================================================================
 # Public API docstrings
 # ============================================================================
@@ -271,7 +290,7 @@ function gemm(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing,
+    PC=nothing, PA=nothing, DB=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -279,7 +298,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
     return C
 end
 
@@ -290,7 +309,7 @@ function gemm(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing,
+    PC=nothing, PA=nothing, DB=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -298,7 +317,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
     return C
 end
 
@@ -310,11 +329,11 @@ function gemm!(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing,
+    PC=nothing, PA=nothing, DB=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
     return C
 end
 
@@ -326,11 +345,11 @@ function gemm!(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing,
+    PC=nothing, PA=nothing, DB=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, arch)
     return C
 end
 
@@ -413,7 +432,7 @@ function _gemm_entry!(
     tA::Symbol, tB::Symbol,
     accT, family,
     BM, BN, BK, TM, TN,
-    WM, WN, NWM, NWN, WK, PC, PA,
+    WM, WN, NWM, NWN, WK, PC, PA, DB,
     arch
 ) where {S,TA,TB,F,O,G}
     layA = _gemm_layout(tA)
@@ -437,7 +456,7 @@ function _gemm_entry!(
 
     if fam === :mma
         return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT,
-                                 WM, WN, NWM, NWN, WK, PC, PA, M, N, K, arch)
+                                 WM, WN, NWM, NWN, WK, PC, PA, DB, M, N, K, arch)
     end
     return _gemm_launch_generic!(f, op, g, C, A, B, layA, layB, AccT,
                                  BM, BN, BK, TM, TN, M, N, K, arch)
@@ -464,7 +483,7 @@ end
 # `shmem` comes from the ONE pure sizing fn the kernel also uses.
 function resolve_gemm_mma_parameters(
     arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
-    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA
+    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
     WM = something(WM, dWM); WN = something(WN, dWN)
@@ -475,21 +494,29 @@ function resolve_gemm_mma_parameters(
     wg = NWM * NWN * ws
     @assert wg <= 1024 "workgroup ($wg) exceeds 1024; shrink NWM/NWN"
     BM = NWM * WM * Mt; BN = NWN * WN * Nt; BK = WK * Kt
-    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, NWN * Nt, PC, PA)
+    DN = NWN * Nt
+    # Double buffering: the default is per-tier, but it must also FIT. A tile whose
+    # doubled As/Bs blows the device cap silently falls back to single-buffered —
+    # the same tile is then still legal, just without the overlap. An EXPLICIT
+    # `DB=true` that does not fit is a loud error instead of a silent downgrade.
+    dDB = default_gemm_mma_db(arch, M, N, K, CT, AccT, BM, BN, BK, DN, PC, PA,
+                              KI.max_dynamic_localmem(backend))
+    DB = something(DB, dDB)::Bool
+    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1)
     cap = KI.max_dynamic_localmem(backend)
-    @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory, device cap is $cap B; shrink WM/WN/NWM/NWN/WK"
-    return (; WM, WN, NWM, NWN, WK, PC, PA, ws, wg, BM, BN, BK, shmem)
+    @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
+    return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
 end
 
 function _gemm_launch_mma!(
     g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
-    WM, WN, NWM, NWN, WK, PC, PA, M, N, K, arch
+    WM, WN, NWM, NWN, WK, PC, PA, DB, M, N, K, arch
 ) where {G,CT,AccT}
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
     cfg = KI.MMA.MMAConfig{Mt,Nt,Kt,CT,AccT}()
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
-                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA)
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB)
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
     ndrange = nbx * nby * p.wg          # exact workgroup multiple → no bare-@index OOB
     KI.launch!(
@@ -497,7 +524,7 @@ function _gemm_launch_mma!(
         g, C, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        AccT, M, N, K;
+        Val(p.DB), AccT, M, N, K;
         ndrange = ndrange, shmem = p.shmem,
     )
     return C
