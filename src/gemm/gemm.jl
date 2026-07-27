@@ -504,7 +504,7 @@ function _gemm_launch_generic!(
     p = resolve_gemm_parameters(arch, M, N, K, eltype(A), BM, BN, BK, TM, TN)
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
     NK = _generic_splitk_ok(op, AccT) ?
-         something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK))::Int : 1
+         something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int : 1
     @assert NK >= 1 "splitk must be ≥ 1"
 
     if NK == 1
@@ -612,17 +612,19 @@ end
 # slice reduces its partial atomically) — recovering occupancy without shrinking
 # the (efficient) MMA tile. Engage ONLY when there are few tiles AND enough K to
 # split; the common (well-filled) case returns 1 → byte-identical to no split.
-@inline function _default_splitk(M, N, K, BM, BN, BK)
+@inline function _default_splitk(M, N, K, BM, BN, BK, ncu)
     tiles = cld(M, BM) * cld(N, BN)
     nkt   = cld(K, BK)
-    # Engage only when the tile grid genuinely starves the device (few output tiles)
-    # AND K is deep enough that the per-slice work still dwarfs the atomic-reduce +
-    # epilogue overhead. `tiles<32` (not the earlier 256) so a moderately-tiled
-    # product like square 1024 (≈64 tiles, K only ~1024) is NOT split — measured to
-    # regress there. `nkt ≥ 4·tiles` keeps each slice ≥4 panels after the split.
-    (tiles >= 32 || nkt < 4 * tiles) && return 1
-    want = cld(512, tiles)                         # target ~512 resident workgroups
-    return clamp(want, 1, min(nkt ÷ (4 * tiles), 64))
+    # Engage only when the output-tile grid can't fill the device (few tiles vs the
+    # CU/SM count) AND K is deep enough that a slice still does real work. The
+    # threshold MUST scale with the device: a fixed cut regressed either square 1024
+    # on a 24-CU RTX (64 tiles wrongly split) OR F64 inner-512 on a 228-CU MI300A
+    # (64 tiles left unsplit though the device was starved). `2·ncu` ≈ light
+    # oversubscription; target the same in workgroups. Cap NK at nkt÷4 (≥4 K-panels
+    # per slice) and 64 (bound atomic contention + the AccT scratch).
+    (tiles >= 2 * ncu || nkt < 8) && return 1
+    want = cld(2 * ncu, tiles)
+    return clamp(want, 1, min(nkt ÷ 4, 64))
 end
 
 function _gemm_launch_mma!(
@@ -638,7 +640,7 @@ function _gemm_launch_mma!(
     asyncflag = something(ASYNC, dASYNC)::Bool
     styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)
-    NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK))::Int
+    NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
 
