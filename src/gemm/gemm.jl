@@ -584,9 +584,14 @@ end
 @inline function _default_splitk(M, N, K, BM, BN, BK)
     tiles = cld(M, BM) * cld(N, BN)
     nkt   = cld(K, BK)
-    (tiles >= 256 || nkt < 8) && return 1        # already enough tiles / too little K
-    want  = cld(512, tiles)                       # target ~512 resident workgroups
-    return clamp(want, 1, min(nkt ÷ 4, 64))       # ≥4 K-panels per slice; cap at 64
+    # Engage only when the tile grid genuinely starves the device (few output tiles)
+    # AND K is deep enough that the per-slice work still dwarfs the atomic-reduce +
+    # epilogue overhead. `tiles<32` (not the earlier 256) so a moderately-tiled
+    # product like square 1024 (≈64 tiles, K only ~1024) is NOT split — measured to
+    # regress there. `nkt ≥ 4·tiles` keeps each slice ≥4 panels after the split.
+    (tiles >= 32 || nkt < 4 * tiles) && return 1
+    want = cld(512, tiles)                         # target ~512 resident workgroups
+    return clamp(want, 1, min(nkt ÷ (4 * tiles), 64))
 end
 
 function _gemm_launch_mma!(
