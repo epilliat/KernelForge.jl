@@ -124,16 +124,19 @@ end
 # doubled), and the register path must stay reachable for an honest A/B. When OFF —
 # or on any device without a hardware cp.async path, or on a misaligned/transposed
 # operand the host gate rejects — staging is byte-identical to the register kernel.
-# `default_gemm_mma_async` returns false; the per-operand ENABLE (layout + alignment
-# + `async_copy_supported`) is computed in `_gemm_launch_mma!`, never here.
+# `default_gemm_mma_async` returns the arch default (ON), then `_gemm_launch_mma!`
+# ANDs the shape gate (`_staging_worthwhile`) and computes the per-operand ENABLE
+# (layout + alignment + `async_copy_supported`), never here.
 function default_gemm_mma_async(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT}) where {CT,AccT}
-    # Default ON. Safe unconditionally: this only sets the FLAG; the authoritative
-    # enable is `_gemm_async_flags`, which requires `async_copy_supported(backend)`
-    # (true only on NVIDIA sm_80+; false on AMD — deferred — and pre-Ampere) AND
-    # 16-byte alignment per operand. So on any device or shape that can't do it,
-    # staging falls back to the byte-identical register path. Measured pure win on
-    # RTX1000 Ada (async single-buffered ≥ register at every size: 1024 62%→88%,
-    # 2048 43%→73% cuBLAS), so there is no size regime where turning it on hurts.
+    # Arch-level default ON — but NOT unconditional: the launch site ANDs this with
+    # the shape gate `_staging_worthwhile`, which turns staging OFF in the shallow-K +
+    # saturated corner where it regressed (MI300A `tall`, buf/reg 1.22 F16 / 1.35 F64).
+    # This method only sets the arch FLAG; the authoritative per-operand ENABLE is
+    # `_gemm_async_flags` (requires `async_copy_supported(backend)` — NVIDIA sm_80+
+    # cp.async OR AMD gfx942 buffer-DMA — AND per-operand alignment). On any device or
+    # operand that can't do it, staging is byte-identical to the register path.
+    # Measured wins: RTX1000 Ada cp.async (1024 62%→88%, 2048 43%→73% cuBLAS); MI300A
+    # buffer DMA (square/deep-K F16 up to 2×). Gate details at `_staging_worthwhile`.
     return true
 end
 
@@ -627,6 +630,35 @@ end
     return clamp(want, 1, min(nkt ÷ 4, 64))
 end
 
+# Shallow-K floor below which global→shared staging stops paying once the device is
+# saturated. Calibrated on MI300A (xp/gemm/amd_buffer_ab.jl, 2026-07-27): the ONLY
+# shape where buffer staging regressed was `tall` 65536×512×512 (K=512) — everything
+# with K ≥ 1024 either won or washed. A conservative floor; refine with a K-sweep if
+# the boundary ever matters. Backend-generic (also gates NVIDIA cp.async — validated
+# non-regressing on RTX1000 Ada before shipping).
+const GEMM_STAGING_KMIN = 1024
+
+# Is global→shared staging worth its fixed per-K-panel setup cost for this shape? The
+# answer is STYLE-DEPENDENT — the two hardware primitives have very different cost
+# curves (measured, not assumed):
+#   • `:buffer` (AMD gfx942 raw.buffer.load.lds) is wave-cooperative with a HEAVY fixed
+#     cost (hand SRD build + LDS bounce + s_waitcnt drain). It LOSES in the shallow-K +
+#     saturated corner — the grid is already full (no idle latency to overlap) AND K is
+#     too short to amortize the setup: MI300A `tall` 65536×512×512 regressed buf/reg
+#     1.22 F16 / 1.35 F64. Square/deep-K stayed a win (F16 up to 2×) or wash (F64).
+#   • `:cpasync` (NVIDIA sm_80+ LDGSTS) is per-thread and hardware-pipelined with a
+#     LIGHT fixed cost. On RTX1000 Ada it still WON that same corner (tall async/reg
+#     0.67–0.73) — it never reaches the loss regime at these sizes.
+# So the gate fires for `:buffer` ONLY: disable staging when the grid saturates AND K
+# is shallow; keep it ON for cp.async and (harmlessly) for `:none`. Mirror of
+# `_default_splitk`'s tiles-vs-ncu regime test — a pure predicate, white-box testable
+# without relying on numeric agreement between the staged and register paths.
+@inline function _staging_worthwhile(style::Symbol, M, N, K, BM, BN, ncu)
+    style === :buffer || return true          # cp.async's fixed cost is low → no shallow-K loss
+    tiles = cld(M, BM) * cld(N, BN)
+    return !(tiles >= ncu && K < GEMM_STAGING_KMIN)
+end
+
 function _gemm_launch_mma!(
     g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
     WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch
@@ -636,7 +668,9 @@ function _gemm_launch_mma!(
     cfg = KI.MMA.MMAConfig{Mt,Nt,Kt,CT,AccT}()
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
                                     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB)
-    dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT)
+    style = KI.async_copy_style(backend)
+    dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT) &&
+             _staging_worthwhile(style, M, N, K, p.BM, p.BN, num_sms(backend))
     asyncflag = something(ASYNC, dASYNC)::Bool
     styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)

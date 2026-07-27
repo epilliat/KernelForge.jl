@@ -259,6 +259,31 @@ else
         end
     end
 
+    @testset "staging shape gate (_staging_worthwhile)" begin
+        # White-box the K-depth × saturation gate that ANDs into the async default.
+        # Pure arithmetic (no hardware) → runs on every backend. The gate is STYLE-
+        # specific: it fires for `:buffer` (AMD, heavy fixed cost) but NOT for
+        # `:cpasync` (NVIDIA, light fixed cost — won the same corner on RTX1000 Ada).
+        buf(M, N, K, ncu; BM=128, BN=128) = KF._staging_worthwhile(:buffer, M, N, K, BM, BN, ncu)
+        @test KF.GEMM_STAGING_KMIN == 1024
+        big = 228                                  # MI300A-class CU count
+        # :buffer — the loser: saturated grid (2048 tiles) AND shallow K=512 → OFF
+        @test buf(65536,  512,   512, big) === false         # `tall`
+        # :buffer winners/washes stay ON:
+        @test buf( 4096, 4096,  4096, big) === true          # square, saturated but deep K
+        @test buf(  512,  512, 65536, big) === true          # inner, unsaturated (16 tiles)
+        @test buf(32768,   64, 32768, big) === true          # Athin, saturated but deep K
+        @test buf( 1024, 1024,  1024, big) === true          # square-1024, unsaturated
+        @test buf(  512,  512,   256, big) === true          # shallow K but unsaturated → hide latency
+        # :buffer scales with the device: a shallow-K shape whose tile grid (144) sits
+        # BETWEEN the two CU counts saturates a 24-CU part but not a 228-CU one.
+        @test buf( 1536, 1536,   512,  24) === false         # 144 tiles ≥ 24, K<1024 → OFF
+        @test buf( 1536, 1536,   512, big) === true          # 144 tiles < 228 → still ON
+        # :cpasync and :none NEVER gate — even the buffer loss corner stays ON.
+        @test KF._staging_worthwhile(:cpasync, 65536, 512, 512, 128, 128, big) === true
+        @test KF._staging_worthwhile(:none,    65536, 512, 512, 128, 128, big) === true
+    end
+
     # Non-float-16 hardware paths. These exist on CDNA3 (gfx942) and NOT on the
     # NVIDIA parts KI currently exposes, so each gates on its own `mma_supported`
     # and simply does not run where the hardware (or KI's ext) lacks it. Both are
