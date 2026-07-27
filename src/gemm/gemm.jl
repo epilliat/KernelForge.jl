@@ -313,7 +313,7 @@ function gemm(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -321,7 +321,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch)
     return C
 end
 
@@ -332,7 +332,7 @@ function gemm(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
     _, _, S = _gemm_types(f, g, TA, TB, accT)
@@ -340,7 +340,7 @@ function gemm(
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch)
     return C
 end
 
@@ -352,11 +352,11 @@ function gemm!(
     tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch)
     return C
 end
 
@@ -368,11 +368,11 @@ function gemm!(
     g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
-    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing,
+    PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {S,TA,TB,F<:Function,O<:Function,G<:Function}
     _gemm_entry!(f, op, g, C, A, B, tA, tB, accT, family,
-                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, arch)
+                 BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch)
     return C
 end
 
@@ -398,6 +398,12 @@ end
 # Pick the compute family. `:mma` iff plain (*,+), matching CT=TA=TB with a HW MMA
 # path for (CT, AccT), and the output is at least one MMA tile. Explicit generic
 # tile knobs force `:generic`. A forced `family=:mma` that fails the gate errors.
+# Total-work threshold (M·N·K, in madds) at/above which AUTO picks the tensor-core
+# kernel over K1. Coarse cross-arch heuristic: the measured RTX1000 F16 square
+# crossover is between 256³ (≈1.7e7, K1 0.90× faster) and 512³ (≈1.3e8, K2 5.8×
+# faster); 2^26 sits in that band. A per-arch autotune gate can refine it later.
+const MMA_AUTO_FLOP_GATE = 1 << 26      # ≈ 6.7e7
+
 function _resolve_family(family, backend, f::F, op::O,
                          ::Type{TA}, ::Type{TB}, ::Type{AccT},
                          M, N, K, tA::Symbol, tB::Symbol, user_generic_knobs::Bool) where {F,O,TA,TB,AccT}
@@ -408,23 +414,6 @@ function _resolve_family(family, backend, f::F, op::O,
     family === nothing || family === :generic || family === :mma ||
         error("gemm: unknown family=$(repr(family)); expected :generic, :mma, or nothing (auto)")
     family === :generic && return (:generic, nothing)
-    # ⚠ `:mma` is OPT-IN ONLY (never auto-selected). Not for correctness — the old
-    # rationale (bounds-check branches diverging the warp inside the WMMA region)
-    # was REFUTED; the real cause was KernelIntrinsics leaving the K-loop
-    # accumulator phi `undef` under overlay dispatch, FIXED in KI 0.1.14. The suite
-    # is green with `:mma` under `--check-bounds=yes`.
-    #
-    # Nor is it speed any more. Warp/register tiling (`gemm_mma_kernel!`) took K2
-    # from 0.85–1.07× K1 to (RTX1000 Ada, F16 square, xp screen — NOT a deposited
-    # benchmark) 2.97× @512, 5.81× @1024, 6.53× @2048, 7.49× @4096, i.e. 10.3
-    # TFLOP/s and ~54% of cuBLAS `gemmEx`.
-    #
-    # What is left is the CROSSOVER: at n=256 K2 is still 0.90× K1 (both are
-    # launch-overhead bound there), so flipping auto would regress small F16
-    # products. Auto-selection wants a measured size gate, ideally from autotune,
-    # across more than one arch — a maintainer decision, not a silent default.
-    # When it is taken, it is this one line.
-    family === nothing && return (:generic, nothing)
     plain = (f === Base.:*) && (op === Base.:+)
     # All FOUR transpose states are HW MMA. TT used to be excluded here because it
     # "miscompiled" — that was the KI `undef`-accumulator bug wearing another mask,
@@ -433,6 +422,19 @@ function _resolve_family(family, backend, f::F, op::O,
     # per-layout MMA variant to get wrong.
     shape = (plain && TA === TB) ? _mma_pick_shape(backend, TA, AccT) : nothing
     ok = shape !== nothing && M >= shape.Mt && N >= shape.Nt && K >= 1
+    # AUTO (`family === nothing`): pick the tensor-core kernel when a HW path exists
+    # and the product is big enough to amortize its setup — else K1. `:mma` used to be
+    # opt-in only; the block correctness ban (KI `undef`-accumulator phi) was FIXED in
+    # KI 0.1.14, and warp/register tiling made K2 3–7× K1 on RTX1000 F16 (n≥512),
+    # while split-K (see `_default_splitk`) closed the deep-K occupancy hole. The one
+    # regime K1 still wins is TINY launch-overhead-bound products (RTX1000 F16 square
+    # n=256 → K2 0.90× K1), so gate on total work `M·N·K`. The threshold is a coarse
+    # cross-arch heuristic (crossover sits between 256³ and 512³); a future per-arch
+    # autotune gate can refine it. Generic tile knobs (BM/BN/…) still force generic.
+    if family === nothing
+        use_mma = ok && !user_generic_knobs && (Float64(M) * N * K >= MMA_AUTO_FLOP_GATE)
+        return use_mma ? (:mma, shape) : (:generic, nothing)
+    end
     if family === :mma
         user_generic_knobs && error("gemm: family=:mma does not accept generic tile " *
                                      "knobs (BM/BN/BK/TM/TN)")
@@ -455,7 +457,7 @@ function _gemm_entry!(
     tA::Symbol, tB::Symbol,
     accT, family,
     BM, BN, BK, TM, TN,
-    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC,
+    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk,
     arch
 ) where {S,TA,TB,F,O,G}
     layA = _gemm_layout(tA)
@@ -479,7 +481,7 @@ function _gemm_entry!(
 
     if fam === :mma
         return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT,
-                                 WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, M, N, K, arch)
+                                 WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch)
     end
     return _gemm_launch_generic!(f, op, g, C, A, B, layA, layB, AccT,
                                  BM, BN, BK, TM, TN, M, N, K, arch)
@@ -573,9 +575,23 @@ end
     end
 end
 
+# SPLIT-K factor. `inner`/deep-K shapes launch only a handful of output tiles
+# (cld(M,BM)·cld(N,BN)) so the device sits idle while each workgroup grinds the
+# full K serially. Splitting K into NK slices multiplies the grid by NK (each
+# slice reduces its partial atomically) — recovering occupancy without shrinking
+# the (efficient) MMA tile. Engage ONLY when there are few tiles AND enough K to
+# split; the common (well-filled) case returns 1 → byte-identical to no split.
+@inline function _default_splitk(M, N, K, BM, BN, BK)
+    tiles = cld(M, BM) * cld(N, BN)
+    nkt   = cld(K, BK)
+    (tiles >= 256 || nkt < 8) && return 1        # already enough tiles / too little K
+    want  = cld(512, tiles)                       # target ~512 resident workgroups
+    return clamp(want, 1, min(nkt ÷ 4, 64))       # ≥4 K-panels per slice; cap at 64
+end
+
 function _gemm_launch_mma!(
     g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
-    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, M, N, K, arch
+    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch
 ) where {G,CT,AccT}
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
@@ -586,15 +602,38 @@ function _gemm_launch_mma!(
     asyncflag = something(ASYNC, dASYNC)::Bool
     styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)
+    NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK))::Int
+    @assert NK >= 1 "splitk must be ≥ 1"
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
-    ndrange = nbx * nby * p.wg          # exact workgroup multiple → no bare-@index OOB
+
+    if NK == 1
+        ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
+        KI.launch!(
+            gemm_mma_kernel!(backend, p.wg),
+            g, C, A, B, layA, layB, cfg,
+            Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
+            Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
+            Val(p.DB), Val(styleA), Val(styleB), Val(1), AccT, M, N, K;
+            ndrange = ndrange, shmem = p.shmem,
+        )
+        return C
+    end
+
+    # Split-K: each (tile, slice) workgroup atomic-adds its raw AccT partial into a
+    # zeroed scratch accumulator; a second kernel then applies `g` + casts into C.
+    Cacc = KernelAbstractions.allocate(backend, AccT, M, N)
+    fill!(Cacc, zero(AccT))
+    ndrange = nbx * nby * NK * p.wg
     KI.launch!(
         gemm_mma_kernel!(backend, p.wg),
-        g, C, A, B, layA, layB, cfg,
+        g, Cacc, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), Val(styleA), Val(styleB), AccT, M, N, K;
+        Val(p.DB), Val(styleA), Val(styleB), Val(NK), AccT, M, N, K;
         ndrange = ndrange, shmem = p.shmem,
     )
+    nC = M * N
+    epi_wg = 256
+    gemm_splitk_epilogue!(backend, epi_wg)(g, C, Cacc, nC; ndrange = cld(nC, epi_wg) * epi_wg)
     return C
 end

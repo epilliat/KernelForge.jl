@@ -131,6 +131,30 @@ else
                                             WM=8, WN=8, NWM=4, NWN=4, WK=8)
     end
 
+    @testset "split-K (deep-K occupancy) matches non-split + reference" begin
+        # `inner`/deep-K shapes launch few output tiles; split-K partitions K across
+        # NK extra workgroups that atomic-reduce their partials, then an epilogue
+        # applies g. Every NK must agree with the non-split kernel and the F32 ref.
+        # Small values so the F16 output does not overflow at large K.
+        rng = Xoshiro(71)
+        M, N, K = 64, 64, 8192
+        A = rand(rng, Float16, M, K) ./ Float16(16)
+        B = rand(rng, Float16, K, N) ./ Float16(16)
+        ref = Float32.(A) * Float32.(B)
+        dA = AT(A); dB = AT(B)
+        C1 = Array(KF.gemm(dA, dB; family=:mma, splitk=1))
+        for nk in (1, 4, 16, 64, nothing)          # nothing = auto _default_splitk
+            C = Array(KF.gemm(dA, dB; family=:mma, splitk=nk))
+            @test maximum(abs.(C .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2   # vs F32 ref
+            @test maximum(abs.(C .- C1) ./ (abs.(C1) .+ 1f-2)) < 5f-3     # vs non-split
+        end
+        # The default path (family auto) on a deep-K product now routes to :mma and
+        # engages split-K under the hood — must still be correct.
+        Cdef = Array(KF.gemm(dA, dB))
+        @test maximum(abs.(Cdef .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+        @test_throws AssertionError KF.gemm(dA, dB; family=:mma, splitk=0)
+    end
+
     @testset "double-buffered staging (DB=true) matches single-buffered" begin
         # DB defaults OFF (it measured a wash on the default path; see
         # default_gemm_mma_db). It stays a knob, so its kernel path must keep

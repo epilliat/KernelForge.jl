@@ -318,6 +318,18 @@ end
     return nothing
 end
 
+# Epilogue write, split-K-aware. NK==1 (the default, non-split path): apply the
+# output map `g` and store into C::S directly — byte-identical to the pre-split
+# kernel. NK>1: this workgroup owns only a K-SLICE, so its accumulator is a
+# PARTIAL; atomic-add the raw AccT value into the shared C accumulator (C::AccT,
+# zero-initialised host-side) and let the separate epilogue kernel apply `g`
+# after all slices have reduced. Dispatch on Val{NK} so the AccT-atomic branch is
+# never type-checked against an S-typed C (F16 out / F32 acc would not compile).
+@inline _mma_epi_store!(::Val{1}, g::G, C, idx, v) where {G} =
+    (@inbounds C[idx] = g(v); nothing)
+@inline _mma_epi_store!(::Val{NK}, g::G, C, idx, v) where {NK,G} =
+    (@atomic C[idx] += v; nothing)
+
 # ── Shared-tile leading dimensions: PADDING kills the bank conflicts ────────
 # The fragment loads read a Mt×Kt (resp. Kt×Nt) sub-block COLUMN-STRIDED out of a
 # col-major shared tile. With an unpadded ld the stride is a power of two, so the
@@ -385,11 +397,11 @@ end
     cfg::CFG,
     ::Val{Mt}, ::Val{Nt}, ::Val{Kt}, ::Val{WS},
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
-    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB},
+    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK},
     ::Type{AccT},
     M::Int, N::Int, K::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
-         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,AccT}
+         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,AccT}
     @uniform begin
         # `ASYNC` gates the cp.async commit/wait scaffolding: emit it only when at
         # least one operand actually stages asynchronously, else the pipeline ops
@@ -404,7 +416,9 @@ end
         DN  = NWN * Nt            # D-tile width = one epilogue column chunk
         wg  = NWM * NWN * WS
         nbx = cld(M, BM)          # block-rows across the C grid
+        nby = cld(N, BN)          # block-cols across the C grid
         nkt = cld(K, BK)          # K panels
+        pps = cld(nkt, NK)        # K panels per split-K slice (NK==1 ⇒ pps==nkt)
         ldA = BM + PC             # padded leading dims — see `default_mma_pad`
         ldB = BK + PC
         ldD = BM + PA
@@ -422,8 +436,13 @@ end
 
     lid  = Int(@index(Local))
     gid  = Int(@index(Group))
-    brow = (gid - 1) % nbx        # 0-based block-row
-    bcol = (gid - 1) ÷ nbx        # 0-based block-col
+    blk  = gid - 1                # 0-based (block-row, block-col, k-slice) index
+    brow = blk % nbx             # 0-based block-row
+    t2   = blk ÷ nbx
+    bcol = t2 % nby              # 0-based block-col
+    ksl  = t2 ÷ nby              # 0-based K-slice (always 0 when NK==1)
+    ktlo = ksl * pps             # first K panel this slice owns …
+    kthi = min(ktlo + pps, nkt)  # … one past its last (NK==1 ⇒ 0 … nkt)
     warp = (lid - 1) ÷ WS         # 0-based warp id within the block
     wm   = warp % NWM
     wn   = warp ÷ NWM
@@ -457,16 +476,16 @@ end
             # proved; `Val(1)` to keep the next tile in flight is a later refinement.
             # The HYBRID staging also emits register stores for edge/misaligned
             # chunks — synchronous, made visible by the same barrier.
-            _stage_a(va, As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-            _stage_b(vb, Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+            _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_b(vb, Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
             KI.async_commit()
             KI.async_wait(Val(0))
             pb = 0
-            kt = 0
-            while kt < nkt
+            kt = ktlo
+            while kt < kthi
                 @synchronize
                 qb = 1 - pb
-                if kt + 1 < nkt
+                if kt + 1 < kthi
                     _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
                              qb * BK * ldA, Val(BM), Val(BK))
                     _stage_b(vb, Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
@@ -482,7 +501,7 @@ end
                                           Val(WM), Val(WN), Val(Mt), Val(Nt))
                     ks += 1
                 end
-                if kt + 1 < nkt
+                if kt + 1 < kthi
                     KI.async_wait(Val(0))   # buffer qb landed before next-iter read
                 end
                 pb = qb
@@ -490,14 +509,14 @@ end
             end
             @synchronize                # fences As/Bs before Ds reuses the blob
         else
-            _stage_a_mma!(As, A, layA, brow, 0, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-            _stage_b_mma!(Bs, B, layB, bcol, 0, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+            _stage_a_mma!(As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_b_mma!(Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
             pb = 0
-            kt = 0
-            while kt < nkt
+            kt = ktlo
+            while kt < kthi
                 @synchronize
                 qb = 1 - pb
-                if kt + 1 < nkt
+                if kt + 1 < kthi
                     _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
                                   qb * BK * ldA, Val(BM), Val(BK))
                     _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
@@ -519,8 +538,8 @@ end
         end
     else
         if ASYNC
-            kt = 0
-            while kt < nkt
+            kt = ktlo
+            while kt < kthi
                 _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
                 _stage_b(vb, Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
                 KI.async_commit()
@@ -536,8 +555,8 @@ end
                 kt += 1
             end
         else
-            kt = 0
-            while kt < nkt
+            kt = ktlo
+            while kt < kthi
                 _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
                 _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
                 @synchronize
@@ -573,11 +592,24 @@ end
             m = brow * BM + r + 1
             n = bcol * BN + wnc * (WN * Nt) + (j - 1) * Nt + t + 1
             if m <= M && n <= N
-                @inbounds C[(n - 1) * M + m] = g(@inbounds Ds[cD * ldD + r + 1])
+                _mma_epi_store!(Val(NK), g, C, (n - 1) * M + m, @inbounds Ds[cD * ldD + r + 1])
             end
             p += wg
         end
         @synchronize                  # before the next chunk overwrites Ds
         j += 1
+    end
+end
+
+# Split-K epilogue: after the split-K main kernel has atomic-reduced every slice's
+# partial into the AccT accumulator `Cacc`, apply the output map `g` and cast into
+# the S-typed output `C`. One thread per output element; ndrange rounded up to a
+# workgroup multiple, so the bare global index is masked against `n`.
+@kernel unsafe_indices = true function gemm_splitk_epilogue!(
+    g::G, C::AbstractMatrix{S}, Cacc::AbstractMatrix{AccT}, n::Int
+) where {G<:Function,S,AccT}
+    i = Int(@index(Global))
+    if i <= n
+        @inbounds C[i] = g(Cacc[i])
     end
 end
