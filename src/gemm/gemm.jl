@@ -509,9 +509,17 @@ function resolve_gemm_mma_parameters(
     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
-    WM = something(WM, dWM); WN = something(WN, dWN)
-    NWM = something(NWM, dNWM); NWN = something(NWN, dNWN); WK = something(WK, dWK)
-    PC = something(PC, default_mma_pad(CT)); PA = something(PA, default_mma_pad(AccT))
+    # Autotuned knobs (per shape-regime × dtype from `<arch>_gemm.jl`) sit BETWEEN the
+    # caller and the heuristic default: caller-passed > tuned > `default_*`. A tuned
+    # config was found feasible on THIS arch and its shmem is a pure function of the
+    # knobs (independent of M,N,K), so it always fits at runtime — trust it fully.
+    tuned = lookup_gemm(arch, CT, M, N, K)
+    _t(f) = tuned === nothing ? nothing : getfield(tuned, f)
+    WM = something(WM, _t(:WM), dWM); WN = something(WN, _t(:WN), dWN)
+    NWM = something(NWM, _t(:NWM), dNWM); NWN = something(NWN, _t(:NWN), dNWN)
+    WK = something(WK, _t(:WK), dWK)
+    PC = something(PC, _t(:PC), default_mma_pad(CT))
+    PA = something(PA, _t(:PA), default_mma_pad(AccT))
     @assert WM >= 1 && WN >= 1 && NWM >= 1 && NWN >= 1 && WK >= 1 "MMA tile knobs must be ≥ 1"
     ws = get_warpsize(arch)
     wg = NWM * NWN * ws
@@ -524,7 +532,7 @@ function resolve_gemm_mma_parameters(
     # `DB=true` that does not fit is a loud error instead of a silent downgrade.
     dDB = default_gemm_mma_db(arch, M, N, K, CT, AccT, BM, BN, BK, DN, PC, PA,
                               KI.max_dynamic_localmem(backend))
-    DB = something(DB, dDB)::Bool
+    DB = something(DB, _t(:DB), dDB)::Bool
     shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1)
     cap = KI.max_dynamic_localmem(backend)
     @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
@@ -538,14 +546,31 @@ end
 # alignment). Everything here is host-known; the per-CHUNK edge in-bounds test is the
 # kernel's. `false` whenever the device lacks a hardware cp.async path — the fallback
 # would still be correct but pointless, so we keep the register kernel instead.
+# Per-operand staging STYLE: `:cpasync` (NVIDIA, per-thread 16-byte cp.async),
+# `:buffer` (AMD, wave-cooperative dword raw.buffer.load.lds), or `:none` (register).
+# The backend picks the hardware style via `KI.async_copy_style`; the alignment
+# preconditions differ by granularity — cp.async needs 16-byte-aligned ColMajor
+# chunks, the buffer DMA needs 4-byte (dword) alignment (columns contiguous & the
+# column start dword-aligned). RowMajor or any misaligned operand stays `:none` and
+# takes the byte-identical register path.
 @inline function _gemm_async_flags(backend, ::Type{CT}, layA, layB, M, N, K,
                                    BM, BK, PC, ASYNC::Bool) where {CT}
-    ASYNC && KI.async_copy_supported(backend) || return (false, false)
-    EPB = 16 ÷ sizeof(CT)
+    ASYNC || return (:none, :none)
+    style = KI.async_copy_style(backend)
     ldA = BM + PC; ldB = BK + PC
-    asyncA = (layA isa ColMajor) && (M % EPB == 0) && (ldA % EPB == 0) && (BM % EPB == 0)
-    asyncB = (layB isa ColMajor) && (K % EPB == 0) && (ldB % EPB == 0) && (BK % EPB == 0)
-    return (asyncA, asyncB)
+    if style === :cpasync
+        EPB = 16 ÷ sizeof(CT)
+        sA = (layA isa ColMajor) && (M % EPB == 0) && (ldA % EPB == 0) && (BM % EPB == 0)
+        sB = (layB isa ColMajor) && (K % EPB == 0) && (ldB % EPB == 0) && (BK % EPB == 0)
+        return (sA ? :cpasync : :none, sB ? :cpasync : :none)
+    elseif style === :buffer
+        al = x -> (x * sizeof(CT)) % 4 == 0        # 4-byte (dword) alignment
+        sA = (layA isa ColMajor) && al(BM) && al(M) && al(ldA)
+        sB = (layB isa ColMajor) && al(BK) && al(K) && al(ldB)
+        return (sA ? :buffer : :none, sB ? :buffer : :none)
+    else
+        return (:none, :none)
+    end
 end
 
 function _gemm_launch_mma!(
@@ -559,7 +584,7 @@ function _gemm_launch_mma!(
                                     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB)
     dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT)
     asyncflag = something(ASYNC, dASYNC)::Bool
-    asyncA, asyncB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
+    styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
     ndrange = nbx * nby * p.wg          # exact workgroup multiple → no bare-@index OOB
@@ -568,7 +593,7 @@ function _gemm_launch_mma!(
         g, C, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), Val(asyncA), Val(asyncB), AccT, M, N, K;
+        Val(p.DB), Val(styleA), Val(styleB), AccT, M, N, K;
         ndrange = ndrange, shmem = p.shmem,
     )
     return C

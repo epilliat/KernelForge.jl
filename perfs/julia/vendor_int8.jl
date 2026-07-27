@@ -18,7 +18,28 @@ if @isdefined(AMDGPU)
     const _RB_TRANS = _RB.rocblas_operation_transpose
     const _RB_I8    = _RB.rocblas_datatype_i8_r
     const _RB_I32   = _RB.rocblas_datatype_i32_r
+    const _RB_F16   = _RB.rocblas_datatype_f16_r
+    const _RB_F32   = _RB.rocblas_datatype_f32_r
     const _RB_ALGO  = _RB.rocblas_gemm_algo_standard
+
+    # Full-GEMM float baseline C(m×n) = A(m×k)·B(k×n), NN. rocBLAS `A*B` via
+    # `Base.*` hits an AMBIGUOUS `generic_matmatmul_wrapper!` (GPUArrays vs
+    # AMDGPU) on the bench env's package combo AND, when it doesn't error, falls
+    # through to the naive GPUArrays kernel (~150 ms at 4096³ — NOT rocBLAS). So
+    # call rocBLAS directly: `gemm!` for ROCBLASFloat (F32/F64), `gemm_ex` (F16
+    # in/out, F32 compute) for Float16 — Float16 ∉ ROCBLASFloat so `gemm!` is
+    # undefined for it.
+    _gemm_f32f64!(C, A, B) = (_RB.gemm!('N', 'N', one(eltype(A)), A, B, zero(eltype(A)), C); nothing)
+
+    function _gemmex_f16!(C, A, B)
+        m, k = size(A); n = size(B, 2)
+        al = Ref(Float32(1)); bt = Ref(Float32(0)); h = _RB.handle()
+        _RB.rocblas_gemm_ex_64(h, _RB_NONE, _RB_NONE, Int64(m), Int64(n), Int64(k),
+            al, pointer(A), _RB_F16, Int64(m), pointer(B), _RB_F16, Int64(k),
+            bt, pointer(C), _RB_F16, Int64(m), pointer(C), _RB_F16, Int64(m),
+            _RB_F32, _RB_ALGO, Int64(0), UInt32(0))
+        return nothing
+    end
 
     # Same-byte-size reinterpret so UInt8 arrays feed the i8_r path unchanged
     # (values are irrelevant to a memory-bound timing comparison).
@@ -45,6 +66,26 @@ if @isdefined(AMDGPU)
             _RB_I32, _RB_ALGO, Int64(0), UInt32(0))
         return nothing
     end
+end
+
+# Label only (no arrays needed — for the OOM/NaN row before allocation).
+vendor_gemm_label(::Type{T}) where {T} =
+    has_roc() ? (T <: Union{Float32,Float64} ? "rocBLAS gemm" : "rocBLAS gemm_ex") :
+    has_cuda() ? "cuBLAS" : "LinearAlgebra"
+
+# (label, call) for the vendor GEMM baseline. AMD → rocBLAS gemm!/gemm_ex (see
+# above); CUDA/other → cuBLAS via `A * B`. C is allocated per call to mirror
+# `A * B`'s alloc+compute (fair vs KF.gemm, which also allocates its output).
+function vendor_gemm_baseline(::Type{T}, A, B) where {T}
+    if has_roc()
+        m = size(A, 1); n = size(B, 2)
+        if T <: Union{Float32,Float64}
+            return ("rocBLAS gemm", () -> (C = similar(A, m, n); _gemm_f32f64!(C, A, B); C))
+        else                                   # Float16
+            return ("rocBLAS gemm_ex", () -> (C = similar(A, m, n); _gemmex_f16!(C, A, B); C))
+        end
+    end
+    return (has_cuda() ? "cuBLAS" : "LinearAlgebra", () -> A * B)
 end
 
 # (method_label, baseline_call) for the vendor matvec/vecmat baseline. 1-byte

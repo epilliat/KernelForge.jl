@@ -162,17 +162,20 @@ else
         # too); the host-gate assertions gate on real hardware support.
         supported = KF.KI.async_copy_supported(backend)
         if supported
-            # Host gate (`_gemm_async_flags`): aligned NN engages both operands;
-            # M%8≠0 disables A; a RowMajor (transposed) operand is never async; the
-            # OFF knob disables both. BM=256, BK=32, PC=8 = the champion DB tile.
+            # Host gate (`_gemm_async_flags`) returns the per-operand STYLE symbol
+            # (`:cpasync` on NVIDIA, `:buffer` on AMD, `:none` otherwise). Aligned NN
+            # engages both operands; a misaligned M disables A (M%8≠0 for the 16-byte
+            # cp.async, M odd for the 4-byte buffer — 255 fails both); a RowMajor
+            # operand is never async; the OFF knob disables both. BM=256, BK=32, PC=8.
+            st = KF.KI.async_copy_style(backend)
             @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
-                                       256, 256, 256, 256, 32, 8, true) == (true, true)
+                                       256, 256, 256, 256, 32, 8, true) == (st, st)
             @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
-                                       255, 256, 256, 256, 32, 8, true)[1] == false
+                                       255, 256, 256, 256, 32, 8, true)[1] == :none
             @test KF._gemm_async_flags(backend, Float16, KF.RowMajor(), KF.ColMajor(),
-                                       256, 256, 256, 256, 32, 8, true)[1] == false
+                                       256, 256, 256, 256, 32, 8, true)[1] == :none
             @test KF._gemm_async_flags(backend, Float16, KF.ColMajor(), KF.ColMajor(),
-                                       256, 256, 256, 256, 32, 8, false) == (false, false)
+                                       256, 256, 256, 256, 32, 8, false) == (:none, :none)
         end
         rng = Xoshiro(41)
         CH = (WM=4, WN=4, NWM=4, NWN=2, WK=2)   # WK=2 DB-fitting tile (the overlap path)

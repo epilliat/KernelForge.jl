@@ -197,10 +197,82 @@ end
 # Compile-time dispatch between register and async staging. `Val{true}` only ever
 # reaches a ColMajor operand (host gate); with `Val{false}` the async code is not
 # generated at all and staging is byte-identical to the pre-async kernel.
-@inline _stage_a(::Val{false}, args...) = _stage_a_mma!(args...)
-@inline _stage_a(::Val{true},  args...) = _stage_a_mma_async!(args...)
-@inline _stage_b(::Val{false}, args...) = _stage_b_mma!(args...)
-@inline _stage_b(::Val{true},  args...) = _stage_b_mma_async!(args...)
+# ── raw.buffer.load.lds staging (AMD CDNA; `:buffer` style) ─────────────────
+# Wave-cooperative global→LDS DMA — the AMD analogue of cp.async, dword-granular with
+# a HARDWARE per-lane scatter (lane l → lds_base + l*4 bytes). A tile column (BM resp.
+# BK CONTIGUOUS elements = `Dw = elems*sizeof÷4` dwords) is loaded by the whole
+# workgroup: wave w covers dwords [w*WS, w*WS+WS), rounds stride by `wg`. Dword math
+# verified on MI300A (xp/gemm/amd_stage_buf.jl). ColMajor ONLY (the host sets `:buffer`
+# only for a dword-aligned ColMajor operand). The DMA runs only when the tile is FULLY
+# in-bounds and `Dw` is a whole number of waves (else a partial wave would need a
+# divergent scatter) — every edge/odd tile takes the byte-identical register path.
+# NOTE: `Core.LLVMPtr + n` advances n BYTES, so dword `d` sits at `+ d*4`.
+@inline function _stage_a_mma_buf!(As, A, ::ColMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                                   ::Val{BM}, ::Val{BK}) where {BM,BK}
+    T = eltype(As)
+    WS = KI.@warpsize()
+    Dw = (BM * sizeof(T)) ÷ 4
+    if brow * BM + BM <= M && kt * BK + BK <= K && Dw % WS == 0
+        wave = (lid - 1) ÷ WS
+        lane = (lid - 1) % WS
+        kk = 0
+        while kk < BK
+            k = kt * BK + kk + 1
+            srccol = reinterpret(Core.LLVMPtr{UInt32,1}, pointer(A, (k - 1) * M + brow * BM + 1))
+            dstcol = reinterpret(Core.LLVMPtr{UInt32,3}, pointer(As, sh0 + kk * ldA + 1))
+            base = wave * WS
+            while base < Dw
+                jj = base + lane
+                KI.async_copy!(dstcol + base * 4, srccol, Int32(jj * 4), Val(4))
+                base += wg
+            end
+            kk += 1
+        end
+    else
+        _stage_a_mma!(As, A, ColMajor(), brow, kt, M, K, lid, wg, ldA, sh0, Val(BM), Val(BK))
+    end
+end
+@inline _stage_a_mma_buf!(As, A, lay::RowMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                          vBM::Val, vBK::Val) =
+    _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldA, sh0, vBM, vBK)
+
+@inline function _stage_b_mma_buf!(Bs, B, ::ColMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                                   ::Val{BK}, ::Val{BN}) where {BK,BN}
+    T = eltype(Bs)
+    WS = KI.@warpsize()
+    Dw = (BK * sizeof(T)) ÷ 4
+    if bcol * BN + BN <= N && kt * BK + BK <= K && Dw % WS == 0
+        wave = (lid - 1) ÷ WS
+        lane = (lid - 1) % WS
+        col = 0
+        while col < BN
+            n = bcol * BN + col + 1
+            srccol = reinterpret(Core.LLVMPtr{UInt32,1}, pointer(B, (n - 1) * K + kt * BK + 1))
+            dstcol = reinterpret(Core.LLVMPtr{UInt32,3}, pointer(Bs, sh0 + col * ldB + 1))
+            base = wave * WS
+            while base < Dw
+                jj = base + lane
+                KI.async_copy!(dstcol + base * 4, srccol, Int32(jj * 4), Val(4))
+                base += wg
+            end
+            col += 1
+        end
+    else
+        _stage_b_mma!(Bs, B, ColMajor(), bcol, kt, K, N, lid, wg, ldB, sh0, Val(BK), Val(BN))
+    end
+end
+@inline _stage_b_mma_buf!(Bs, B, lay::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                          vBK::Val, vBN::Val) =
+    _stage_b_mma!(Bs, B, lay, bcol, kt, K, N, lid, wg, ldB, sh0, vBK, vBN)
+
+# Compile-time dispatch between register (`:none`), cp.async (`:cpasync`) and
+# buffer_load_lds (`:buffer`) staging; the host picks the per-operand style.
+@inline _stage_a(::Val{:none},    args...) = _stage_a_mma!(args...)
+@inline _stage_a(::Val{:cpasync}, args...) = _stage_a_mma_async!(args...)
+@inline _stage_a(::Val{:buffer},  args...) = _stage_a_mma_buf!(args...)
+@inline _stage_b(::Val{:none},    args...) = _stage_b_mma!(args...)
+@inline _stage_b(::Val{:cpasync}, args...) = _stage_b_mma_async!(args...)
+@inline _stage_b(::Val{:buffer},  args...) = _stage_b_mma_buf!(args...)
 
 # ── Register-tile primitives (TOP-LEVEL — see the closure-boxing note) ──────
 # One k-step for one warp: WM A-fragments × WN B-fragments → WM·WN `mma`s.
@@ -323,7 +395,7 @@ end
         # least one operand actually stages asynchronously, else the pipeline ops
         # would fire around a purely register-staged loop. `va`/`vb` are the
         # per-operand staging selectors (see `_stage_a`/`_stage_b`).
-        ASYNC = ASYNCA || ASYNCB
+        ASYNC = (ASYNCA !== :none) || (ASYNCB !== :none)
         va = Val(ASYNCA)
         vb = Val(ASYNCB)
         BM  = NWM * WM * Mt
