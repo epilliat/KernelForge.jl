@@ -484,23 +484,54 @@ function _gemm_entry!(
                                  WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch)
     end
     return _gemm_launch_generic!(f, op, g, C, A, B, layA, layB, AccT,
-                                 BM, BN, BK, TM, TN, M, N, K, arch)
+                                 BM, BN, BK, TM, TN, splitk, M, N, K, arch)
 end
+
+# Split-K is valid for the generic kernel ONLY when the k-reduction is a plain SUM
+# (`op === +`) over an atomic-add-able accumulator — then each slice's partial is a
+# sub-sum and the cross-slice combine is `+`. Any other `op` (tropical max, boolean,
+# a custom monoid) or a non-primitive AccT (struct eltype) has no global atomic, so
+# it keeps the single-workgroup-per-tile path. `f`/`g` are unrestricted: `g` applies
+# once in the epilogue, and `+`-splitting holds for any map `f`.
+@inline _generic_splitk_ok(op, ::Type{AccT}) where {AccT} =
+    op === Base.:+ && (AccT <: AbstractFloat || AccT <: Integer)
 
 function _gemm_launch_generic!(
     f::F, op::O, g::G, C, A, B, layA, layB, ::Type{AccT},
-    BM, BN, BK, TM, TN, M, N, K, arch
+    BM, BN, BK, TM, TN, splitk, M, N, K, arch
 ) where {F,O,G,AccT}
     backend = get_backend(A)
     p = resolve_gemm_parameters(arch, M, N, K, eltype(A), BM, BN, BK, TM, TN)
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
-    ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
+    NK = _generic_splitk_ok(op, AccT) ?
+         something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK))::Int : 1
+    @assert NK >= 1 "splitk must be ≥ 1"
+
+    if NK == 1
+        ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
+        gemm_kernel!(backend, p.wg)(
+            f, op, g, C, A, B, layA, layB,
+            Val(p.BM), Val(p.BN), Val(p.BK), Val(p.TM), Val(p.TN), Val(1),
+            AccT, M, N, K;                # AccT is the accumulation type H for K1
+            ndrange = ndrange,
+        )
+        return C
+    end
+
+    # Split-K: each (tile, slice) sums its K-slice and atomic-adds the raw AccT
+    # partial into a zeroed scratch; the epilogue then applies `g` + casts into C.
+    Cacc = KernelAbstractions.allocate(backend, AccT, M, N)
+    fill!(Cacc, zero(AccT))
+    ndrange = nbx * nby * NK * p.wg
     gemm_kernel!(backend, p.wg)(
-        f, op, g, C, A, B, layA, layB,
-        Val(p.BM), Val(p.BN), Val(p.BK), Val(p.TM), Val(p.TN),
-        AccT, M, N, K;                # AccT is the accumulation type H for K1
+        f, op, g, Cacc, A, B, layA, layB,
+        Val(p.BM), Val(p.BN), Val(p.BK), Val(p.TM), Val(p.TN), Val(NK),
+        AccT, M, N, K;
         ndrange = ndrange,
     )
+    nC = M * N
+    epi_wg = 256
+    gemm_splitk_epilogue!(backend, epi_wg)(g, C, Cacc, nC; ndrange = cld(nC, epi_wg) * epi_wg)
     return C
 end
 

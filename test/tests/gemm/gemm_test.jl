@@ -101,6 +101,35 @@ const GEMM_SHAPES = [
         end
     end
 
+    @testset "split-K (generic K1 deep-K) matches non-split + reference" begin
+        # F32/F64 `inner` shapes (few tiles, huge K) launch few workgroups; split-K
+        # sums each K-slice in extra workgroups that atomic-add their partials. Only
+        # `op === +` over a primitive AccT splits — tropical/boolean/struct stay
+        # single-path. Every NK must agree with non-split and the CPU reference.
+        rng = Xoshiro(70)
+        for T in (Float32, Float64)
+            M, N, K = 64, 64, 8192
+            A = rand(rng, T, M, K); B = rand(rng, T, K, N)
+            ref = Array(A) * Array(B)
+            dA = AT(A); dB = AT(B)
+            C1 = Array(KF.gemm(dA, dB; family=:generic, splitk=1))
+            for nk in (1, 8, 32, nothing)
+                C = Array(KF.gemm(dA, dB; family=:generic, splitk=nk))
+                @test isapprox(C, ref; rtol=1f-4)
+                @test isapprox(C, C1; rtol=1f-4)
+            end
+            @test isapprox(Array(KF.gemm(dA, dB)), ref; rtol=1f-4)   # default routes here
+        end
+        # A non-`+` reduction must NOT split (no global atomic for it) yet stay
+        # correct on a deep-K shape even with splitk explicitly requested.
+        let M = 64, N = 64, K = 4096
+            A = rand(rng, Float32, M, K); B = rand(rng, Float32, K, N)
+            C = KF.gemm((a, b) -> a + b, max, AT(A), AT(B); splitk=16)
+            ref = gemm_ref((a, b) -> a + b, max, A, B)
+            @test isapprox(Array(C), ref; rtol=1f-4)
+        end
+    end
+
     @testset "generalized op — boolean semiring (|, &)" begin
         rng = Xoshiro(6)
         for (M, N, K) in [(3, 3, 3), (100, 80, 40), (127, 65, 50)]

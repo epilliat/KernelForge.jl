@@ -141,22 +141,56 @@ end
     body
 end
 
+# Split-K store: this workgroup owns only a K-SLICE, so `acc` is a PARTIAL sum.
+# Atomic-add the RAW accumulator (no `g`) into the AccT scratch `C`; the separate
+# `gemm_splitk_epilogue!` applies `g` once every slice has reduced. Only reached
+# for `op === +` with an atomic-add-able AccT (host-gated in `_default_splitk`/
+# `_gemm_launch_generic!`), so `+=` is always the right combine.
+@inline @generated function _gemm_store_atomic!(
+    C, acc::NTuple{L,H}, m0::Int, n0::Int, M::Int, N::Int,
+    ::Val{TM}, ::Val{TN}
+) where {L,H,TM,TN}
+    body = Expr(:block)
+    for tj in 0:TN-1, ti in 0:TM-1
+        a = ti + tj * TM + 1
+        push!(body.args, quote
+            m = m0 + $ti
+            n = n0 + $tj
+            if m <= M && n <= N
+                @atomic C[(n - 1) * M + m] += acc[$a]
+            end
+        end)
+    end
+    push!(body.args, nothing)
+    body
+end
+
+# Epilogue dispatch: NK==1 (default) applies `g` into C::S — byte-identical to the
+# pre-split kernel; NK>1 atomic-adds the raw partial into C::AccT. Dispatch on
+# Val{NK} so the atomic branch is never type-checked against an S-typed C.
+@inline _gemm_epi!(::Val{1}, g::G, C, acc, m0, n0, M, N, vTM, vTN) where {G} =
+    _gemm_store!(g, C, acc, m0, n0, M, N, vTM, vTN)
+@inline _gemm_epi!(::Val{NK}, g::G, C, acc, m0, n0, M, N, vTM, vTN) where {NK,G} =
+    _gemm_store_atomic!(C, acc, m0, n0, M, N, vTM, vTN)
+
 @kernel unsafe_indices = true inbounds = true function gemm_kernel!(
     f::F, op::O, g::G,
     C::AbstractMatrix{S},
     A::AbstractMatrix{TA},
     B::AbstractMatrix{TB},
     layA::LA, layB::LB,
-    ::Val{BM}, ::Val{BN}, ::Val{BK}, ::Val{TM}, ::Val{TN},
+    ::Val{BM}, ::Val{BN}, ::Val{BK}, ::Val{TM}, ::Val{TN}, ::Val{NK},
     ::Type{H},
     M::Int, N::Int, K::Int
 ) where {F<:Function,O<:Function,G<:Function,S,TA,TB,
-         LA<:FragLayout,LB<:FragLayout,BM,BN,BK,TM,TN,H}
+         LA<:FragLayout,LB<:FragLayout,BM,BN,BK,TM,TN,NK,H}
     @uniform begin
         RThreads = BM ÷ TM            # thread-rows per block
         wg       = (BM ÷ TM) * (BN ÷ TN)
         nbx      = cld(M, BM)         # block-rows across the C grid
+        nby      = cld(N, BN)         # block-cols across the C grid
         nkt      = cld(K, BK)         # number of K panels
+        pps      = cld(nkt, NK)       # K panels per split-K slice (NK==1 ⇒ pps==nkt)
     end
 
     As = @localmem TA (BM * BK)
@@ -164,8 +198,13 @@ end
 
     lid  = Int(@index(Local))
     gid  = Int(@index(Group))
-    brow = (gid - 1) % nbx            # 0-based block-row
-    bcol = (gid - 1) ÷ nbx            # 0-based block-col
+    blk  = gid - 1                    # 0-based (block-row, block-col, k-slice)
+    brow = blk % nbx                  # 0-based block-row
+    t2   = blk ÷ nbx
+    bcol = t2 % nby                   # 0-based block-col
+    ksl  = t2 ÷ nby                   # 0-based K-slice (always 0 when NK==1)
+    ktlo = ksl * pps                  # first K panel this slice owns …
+    kthi = min(ktlo + pps, nkt)       # … one past its last (NK==1 ⇒ 0 … nkt)
     trow = (lid - 1) % RThreads       # 0-based thread-row
     tcol = (lid - 1) ÷ RThreads       # 0-based thread-col
 
@@ -180,8 +219,8 @@ end
     acc    = ntuple(_ -> seed0, Val(TM * TN))
     seeded = false
 
-    kt = 0
-    while kt < nkt
+    kt = ktlo
+    while kt < kthi
         _stage_a!(As, A, layA, brow, kt, M, K, lid, wg, Val(BM), Val(BK))
         _stage_b!(Bs, B, layB, bcol, kt, K, N, lid, wg, Val(BK), Val(BN))
         @synchronize
@@ -201,5 +240,5 @@ end
         kt += 1
     end
 
-    _gemm_store!(g, C, acc, m0, n0, M, N, Val(TM), Val(TN))
+    _gemm_epi!(Val(NK), g, C, acc, m0, n0, M, N, Val(TM), Val(TN))
 end
