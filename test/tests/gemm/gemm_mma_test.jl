@@ -95,7 +95,22 @@ else
     @testset "family routing + forced-family errors" begin
         A16 = AT(rand(Float16, 32, 32)); B16 = AT(rand(Float16, 32, 32))
         A32 = AT(rand(Float32, 32, 32)); B32 = AT(rand(Float32, 32, 32))
-        # auto must NOT select :mma (opt-in only) → agrees with forced generic.
+        # AUTO (no `family` kwarg): the tensor-core kernel is chosen by TOTAL WORK
+        # M·N·K, not by opt-in. Below `MMA_AUTO_FLOP_GATE` (2^26) auto stays on the K1
+        # generic kernel (launch-overhead-bound tiny products); at/above it auto flips
+        # to :mma. Assert the routing DIRECTLY through `_resolve_family` — a numeric
+        # test cannot prove which kernel ran, since both families agree bitwise-close
+        # on the same inputs. F16→F32 has a HW path (the outer guard checked it); F32
+        # has none here (see the forced-:mma throw below), so it always stays generic.
+        rf(::Type{T}, M, N, K; knobs=false) where {T} =
+            KF._resolve_family(nothing, backend, *, +, T, T, Float32,
+                               M, N, K, :N, :N, knobs)[1]
+        @test rf(Float16,  32,  32,    32) === :generic   # below the gate → K1
+        @test rf(Float16, 512, 512,   512) === :mma       # above the gate → HW MMA
+        @test rf(Float16,  64,  64, 16384) === :mma       # deep-K, exactly at the gate (=2^26)
+        @test rf(Float32, 512, 512,   512) === :generic   # no HW F32 path → K1 regardless of size
+        @test rf(Float16, 512, 512,   512; knobs=true) === :generic  # generic tile knobs force K1
+        # Numeric cross-check: below-gate auto (→generic) agrees with forced generic.
         @test isapprox(Array(KF.gemm(A16, B16)),
                        Array(KF.gemm(A16, B16; family=:generic, accT=Float32)); rtol=1f-3)
         # forced :mma agrees with generic on the same inputs.
@@ -148,10 +163,25 @@ else
             @test maximum(abs.(C .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2   # vs F32 ref
             @test maximum(abs.(C .- C1) ./ (abs.(C1) .+ 1f-2)) < 5f-3     # vs non-split
         end
-        # The default path (family auto) on a deep-K product now routes to :mma and
-        # engages split-K under the hood — must still be correct.
+        # This shape is M·N·K = 2^25, BELOW the 2^26 auto gate, so the default path
+        # (family auto) stays on the generic K1 kernel — assert the routing, then that
+        # it is still correct. (For the auto→:mma+split-K path see the deeper-K case
+        # below.)
+        @test KF._resolve_family(nothing, backend, *, +, Float16, Float16, Float32,
+                                 M, N, K, :N, :N, false)[1] === :generic
         Cdef = Array(KF.gemm(dA, dB))
         @test maximum(abs.(Cdef .- ref) ./ (abs.(ref) .+ 1f-2)) < 1f-2
+        # Deeper K (2^26, at the gate): auto now routes to :mma AND engages split-K
+        # under the hood (few output tiles, many K-slices). Exercises the auto tensor-
+        # core + auto-split-K path end to end; must match the F32 reference.
+        Kd = 16384
+        Ad = rand(Xoshiro(72), Float16, M, Kd) ./ Float16(16)
+        Bd = rand(Xoshiro(73), Float16, Kd, N) ./ Float16(16)
+        refd = Float32.(Ad) * Float32.(Bd)
+        @test KF._resolve_family(nothing, backend, *, +, Float16, Float16, Float32,
+                                 M, N, Kd, :N, :N, false)[1] === :mma
+        Cd = Array(KF.gemm(AT(Ad), AT(Bd)))
+        @test maximum(abs.(Cd .- refd) ./ (abs.(refd) .+ 1f-2)) < 1f-2
         @test_throws AssertionError KF.gemm(dA, dB; family=:mma, splitk=0)
     end
 
