@@ -59,6 +59,7 @@ const VECMAT_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int},Any}()
 const ARCH_ROWTHREAD_CACHE = Dict{Symbol,Bool}()
 const ARCH_MLP_CACHE       = Dict{Symbol,Bool}()
 const GEMM_LOOKUP_CACHE    = Dict{Tuple{Symbol,DataType,Int,Int,Int},Any}()
+const GEMM_K1_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int,Int},Any}()
 
 @inline function _clear_lookup_caches!()
     empty!(MATVEC_LOOKUP_CACHE)
@@ -66,6 +67,7 @@ const GEMM_LOOKUP_CACHE    = Dict{Tuple{Symbol,DataType,Int,Int,Int},Any}()
     empty!(ARCH_ROWTHREAD_CACHE)
     empty!(ARCH_MLP_CACHE)
     empty!(GEMM_LOOKUP_CACHE)
+    empty!(GEMM_K1_LOOKUP_CACHE)
     return nothing
 end
 
@@ -131,6 +133,7 @@ function load_tunings_for!(tag::Symbol)
             if gp isa AbstractDict && get(gp, "schema_version", nothing) == TUNING_SCHEMA_VERSION
                 GEMM_TUNING_TABLE[][tag] = gp
                 empty!(GEMM_LOOKUP_CACHE)
+                empty!(GEMM_K1_LOOKUP_CACHE)
             end
         end
     end
@@ -272,6 +275,40 @@ function _lookup_gemm_uncached(arch::AbstractArch, ::Type{CT}, M, N, K) where {C
     gi(k) = Int(cell[k])
     return (; WM = gi("WM"), WN = gi("WN"), NWM = gi("NWM"), NWN = gi("NWN"),
             WK = gi("WK"), PC = gi("PC"), PA = gi("PA"), DB = Bool(cell["DB"]))
+end
+
+"""
+    lookup_gemm_k1(arch, CT, M, N, K) -> Union{NamedTuple,Nothing}
+
+Autotuned K1 (generic, CUDA-core) tile knobs `(; BM, BN, BK, TM, TN)` for the shape
+regime closest to `(M,N,K)` at compute-type `CT`, or `nothing` if no `<arch>_gemm.jl`
+tuning has a `gemm_k1` section covering `CT`. Consulted by `resolve_gemm_parameters`
+ahead of `default_gemm_tile`; a knob the caller passed explicitly still wins. This is
+the F32 (and F64/Int8 where there is no tensor path) analogue of `lookup_gemm`.
+"""
+function lookup_gemm_k1(arch::AbstractArch, ::Type{CT}, M::Int, N::Int, K::Int) where {CT}
+    tag = nameof(typeof(arch))
+    key = (tag, CT, M, N, K)
+    cached = get(GEMM_K1_LOOKUP_CACHE, key, _LOOKUP_MISS)
+    cached === _LOOKUP_MISS || return cached
+    val = _lookup_gemm_k1_uncached(arch, CT, M, N, K)
+    GEMM_K1_LOOKUP_CACHE[key] = val
+    return val
+end
+
+function _lookup_gemm_k1_uncached(arch::AbstractArch, ::Type{CT}, M, N, K) where {CT}
+    tag = nameof(typeof(arch))
+    haskey(GEMM_TUNING_TABLE[], tag) || return nothing
+    g = get(GEMM_TUNING_TABLE[][tag], "gemm_k1", nothing)
+    g isa AbstractDict || return nothing
+    tbl = get(g, string(CT), nothing)
+    tbl isa AbstractDict || return nothing
+    regime = _gemm_regime(Int(M), Int(N), Int(K))
+    cell = get(tbl, regime, nothing)
+    cell === nothing && (cell = get(tbl, "square", nothing))
+    cell isa AbstractDict || return nothing
+    gi(k) = Int(cell[k])
+    return (; BM = gi("BM"), BN = gi("BN"), BK = gi("BK"), TM = gi("TM"), TN = gi("TN"))
 end
 
 # True if this arch's loaded matvec tuning contains ≥1 row-thread cell. Used by

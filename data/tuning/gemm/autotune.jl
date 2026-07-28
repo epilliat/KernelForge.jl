@@ -108,6 +108,28 @@ function candidate_knobs(::Type{CT}, warpsz) where {CT}
     DEV ? cs[1:min(6, end)] : cs
 end
 
+# K1 (generic, non-tensor) tile grid — for dtypes WITHOUT an MMA path (F32 on every
+# arch; F64/Int8 where the device lacks those tensor cores). Knobs (BM,BN,BK,TM,TN);
+# the K1 default_gemm_tile is a tiny 64×64×8 (TM/TN=4) that badly under-tiles the
+# CUDA-core GEMM vs a vendor SGEMM's 128×128 register-blocked tiles, so there is a lot
+# of headroom. Constraints mirror the launcher asserts (resolve_gemm_parameters):
+# BM%TM==0, BN%TN==0, wg=(BM÷TM)(BN÷TN) a warp-multiple ≤1024, shared (BM·BK+BK·BN)
+# fits the 48 KB @localmem cap. The default (64,64,8,4,4) is itself in the grid, so —
+# as with the MMA grid — an accurately-timed search can never land below it.
+function candidate_knobs_k1(::Type{T}, warpsz) where {T}
+    cap = 48 * 1024
+    cs = NamedTuple[]
+    for BM in (64, 128, 256), BN in (64, 128, 256), BK in (8, 16, 32),
+        TM in (4, 8), TN in (4, 8)
+        (BM % TM == 0 && BN % TN == 0) || continue
+        wg = (BM ÷ TM) * (BN ÷ TN)
+        (wg <= 1024 && wg % warpsz == 0) || continue
+        (BM * BK + BK * BN) * sizeof(T) <= cap || continue
+        push!(cs, (; BM, BN, BK, TM, TN))
+    end
+    DEV ? cs[1:min(6, end)] : cs
+end
+
 # Kernel time (µs) of a gemm call; NaN on any error (infeasible tile, OOM…).
 # Warmup/compile first (catches the infeasible configs), then hand off to the
 # event-based `_bench_us` defined above.
@@ -149,35 +171,76 @@ function tune_cell(name, M, N, K, ::Type{T}) where {T}
     return best, best_us
 end
 
+# Same search over the K1 generic (BM,BN,BK,TM,TN) grid. Any generic tile knob forces
+# the generic family, so this exercises the CUDA-core kernel (no MMA).
+function tune_cell_k1(name, M, N, K, ::Type{T}) where {T}
+    A = fill!(AT{T}(undef, M, K), one(T)); B = fill!(AT{T}(undef, K, N), one(T))
+    best = nothing; best_us = Inf
+    for kn in candidate_knobs_k1(T, WARPSZ)
+        us = bench_us(() -> KF.gemm(A, B; kn.BM, kn.BN, kn.BK, kn.TM, kn.TN))
+        if us < best_us
+            best_us = us; best = kn
+        end
+    end
+    println("  [K1] $name $T  →  best $(best_us == Inf ? "NONE" : round(best_us; digits=1))µs  $best")
+    return best, best_us
+end
+
 # -----------------------------------------------------------------------------
 tag = DEV ? "$(GPU_TAG)_gemm_dev" : "$(GPU_TAG)_gemm"
 # All MMA-capable dtypes; `mma_available` auto-skips those without a tensor-core path
 # on this device (RTX1000 Ada → F16 only; A100/MI300A → also F64, BF16, Int8).
 types = [Float16, Core.BFloat16, Float32, Float64, Int8]
-out = Dict{String,Any}()
+out = Dict{String,Any}()      # MMA (K2) knobs → section "gemm"
+out_k1 = Dict{String,Any}()   # generic (K1) knobs → section "gemm_k1"
 for T in types
     # Per-type guard: a type that can't even be constructed/probed on this device
     # (e.g. BFloat16 without BFloat16s loaded) must skip, not abort the whole run.
     try
-        if !mma_available(T)
-            @info "MMA path unavailable for $T on $GPU_TAG — skipped (K1 generic path, not tuned here)"
-            continue
-        end
         tkey = string(T)
-        out[tkey] = Dict{String,Any}()
-        for (name, M, N, K) in shape_regimes(L, S)
-            best, us = tune_cell(name, M, N, K, T)
-            best === nothing && continue
-            out[tkey][name] = Dict("M" => M, "N" => N, "K" => K, "us" => us,
-                "WM" => best.WM, "WN" => best.WN, "NWM" => best.NWM, "NWN" => best.NWN,
-                "WK" => best.WK, "PC" => best.PC, "PA" => best.PA, "DB" => best.DB)
+        if mma_available(T)
+            out[tkey] = Dict{String,Any}()
+            for (name, M, N, K) in shape_regimes(L, S)
+                best, us = tune_cell(name, M, N, K, T)
+                best === nothing && continue
+                out[tkey][name] = Dict("M" => M, "N" => N, "K" => K, "us" => us,
+                    "WM" => best.WM, "WN" => best.WN, "NWM" => best.NWM, "NWN" => best.NWN,
+                    "WK" => best.WK, "PC" => best.PC, "PA" => best.PA, "DB" => best.DB)
+            end
+        else
+            # No tensor-core path → tune the K1 generic (CUDA-core) tile instead of
+            # leaving it on the tiny hand-coded default. This is where F32 lives on
+            # every arch (and F64/Int8 without those tensor cores).
+            @info "MMA path unavailable for $T on $GPU_TAG — tuning the K1 generic tile"
+            # skip integer dtypes that can't `one(T)`-fill a float GEMM meaningfully?
+            # No — F32/F64 are the target; Int8 K1 is valid too. Probe feasibility via
+            # a tiny call; if even the default tile can't run, skip the type.
+            probe = try
+                A0 = fill!(AT{T}(undef, 64, 64), one(T)); B0 = fill!(AT{T}(undef, 64, 64), one(T))
+                KF.gemm(A0, B0); KA.synchronize(backend); true
+            catch
+                false
+            end
+            if !probe
+                @info "K1 generic path also unavailable for $T on $GPU_TAG — skipped"
+                continue
+            end
+            out_k1[tkey] = Dict{String,Any}()
+            for (name, M, N, K) in shape_regimes(L, S)
+                best, us = tune_cell_k1(name, M, N, K, T)
+                best === nothing && continue
+                out_k1[tkey][name] = Dict("M" => M, "N" => N, "K" => K, "us" => us,
+                    "BM" => best.BM, "BN" => best.BN, "BK" => best.BK,
+                    "TM" => best.TM, "TN" => best.TN)
+            end
         end
     catch e
         @warn "tuning $T failed — skipped this type, continuing" exception = (e, catch_backtrace())
     end
 end
 
-payload = Dict("schema" => 1, "gpu_tag" => GPU_TAG, "base_L" => L, "aspect_s" => S, "gemm" => out)
+payload = Dict("schema" => 1, "gpu_tag" => GPU_TAG, "base_L" => L, "aspect_s" => S,
+    "gemm" => out, "gemm_k1" => out_k1)
 path = joinpath(@__DIR__, "..", "$(tag).json")
 open(path, "w") do io
     JSON3.pretty(io, payload)
@@ -188,11 +251,17 @@ println("\nAutotune JSON written to: $path")
 # `<tag>.jl` (= <Arch>_gemm.jl) holding schema_version + "gemm" → dtype → regime →
 # knobs. Only the winning knobs are kept (M/N/K/us dropped). NOT written in --dev mode.
 if !DEV
-    knobs = Dict{String,Any}("schema_version" => 1, "gemm" => Dict{String,Any}(
-        tk => Dict{String,Any}(sk => Dict{String,Any}(
-                "WM" => c["WM"], "WN" => c["WN"], "NWM" => c["NWM"], "NWN" => c["NWN"],
-                "WK" => c["WK"], "PC" => c["PC"], "PA" => c["PA"], "DB" => c["DB"])
-            for (sk, c) in tv) for (tk, tv) in out))
+    knobs = Dict{String,Any}("schema_version" => 1,
+        "gemm" => Dict{String,Any}(
+            tk => Dict{String,Any}(sk => Dict{String,Any}(
+                    "WM" => c["WM"], "WN" => c["WN"], "NWM" => c["NWM"], "NWN" => c["NWN"],
+                    "WK" => c["WK"], "PC" => c["PC"], "PA" => c["PA"], "DB" => c["DB"])
+                for (sk, c) in tv) for (tk, tv) in out),
+        "gemm_k1" => Dict{String,Any}(
+            tk => Dict{String,Any}(sk => Dict{String,Any}(
+                    "BM" => c["BM"], "BN" => c["BN"], "BK" => c["BK"],
+                    "TM" => c["TM"], "TN" => c["TN"])
+                for (sk, c) in tv) for (tk, tv) in out_k1))
     jlpath = joinpath(@__DIR__, "..", "$(tag).jl")
     open(jlpath, "w") do io
         println(io, "# Auto-generated by data/tuning/gemm/autotune.jl — do not edit by hand.")

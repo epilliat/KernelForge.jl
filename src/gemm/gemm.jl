@@ -294,8 +294,14 @@ function resolve_gemm_parameters(
     BM, BN, BK, TM, TN
 ) where {T}
     dBM, dBN, dBK, dTM, dTN = default_gemm_tile(arch, M, N, K, T)
-    BM = something(BM, dBM); BN = something(BN, dBN); BK = something(BK, dBK)
-    TM = something(TM, dTM); TN = something(TN, dTN)
+    # Autotuned K1 tile (F32 & any non-tensor dtype) overrides the tiny default; a knob
+    # the caller passed explicitly still wins. The 5 tuned knobs form a coherent tuple
+    # validated against the same asserts below, so a full miss (all nothing) or a full
+    # hit is always consistent — mirrors `resolve_gemm_mma_parameters`/`lookup_gemm`.
+    tuned = lookup_gemm_k1(arch, T, M, N, K)
+    _t(f) = tuned === nothing ? nothing : getfield(tuned, f)
+    BM = something(BM, _t(:BM), dBM); BN = something(BN, _t(:BN), dBN); BK = something(BK, _t(:BK), dBK)
+    TM = something(TM, _t(:TM), dTM); TN = something(TN, _t(:TN), dTN)
     @assert BM % TM == 0 "BM ($BM) must be divisible by TM ($TM)"
     @assert BN % TN == 0 "BN ($BN) must be divisible by TN ($TN)"
     wg = (BM ÷ TM) * (BN ÷ TN)
