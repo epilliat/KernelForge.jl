@@ -31,6 +31,47 @@ const DEV = "--dev" in ARGS
 const S = 8                      # aspect factor
 const L = DEV ? 512 : 2048       # representative base edge
 
+# Arch handle (for the warp size that bounds the wg filter) + backend kind.
+const ARCH   = KF.detect_arch(AT{Float16}(undef, 2, 2))
+const WARPSZ = KF.get_warpsize(ARCH)
+const _KIND  = nameof(typeof(backend)) === :ROCBackend ? :roc : :cuda
+
+# ── Kernel-time bench, event-based (mirrors data/tuning/matvec/autotune.jl) ──
+# `@eval begin … end` so the dead branch's `AMDGPU.@elapsed`/`CUDA` macros are
+# only expanded when that branch actually runs (else `UndefVarError` on a
+# single-backend env). CUDA: device event pairs, one host sync drains all
+# trials → pure kernel time. AMD: block-timing with an adaptive `inner` so the
+# host-dispatch gap amortizes (gemm kernels are mostly ms-scale → inner≈1).
+if _KIND === :cuda
+    @eval begin
+        function _bench_us(f; trials::Int = $(DEV ? 2 : 10))
+            starts = [CUDA.CuEvent() for _ in 1:trials]
+            stops  = [CUDA.CuEvent() for _ in 1:trials]
+            for i in 1:trials
+                CUDA.record(starts[i]); f(); CUDA.record(stops[i])
+            end
+            CUDA.synchronize(stops[trials])
+            return median(Float64[CUDA.elapsed(starts[i], stops[i]) * 1e6 for i in 1:trials])
+        end
+    end
+else
+    @eval begin
+        function _bench_us(f; trials::Int = $(DEV ? 2 : 8))
+            probe_us = Float64(AMDGPU.@elapsed f()) * 1e6
+            inner = probe_us <= 0 ? 20 : clamp(round(Int, 3000.0 / probe_us), 1, 20)
+            samples = Float64[]
+            for _ in 1:trials
+                t = Float64(AMDGPU.@elapsed begin
+                    for _ in 1:inner; f(); end
+                end)
+                push!(samples, t * 1e6 / inner)
+            end
+            isempty(samples) && return NaN
+            return median(samples)
+        end
+    end
+end
+
 # (name, M, N, K) at ≈ L³ FLOPs — same construction as gemm_perf_comparison.jl.
 r64(x) = max(64, 64 * round(Int, x / 64))
 shape_regimes(L, s) = [
@@ -42,30 +83,45 @@ shape_regimes(L, s) = [
     ("tall",   r64(L * s^2), r64(L / s),  r64(L / s)),
 ]
 
-# Candidate knob grid. Centered on the WM=2/WN=4 plateau; DB only with WK≥2.
-function candidate_knobs()
+# Candidate knob grid — MUST cover the hand-coded `default_gemm_mma_tile` config so
+# an accurately-timed search can never land BELOW it (we deliberately do NOT clamp
+# with a never-worse guard — that would bake the heuristic in as a floor and break
+# the cross-arch honesty of the tune; instead the default is simply a candidate).
+# Reachability the old grid broke → regressions: (a) deep-K panels use `WK = 64÷Kt`
+# (=4 for F16 Kt=16) but the grid capped `WK≤2` → `inner` regressed 1.51× on RTX1000;
+# (b) the 16-warp tier uses `NWM=8`, absent from `{1,2,4}`; (c) `PC` = `16÷sizeof(CT)`
+# (2 for F64, 16 for Int8) — a fixed `PC=8` couldn't reproduce the default pad off
+# F16. So `WK∈{1,2,4}`, `NWM∈{1,2,4,8}`, `PC∈{default_pad(CT), 8}`, and the wg cap is
+# warpsize-aware (`NWM·NWN·warpsz ≤ 1024`; ws=64 on CDNA halves it — the old fixed 32
+# silently over-generated infeasible AMD configs).
+padof(::Type{T}) where {T} = 16 ÷ sizeof(T)
+function candidate_knobs(::Type{CT}, warpsz) where {CT}
+    maxNW = 1024 ÷ warpsz
+    pcs = unique((padof(CT), 8))
     cs = NamedTuple[]
-    for WM in (2, 4), WN in (2, 4), NWM in (1, 2, 4), NWN in (1, 2, 4),
-        WK in (1, 2), DB in (false, true)
-        NWM * NWN <= 32 || continue          # wg = NWM·NWN·warpsize ≤ 1024 (ws=32)
+    for WM in (2, 4), WN in (2, 4), NWM in (1, 2, 4, 8), NWN in (1, 2, 4),
+        WK in (1, 2, 4), PC in pcs, DB in (false, true)
+        NWM * NWN <= maxNW || continue
         DB && WK == 1 && continue             # DB is meaningful only for WK≥2 tiles
-        push!(cs, (; WM, WN, NWM, NWN, WK, PC = 8, PA = 0, DB))
+        push!(cs, (; WM, WN, NWM, NWN, WK, PC, PA = 0, DB))
     end
     DEV ? cs[1:min(6, end)] : cs
 end
 
-# Median kernel time (µs) of a gemm call; NaN on any error (infeasible tile, OOM…).
-function time_call(f; trials = DEV ? 5 : 15)
+# Kernel time (µs) of a gemm call; NaN on any error (infeasible tile, OOM…).
+# Warmup/compile first (catches the infeasible configs), then hand off to the
+# event-based `_bench_us` defined above.
+function bench_us(f)
     try
         f(); KA.synchronize(backend)          # warmup / compile
     catch
         return NaN
     end
-    ts = Float64[]
-    for _ in 1:trials
-        push!(ts, @elapsed (f(); KA.synchronize(backend)))
+    try
+        return _bench_us(f)
+    catch
+        return NaN
     end
-    return median(ts) * 1e6
 end
 
 # Does the :mma path compile+run for this dtype on this device?
@@ -82,8 +138,8 @@ end
 function tune_cell(name, M, N, K, ::Type{T}) where {T}
     A = fill!(AT{T}(undef, M, K), one(T)); B = fill!(AT{T}(undef, K, N), one(T))
     best = nothing; best_us = Inf
-    for kn in candidate_knobs()
-        us = time_call(() -> KF.gemm(A, B; family = :mma,
+    for kn in candidate_knobs(T, WARPSZ)
+        us = bench_us(() -> KF.gemm(A, B; family = :mma,
                                      kn.WM, kn.WN, kn.NWM, kn.NWN, kn.WK, kn.PC, kn.PA, kn.DB))
         if us < best_us
             best_us = us; best = kn
