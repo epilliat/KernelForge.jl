@@ -31,6 +31,8 @@ _unsafe_free!(arr::CuArray) = CUDA.unsafe_free!(arr)
 KernelForge.num_sms(::CUDABackend) =
     Int(CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT))
 KernelForge.Random._n_sms(be::CUDABackend) = KernelForge.num_sms(be)
+KernelForge.l2_cache_bytes(::CUDABackend) =
+    Int(CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_L2_CACHE_SIZE))
 
 # Compile-only path for the autotune script. Mirrors the prelude of KA's
 # CUDA functor (CUDA.jl `src/CUDAKernels.jl:115-129`) but stops at the

@@ -141,15 +141,20 @@ function default_gemm_mma_async(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT
 end
 
 # ── L2-aware threadblock swizzle group width (GSW) ──────────────────────────
-# The block→output-tile mapping in `gemm_mma_kernel!` iterates GSW consecutive
-# block-ROWS while sweeping ALL block-COLS, so a group's B column-tiles stay resident
-# in L2 across those rows — cutting DRAM re-reads once A/B exceed the L2 (the classic
-# CUTLASS threadblock swizzle). MEASURED (RTX1000 Ada, F16): square 4096 (A/B=32 MB
-# each ≫ L2) 6333→4760 µs = 1.33×, from 1.22× behind cuBLAS to BEATING it (0.93×);
-# NEUTRAL where A/B fit L2 (square 2048) and on rank-short/skinny (outer/tall). GSW=1
-# disables grouping. A flat 8 regressed nothing measured; a per-arch/size autotune knob
-# can refine it (cross-arch: pure index math, no backend specifics).
-default_gemm_swizzle(::AbstractArch, M, N, K) = 8
+# `gemm_mma_kernel!` iterates GSW consecutive block-ROWS while sweeping ALL block-COLS,
+# so a group's B column-tiles stay resident in L2 across those rows — cutting DRAM
+# re-reads (the classic CUTLASS threadblock swizzle). But it is NOT a free win: it helps
+# ONLY when the A/B working set exceeds L2 AND the grid is 2-D balanced (both dims large).
+# MEASURED (RTX1000 Ada, F16, GSW=8 vs 1): square 4096 (A/B 34 MB > 25 MB L2, 32×32 grid)
+# 0.49× — 2× FASTER, beats cuBLAS; but it HURTS the other regimes — inner (512², tiny 4×4
+# grid) 1.54×, tall (nby=2 skewed) 1.97×, outer (A/B 4 MB < L2) 1.15×. So gate on BOTH the
+# footprint and grid balance; GSW=1 (no grouping) everywhere else. `l2_cache_bytes` is the
+# cross-arch device L2 query (unknown backend → typemax ⇒ swizzle off, safe). The `16`
+# balance bound = 2·GSW (need several full groups in each dim). A future autotune can tune
+# GSW/the thresholds per arch.
+function default_gemm_swizzle(::AbstractArch, nbx::Int, nby::Int, ab_bytes::Int, l2::Int)
+    (ab_bytes > l2 && nbx >= 16 && nby >= 16) ? 8 : 1
+end
 
 # ============================================================================
 # Public API docstrings
@@ -694,7 +699,8 @@ function _gemm_launch_mma!(
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
-    gsw = default_gemm_swizzle(arch, M, N, K)::Int
+    gsw = default_gemm_swizzle(arch, nbx, nby, (M * K + K * N) * sizeof(CT),
+                               l2_cache_bytes(backend))::Int
 
     if NK == 1
         ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
