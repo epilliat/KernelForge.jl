@@ -75,7 +75,15 @@ function run_gemm_benchmark(name, M, N, K, ::Type{T}) where {T}
     _, vcall = vendor_gemm_baseline(T, A, B)
     rows = NamedTuple[]
     for (method, call) in [
-        ("KernelForge", () -> KF.gemm(A, B)),
+        # Like-for-like output precision. The vendor `A*B` (cuBLAS/rocBLAS) accumulates
+        # in F32 but STORES the input eltype (F16→F16); KF's F16×F16 default returns F32
+        # (higher quality, but 2× the C-write bytes), which unfairly inflated the gap on
+        # memory-bound shapes (`outer`/`tall`). `outT=T` makes KF store `T` too — the
+        # standard mixed-precision GEMM (F16 in, F32 accumulate, F16 out), matching the
+        # vendor byte-for-byte. No-op for F32/F64. KF ALSO offers the F32-out F16 GEMM
+        # (`KF.gemm(A,B)`, its default) at higher quality — not scored here as the vendor
+        # has no matching F32-out F16 mode.
+        ("KernelForge", () -> KF.gemm(A, B; outT = T)),
         (vlabel,        vcall),
     ]
         s = try

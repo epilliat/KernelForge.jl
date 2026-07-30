@@ -191,6 +191,14 @@ need not be associative or commutative either.
   for `Float16`/`BFloat16` and `Int32` for `Int8` (so an `Int8` × `Int8` product
   returns an `Int32` matrix), else the natural map type — in particular `Bool` stays
   `Bool`, which the boolean semiring relies on.
+- `outT=nothing`: OUTPUT (storage) eltype override, independent of the accumulator.
+  Defaults to `Base.promote_op(g, accT)` (the precision-first default: `Float16` ×
+  `Float16` returns a `Float32` matrix). Pass `outT=Float16` for the standard
+  mixed-precision GEMM — F16/BF16 in, `Float32` accumulate, `Float16` store — which
+  keeps the F32-accumulate quality but HALVES the C-write traffic; on memory-bound
+  shapes (short-K `outer`, tall-skinny `tall`) that is a large end-to-end win (RTX1000
+  Ada F16 `outer` 16384²×64: F32-out 2.5× vs cuBLAS → F16-out 1.3×, cuBLAS itself
+  storing F16). Allocating entry points only; `gemm!` takes the eltype from `C`.
 - `family=nothing`: `:generic` (K1, the universal path) | `:mma` (K2 tensor-core) |
   `nothing` (auto). `:mma` is **opt-in** — auto always picks `:generic` — and a
   forced `:mma` on an unsupported config is a loud error, never a silent fallback.
@@ -235,6 +243,10 @@ R = gemm(&, |, CuArray(rand(Bool, 512, 256)), CuArray(rand(Bool, 256, 128)))
 # Tensor cores, opt-in: Float16 inputs accumulating in Float32
 A16 = CuArray(rand(Float16, 2048, 2048)); B16 = CuArray(rand(Float16, 2048, 2048))
 C16 = gemm(A16, B16; family=:mma)
+
+# Mixed-precision store: F32 accumulate, F16 output (matches cuBLAS `A*B`; half the
+# C-write traffic — the win on memory-bound shapes). `C16b` is a Float16 matrix.
+C16b = gemm(A16, B16; family=:mma, outT=Float16)
 ```
 
 See also: [`gemm!`](@ref).
@@ -297,11 +309,17 @@ end
 # ============================================================================
 # Type + parameter resolution
 # ============================================================================
-# (natural map type, accumulation type, output type) for the given f/g/accT.
-@inline function _gemm_types(f::F, g::G, ::Type{TA}, ::Type{TB}, accT) where {F,G,TA,TB}
+# (natural map type, accumulation type, output type) for the given f/g/accT/outT.
+# `outT` forces the OUTPUT (storage) eltype independently of the accumulator: the
+# standard mixed-precision GEMM stages — F16/BF16 in, F32 accumulate (`accT`), F16
+# store (`outT`) — halves the C-write traffic on memory-bound shapes (outer/tall)
+# while keeping the F32-accumulate quality. `nothing` ⇒ derive from `g(AccT)` (the
+# precision-first default; e.g. F16×F16 ⇒ F32 out). The epilogue already casts the
+# AccT accumulator to whatever eltype C carries (`S(g(...))`), so no kernel change.
+@inline function _gemm_types(f::F, g::G, ::Type{TA}, ::Type{TB}, accT, outT=nothing) where {F,G,TA,TB}
     Hnat = Base.promote_op(f, TA, TB)
     AccT = accT === nothing ? _default_acc_type(Hnat) : accT
-    S = Base.promote_op(g, AccT)
+    S = outT === nothing ? Base.promote_op(g, AccT) : outT
     return (Hnat, AccT, S)
 end
 
@@ -335,13 +353,13 @@ end
 function gemm(
     A::AbstractMatrix{TA}, B::AbstractMatrix{TB};
     f::F=*, op::O=+, g::G=identity,
-    tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
+    tA::Symbol=:N, tB::Symbol=:N, accT=nothing, outT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
     PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
-    _, _, S = _gemm_types(f, g, TA, TB, accT)
+    _, _, S = _gemm_types(f, g, TA, TB, accT, outT)
     backend = get_backend(A)
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
@@ -354,13 +372,13 @@ end
 function gemm(
     f::F, op::O,
     A::AbstractMatrix{TA}, B::AbstractMatrix{TB};
-    g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, family=nothing,
+    g::G=identity, tA::Symbol=:N, tB::Symbol=:N, accT=nothing, outT=nothing, family=nothing,
     BM=nothing, BN=nothing, BK=nothing, TM=nothing, TN=nothing,
     WM=nothing, WN=nothing, NWM=nothing, NWN=nothing, WK=nothing,
     PC=nothing, PA=nothing, DB=nothing, ASYNC=nothing, splitk=nothing,
     arch=nothing
 ) where {TA,TB,F<:Function,O<:Function,G<:Function}
-    _, _, S = _gemm_types(f, g, TA, TB, accT)
+    _, _, S = _gemm_types(f, g, TA, TB, accT, outT)
     backend = get_backend(A)
     M, N = _gemm_out_dims(A, B, tA, tB)
     C = KernelAbstractions.allocate(backend, S, M, N)
