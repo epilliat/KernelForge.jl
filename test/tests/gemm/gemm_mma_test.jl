@@ -100,15 +100,16 @@ else
         # generic kernel (launch-overhead-bound tiny products); at/above it auto flips
         # to :mma. Assert the routing DIRECTLY through `_resolve_family` — a numeric
         # test cannot prove which kernel ran, since both families agree bitwise-close
-        # on the same inputs. F16→F32 has a HW path (the outer guard checked it); F32
-        # has none here (see the forced-:mma throw below), so it always stays generic.
+        # on the same inputs. F16→F32 has a HW path (the outer guard checked it); F32's
+        # only tensor path is LOSSY tf32, so auto stays generic regardless of size (the
+        # `_mma_lossy` guard — see the F32 assertion below).
         rf(::Type{T}, M, N, K; knobs=false) where {T} =
             KF._resolve_family(nothing, backend, *, +, T, T, Float32,
                                M, N, K, :N, :N, knobs)[1]
         @test rf(Float16,  32,  32,    32) === :generic   # below the gate → K1
         @test rf(Float16, 512, 512,   512) === :mma       # above the gate → HW MMA
         @test rf(Float16,  64,  64, 16384) === :mma       # deep-K, exactly at the gate (=2^26)
-        @test rf(Float32, 512, 512,   512) === :generic   # no HW F32 path → K1 regardless of size
+        @test rf(Float32, 512, 512,   512) === :generic   # F32 tensor = lossy tf32 → auto stays K1
         @test rf(Float16, 512, 512,   512; knobs=true) === :generic  # generic tile knobs force K1
         # Numeric cross-check: below-gate auto (→generic) agrees with forced generic.
         @test isapprox(Array(KF.gemm(A16, B16)),
@@ -116,8 +117,13 @@ else
         # forced :mma agrees with generic on the same inputs.
         @test isapprox(Array(KF.gemm(A16, B16; family=:mma)),
                        Array(KF.gemm(A16, B16; family=:generic, accT=Float32)); rtol=1f-2)
-        # forced :mma on an unsupported config errors (never silent).
-        @test_throws ErrorException KF.gemm(A32, B32; family=:mma)               # F32: no HW path
+        # forced :mma on F32: the opt-in tf32 path WHERE the toolchain has it (LLVM≥9.8),
+        # else a loud error — never a silent generic fallback.
+        if KF._mma_pick_shape(backend, Float32, Float32) === nothing
+            @test_throws ErrorException KF.gemm(A32, B32; family=:mma)           # no HW F32 path
+        else
+            @test eltype(KF.gemm(A32, B32; family=:mma)) === Float32             # tf32 opt-in
+        end
         @test_throws ErrorException KF.gemm(A16, B16; family=:mma, BM=32)        # generic knobs
     end
 

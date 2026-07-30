@@ -12,6 +12,14 @@ Random123 = "74087812-796a-5b5d-8853-05524746bad3"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
+[compat]
+# Floor at 5.11.3 (→ LLVM.jl ≥ 9.11, ≥ 9.8) so the CI test env exercises the
+# LLVM≥9.8-gated tensor paths — TF32 F32 gemm (`family=:mma`) and the F16 m16n8k16 /
+# ldmatrix mma.sync paths — instead of silently skipping them (the manifest is
+# gitignored, so without this a fresh instantiate's version is only "whatever is
+# newest"). Validated on RTX1000 Ada: full suite green on CUDA 5.11.3 / LLVM 9.11.
+CUDA = "5.11.3"
+
 [sources]
 KernelForge = {path = "../../.."}
 KernelIntrinsics = {path = "../../../../KernelIntrinsics.jl"}
