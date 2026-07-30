@@ -330,6 +330,60 @@ end
 @inline _mma_epi_store!(::Val{NK}, g::G, C, idx, v) where {NK,G} =
     (@atomic C[idx] += v; nothing)
 
+# ── Epilogue copy Ds→C: VECTORISED interior fast path + scalar masked fallback ──
+# The Ds→C copy is ~80% of a rank-short (short-K) GEMM's time (measured, RTX1000 Ada
+# outer 16384²×64: epilogue ≈ 5.4/6.7 ms) and the scalar per-element copy ran at only
+# ~60% of the device write-BW floor. The interior path writes `EPB = 16÷sizeof(S)`
+# contiguous outputs per `KI.vstore!` (one wide store instead of EPB scalar stores),
+# lifting the epilogue toward full write BW — so it helps EVERY epilogue-heavy shape,
+# most on rank-short. Selected per block, warp-uniformly: taken only when the whole
+# block tile is in-bounds (no masking), `M % EPB == 0` (16-byte-aligned column runs),
+# and `NK == 1` (direct write). Edges / misalignment / split-K (NK>1 atomic-add) fall
+# to the byte-identical scalar path. CROSS-ARCH: plain KI vload/vstore! + array
+# indexing over the F32 `Ds` tile and the S-typed `C` — no WMMA/MFMA specifics, so the
+# same win lands on the NVIDIA and AMD MMA paths. Top-level (not a kernel closure) so
+# nothing `g` captures is reassigned — the boxing trap the register-tile note documents.
+@inline function _mma_epi_copy!(::Val{NK}, ::Val{EPB}, g::G, C, Ds, ::Type{S},
+                                brow, bcol, j, BM, BN, DN, Nt, WN, ldD, wg, lid, M, N) where {NK,EPB,G,S}
+    if NK == 1 && EPB > 1 && (M % EPB == 0) && (brow * BM + BM <= M) && (bcol * BN + BN <= N)
+        nrb = BM ÷ EPB
+        p = lid
+        while p <= nrb * DN
+            e   = p - 1
+            rb  = e % nrb
+            cD  = e ÷ nrb
+            wnc = cD ÷ Nt
+            t   = cD % Nt
+            r0  = rb * EPB
+            m0  = brow * BM + r0
+            n   = bcol * BN + wnc * (WN * Nt) + (j - 1) * Nt + t + 1
+            # Read Ds with SCALAR shared loads (fast, and `vload` can't cast the shared
+            # address space) — the win is the ONE wide GLOBAL `vstore!`, not the read.
+            base = cD * ldD + r0
+            vs = ntuple(q -> S(g(@inbounds Ds[base + q])), Val(EPB))   # g + cast to S
+            # Val(false) = idx is the literal element offset, NOT a rebased Nitem-block index.
+            KI.vstore!(C, (n - 1) * M + m0 + 1, vs, Val(false))        # one wide store to C
+            p += wg
+        end
+    else
+        p = lid
+        while p <= BM * DN
+            e   = p - 1
+            r   = e % BM
+            cD  = e ÷ BM
+            wnc = cD ÷ Nt
+            t   = cD % Nt
+            m = brow * BM + r + 1
+            n = bcol * BN + wnc * (WN * Nt) + (j - 1) * Nt + t + 1
+            if m <= M && n <= N
+                _mma_epi_store!(Val(NK), g, C, (n - 1) * M + m, @inbounds Ds[cD * ldD + r + 1])
+            end
+            p += wg
+        end
+    end
+    return nothing
+end
+
 # ── Shared-tile leading dimensions: PADDING kills the bank conflicts ────────
 # The fragment loads read a Mt×Kt (resp. Kt×Nt) sub-block COLUMN-STRIDED out of a
 # col-major shared tile. With an unpadded ld the stride is a power of two, so the
@@ -582,20 +636,8 @@ end
     while j <= WN
         _mma_tile_store_col!(cfg, Ds, wrow0, wcolD, accs, j, Val(WM), Val(WN), Val(Mt))
         @synchronize
-        p = lid
-        while p <= BM * DN
-            e   = p - 1
-            r   = e % BM
-            cD  = e ÷ BM              # 0-based compacted D column
-            wnc = cD ÷ Nt             # which warp-column slot it belongs to
-            t   = cD % Nt             # offset inside that Nt-wide tile
-            m = brow * BM + r + 1
-            n = bcol * BN + wnc * (WN * Nt) + (j - 1) * Nt + t + 1
-            if m <= M && n <= N
-                _mma_epi_store!(Val(NK), g, C, (n - 1) * M + m, @inbounds Ds[cD * ldD + r + 1])
-            end
-            p += wg
-        end
+        _mma_epi_copy!(Val(NK), Val(16 ÷ sizeof(S)), g, C, Ds, S,
+                       brow, bcol, j, BM, BN, DN, Nt, WN, ldD, wg, lid, M, N)
         @synchronize                  # before the next chunk overwrites Ds
         j += 1
     end
