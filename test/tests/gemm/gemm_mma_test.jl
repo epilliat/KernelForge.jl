@@ -322,6 +322,33 @@ else
         end
     end
 
+    @testset "TF32 tensor path (Float32 → tf32, OPT-IN only)" begin
+        # The only NVIDIA F32 tensor path is TF32 (10-bit mantissa) — LOWER precision
+        # than the generic F32 kernel, so it must be opt-in (`family=:mma`) and NEVER
+        # auto-selected. Needs an LLVM≥9.8 env (mma.sync); skipped otherwise.
+        shp = KF._mma_pick_shape(backend, Float32, Float32)
+        if shp === nothing
+            @info "TF32 MMA not available on this device — skipped"
+        else
+            rng = Xoshiro(36)
+            for (M, N, K) in [(64, 64, 64), (200, 137, 71)]   # incl. non-tile-multiple
+                A = rand(rng, Float32, M, K); B = rand(rng, Float32, K, N)
+                C = KF.gemm(AT(A), AT(B); family=:mma)         # opt-in tf32
+                @test eltype(C) === Float32
+                @test Array(C) ≈ A * B rtol=1f-2               # tf32 ~1e-3 — loose tol
+            end
+            # WHITE-BOX: at a shape well past the FLOP gate, AUTO must still route the
+            # LOSSY tf32 path to :generic (full precision), while F16 (non-lossy) auto
+            # picks :mma. This pins the `_mma_lossy` guard, not just a numeric outcome.
+            @test KF._resolve_family(nothing, backend, *, +, Float32, Float32, Float32,
+                                     1024, 1024, 1024, :N, :N, false)[1] === :generic
+            @test KF._resolve_family(:mma, backend, *, +, Float32, Float32, Float32,
+                                     1024, 1024, 1024, :N, :N, false)[1] === :mma
+            @test KF._resolve_family(nothing, backend, *, +, Float16, Float16, Float32,
+                                     1024, 1024, 1024, :N, :N, false)[1] === :mma
+        end
+    end
+
     @testset "mma_shapes sweep — announced F16 shapes" begin
         rng = Xoshiro(32)
         for s in KF.KI.MMA.mma_shapes(backend)

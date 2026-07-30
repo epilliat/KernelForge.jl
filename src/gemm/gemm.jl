@@ -52,6 +52,14 @@ end
 @inline _default_acc_type(::Type{Int8})         = Int32
 @inline _default_acc_type(::Type{H}) where {H}   = H
 
+# Does the (compute-type) tensor path reduce precision vs the generic kernel on the
+# SAME eltype? True for Float32 → the NVIDIA tensor path is TF32 (mantissa truncated
+# to 10 bits, ~1e-3 rel err) — so `family=nothing` (auto) must NOT pick it; it stays
+# opt-in behind `family=:mma`. F16/BF16/F64/Int8 tensor paths match their eltype's
+# precision (F32/Int32 accumulate) → not lossy. A pure predicate on the input eltype.
+@inline _mma_lossy(::Type{Float32}) = true
+@inline _mma_lossy(::Type{T}) where {T} = false
+
 # Pick an MMA (Mt,Nt,Kt) for (CT, AccT) from the device's `mma_shapes` — prefer the
 # square 16×16×16 (most portable). Returns `nothing` when no HW path exists. Never
 # a hardcoded shape table — queried on the live backend.
@@ -83,6 +91,23 @@ function default_gemm_mma_tile(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT}
                                Mt, Nt, Kt) where {CT,AccT}
     W4 = max(1, 64 ÷ Kt)                    # 64-deep K panel
     W2 = max(1, 32 ÷ Kt)                    # 32-deep K panel
+    # TF32 path (Float32 in, m16n8k8 → Mt=16, Nt=8, Kt=8) has a DIFFERENT sweet spot
+    # than F16 (m16n16k16): the scalar tf32 fragment load (no ldmatrix — the b16 wall)
+    # makes it load-bound, so the generic-tile default (WK=8, 256×64) is poor. A hand
+    # sweep at RTX1000 Ada square 2048 found 128×128 / 4-warp / WK=4 (+DB) best:
+    # 2.6 → 4.8 TFLOP/s (2× the generic-F32 kernel; still ~3.5× behind cuBLAS TF32 —
+    # the residual is the load path, an M3 rewrite). Autotune can refine per shape.
+    # `WK=32÷Kt=4`, a 32-deep panel that keeps the doubled (DB) tile inside the cap.
+    if CT === Float32
+        if M >= 16Mt && N >= 16Nt
+            return (4, 8, 2, 2, W2)         # 128×128×32, 4 warps  (square/large)
+        elseif M >= 4Mt && N >= 4Nt
+            return (2, 4, 2, 2, W2)         # 64×64×32, 4 warps
+        elseif M >= 2Mt && N >= 2Nt
+            return (1, 2, 2, 2, W2)         # 32×32×32, 4 warps
+        end
+        return (1, 1, 1, 1, W2)
+    end
     if M >= 64Mt && N >= 64Nt
         return (2, 4, 8, 2, W4)             # 256×128×64, 16 warps, 32×64 per warp
     elseif M >= 16Mt && N >= 16Nt
@@ -111,7 +136,13 @@ end
 # the resolver default only where sensible — here we simply return false.
 function default_gemm_mma_db(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT},
                              BM, BN, BK, DN, PC, PA, cap) where {CT,AccT}
-    return false
+    # TF32 (Float32) is load-bound (scalar fragment loads), so the cp.async + DB
+    # overlap of global→shared staging pays — unlike the F16 default tiers, whose
+    # deep-K panels already amortize staging. Enable DB for the tf32 path only when
+    # the DOUBLED tile fits the device cap (else the resolver assert would fire);
+    # every other path keeps the measured-wash OFF default.
+    CT === Float32 || return false
+    return _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, 2) <= cap
 end
 
 # ── cp.async global→shared staging (`ASYNC` knob) ───────────────────────────
@@ -205,7 +236,14 @@ need not be associative or commutative either.
   K2 needs plain (`*`,`+`), `eltype(A) === eltype(B)`, and a (compute, accumulate)
   pair the device announces via `KI.MMA.mma_shapes`: `Float16`/`BFloat16` → `Float32`,
   plus `Float64` (CDNA3 MFMA 16×16×4) and `Int8` → `Int32` where the hardware has
-  them. The silicon implements one fixed multiply-add, so a custom `(f, op)` can never
+  them, and `Float32` → **TF32** (NVIDIA sm_80+, m16n8k8, needs an LLVM≥9.8 toolchain).
+  ⚠️ The F32 tensor path is TF32 — a 10-bit mantissa (~1e-3 rel err), LOWER precision
+  than the generic F32 kernel — so it is **opt-in ONLY**: `family=nothing` (auto) never
+  selects it (it stays full-precision K1), and you get tf32 only by asking for
+  `family=:mma` explicitly. On RTX1000 Ada it is ~1.9× the generic F32 kernel (2.3→4.3
+  TFLOP/s at 2048³, closing KF-vs-cuBLAS-SGEMM from 3.0× to 1.4×; still behind cuBLAS's
+  own TF32 — the residual is the scalar tf32 fragment load, tf32 cannot use `ldmatrix`).
+  The silicon implements one fixed multiply-add, so a custom `(f, op)` can never
   be hardware-accelerated — every such call correctly runs K1. K2 vs K1 on RTX1000 Ada,
   F16 square: 0.90× @256, 2.97× @512, 5.81× @1024, 6.53× @2048, 7.49× @4096 (~10.3
   TFLOP/s at 2048³ ≈ 54% of cuBLAS on the same part) — that small-size crossover is
@@ -475,7 +513,13 @@ function _resolve_family(family, backend, f::F, op::O,
     # cross-arch heuristic (crossover sits between 256³ and 512³); a future per-arch
     # autotune gate can refine it. Generic tile knobs (BM/BN/…) still force generic.
     if family === nothing
-        use_mma = ok && !user_generic_knobs && (Float64(M) * N * K >= MMA_AUTO_FLOP_GATE)
+        # NEVER auto-select a LOSSY tensor path. For Float32 the only NVIDIA tensor
+        # path is TF32 (10-bit mantissa, ~1e-3 rel err) — genuinely lower precision
+        # than the generic F32 kernel, so it must stay OPT-IN (`family=:mma`), matching
+        # the precision-first default the rest of the API follows. F16/BF16 tensor is
+        # NOT lossy (F32 accumulate = the natural full path) so auto stays on for them.
+        use_mma = ok && !user_generic_knobs && !_mma_lossy(TA) &&
+                  (Float64(M) * N * K >= MMA_AUTO_FLOP_GATE)
         return use_mma ? (:mma, shape) : (:generic, nothing)
     end
     if family === :mma
