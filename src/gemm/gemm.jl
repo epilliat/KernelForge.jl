@@ -140,6 +140,17 @@ function default_gemm_mma_async(::AbstractArch, M, N, K, ::Type{CT}, ::Type{AccT
     return true
 end
 
+# ── L2-aware threadblock swizzle group width (GSW) ──────────────────────────
+# The block→output-tile mapping in `gemm_mma_kernel!` iterates GSW consecutive
+# block-ROWS while sweeping ALL block-COLS, so a group's B column-tiles stay resident
+# in L2 across those rows — cutting DRAM re-reads once A/B exceed the L2 (the classic
+# CUTLASS threadblock swizzle). MEASURED (RTX1000 Ada, F16): square 4096 (A/B=32 MB
+# each ≫ L2) 6333→4760 µs = 1.33×, from 1.22× behind cuBLAS to BEATING it (0.93×);
+# NEUTRAL where A/B fit L2 (square 2048) and on rank-short/skinny (outer/tall). GSW=1
+# disables grouping. A flat 8 regressed nothing measured; a per-arch/size autotune knob
+# can refine it (cross-arch: pure index math, no backend specifics).
+default_gemm_swizzle(::AbstractArch, M, N, K) = 8
+
 # ============================================================================
 # Public API docstrings
 # ============================================================================
@@ -683,6 +694,7 @@ function _gemm_launch_mma!(
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
+    gsw = default_gemm_swizzle(arch, M, N, K)::Int
 
     if NK == 1
         ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
@@ -691,7 +703,7 @@ function _gemm_launch_mma!(
             g, C, A, B, layA, layB, cfg,
             Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
             Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-            Val(p.DB), Val(styleA), Val(styleB), Val(1), AccT, M, N, K;
+            Val(p.DB), Val(styleA), Val(styleB), Val(1), AccT, M, N, K, gsw;
             ndrange = ndrange, shmem = p.shmem,
         )
         return C
@@ -707,7 +719,7 @@ function _gemm_launch_mma!(
         g, Cacc, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), Val(styleA), Val(styleB), Val(NK), AccT, M, N, K;
+        Val(p.DB), Val(styleA), Val(styleB), Val(NK), AccT, M, N, K, gsw;
         ndrange = ndrange, shmem = p.shmem,
     )
     nC = M * N

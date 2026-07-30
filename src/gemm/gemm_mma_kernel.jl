@@ -453,7 +453,7 @@ end
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
     ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK},
     ::Type{AccT},
-    M::Int, N::Int, K::Int
+    M::Int, N::Int, K::Int, GSW::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
          Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,AccT}
     @uniform begin
@@ -491,10 +491,20 @@ end
     lid  = Int(@index(Local))
     gid  = Int(@index(Group))
     blk  = gid - 1                # 0-based (block-row, block-col, k-slice) index
-    brow = blk % nbx             # 0-based block-row
-    t2   = blk ÷ nbx
-    bcol = t2 % nby              # 0-based block-col
-    ksl  = t2 ÷ nby              # 0-based K-slice (always 0 when NK==1)
+    ksl  = blk ÷ (nbx * nby)     # 0-based K-slice (always 0 when NK==1)
+    b2   = blk % (nbx * nby)     # block within this k-slice's C plane
+    # L2-aware threadblock swizzle: iterate GSW consecutive block-ROWS, sweeping ALL
+    # block-COLS within the group before the next group — so the group's B column-tiles
+    # stay resident in L2 across the GSW rows (a large win once A/B exceed L2, neutral
+    # when they fit). GSW=1 reduces to a plain bcol-fastest raster. Set by
+    # `default_gemm_swizzle`.
+    bpg  = GSW * nby
+    grp  = b2 ÷ bpg
+    br0  = grp * GSW
+    rows = min(GSW, nbx - br0)
+    iig  = b2 - grp * bpg
+    brow = br0 + iig % rows       # 0-based block-row
+    bcol = iig ÷ rows             # 0-based block-col
     ktlo = ksl * pps             # first K panel this slice owns …
     kthi = min(ktlo + pps, nkt)  # … one past its last (NK==1 ⇒ 0 … nkt)
     warp = (lid - 1) ÷ WS         # 0-based warp id within the block
