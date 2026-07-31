@@ -626,7 +626,7 @@ end
 # `shmem` comes from the ONE pure sizing fn the kernel also uses.
 function resolve_gemm_mma_parameters(
     arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
-    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB
+    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
     # Autotuned knobs (per shape-regime × dtype from `<arch>_gemm.jl`) sit BETWEEN the
@@ -653,7 +653,7 @@ function resolve_gemm_mma_parameters(
     dDB = default_gemm_mma_db(arch, M, N, K, CT, AccT, BM, BN, BK, DN, PC, PA,
                               KI.max_dynamic_localmem(backend))
     DB = something(DB, _t(:DB), dDB)::Bool
-    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1)
+    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1, ldm)
     cap = KI.max_dynamic_localmem(backend)
     @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
     return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
@@ -750,12 +750,21 @@ function _gemm_launch_mma!(
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
     cfg = KI.MMA.MMAConfig{Mt,Nt,Kt,CT,AccT}()
+    # ldmatrix tf32 fragment-load path (m16n8k8) — OPT-IN, OFF by default. MEASURED a
+    # net LOSS for NN (ColMajor A): ldmatrix needs a K-contiguous A tile, which forces a
+    # TRANSPOSED stage (strided shared writes) whose cost exceeds the ldmatrix load
+    # saving. The scalar path stages A M-contiguously (coalesced) and wins. The load
+    # lever IS real in isolation (1.7×) and would help TN (RowMajor A, coalesced K-contig
+    # stage — no transpose), so the validated path is kept behind `KF_LDM` for that
+    # future case, not enabled as a default. See project_gemm_mma_sync_ldmatrix memory.
+    ldm = (CT === Float32) && (Mt == 16 && Nt == 8 && Kt == 8) && KI.ldmatrix_supported(backend) &&
+          haskey(ENV, "KF_LDM")
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
-                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB)
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm)
     style = KI.async_copy_style(backend)
     dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT) &&
              _staging_worthwhile(style, M, N, K, p.BM, p.BN, num_sms(backend))
-    asyncflag = something(ASYNC, dASYNC)::Bool
+    asyncflag = ldm ? false : something(ASYNC, dASYNC)::Bool
     styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
@@ -771,7 +780,7 @@ function _gemm_launch_mma!(
             g, C, A, B, layA, layB, cfg,
             Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
             Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-            Val(p.DB), Val(styleA), Val(styleB), Val(1), AccT, M, N, K, gsw;
+            Val(p.DB), Val(styleA), Val(styleB), Val(1), Val(ldm), AccT, M, N, K, gsw;
             ndrange = ndrange, shmem = p.shmem,
         )
         return C
@@ -787,7 +796,7 @@ function _gemm_launch_mma!(
         g, Cacc, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), Val(styleA), Val(styleB), Val(NK), AccT, M, N, K, gsw;
+        Val(p.DB), Val(styleA), Val(styleB), Val(NK), Val(ldm), AccT, M, N, K, gsw;
         ndrange = ndrange, shmem = p.shmem,
     )
     nC = M * N

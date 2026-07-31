@@ -293,6 +293,64 @@ end
     end
 end
 
+# ── ldmatrix fragment-load path (tf32 m16n8k8 only; `LDM` compile-time branch) ──
+# Replaces the scalar per-lane fragment packing with a warp-collective `ldmatrix.x4`
+# (KI.MMA.load_a_ldm/load_b_ldm), the 1.7× load lever. It needs a K-CONTIGUOUS A tile
+# — `_stage_a_mma_ldm!` stages A that way (ld = BK, no pad) INTO the same `As` blob
+# (BM·BK ≤ (BM+PC)·BK, so it fits with no shmem/decl change). B's existing ColMajor
+# `Bs` is already K-contiguous ⇒ reused as-is (ld = ldB). Both fragment lanes are
+# bit-exact vs the scalar oracle (KI test/tests/mma_sync_ldm.jl).
+#
+# `Aptr`/`Bptr` are the buffer-base shared pointers; (m0w,n0w) the warp's 0-based
+# sub-tile origin, k0 the 0-based k-step column. ldkA = BK (A, no pad), ldkB = ldB (B).
+@inline function _mma_tile_step_ldm(cfg, Aptr, Bptr, m0w, n0w, k0, ldkA, ldkB, accs,
+                                    ::Val{WM}, ::Val{WN}, ::Val{Mt}, ::Val{Nt}) where {WM,WN,Mt,Nt}
+    af = ntuple(i -> KI.MMA.load_a_ldm(cfg, Aptr, m0w + (i - 1) * Mt, k0, ldkA), Val(WM))
+    bf = ntuple(j -> KI.MMA.load_b_ldm(cfg, Bptr, k0, n0w + (j - 1) * Nt, ldkB), Val(WN))
+    return ntuple(Val(WM * WN)) do l
+        i = (l - 1) % WM + 1
+        j = (l - 1) ÷ WM + 1
+        KI.MMA.mma(cfg, af[i], bf[j], accs[l])
+    end
+end
+
+# K-contiguous A staging for the ldmatrix path: destination element (m,k) at
+# `sh0 + m*BK + k` (ld = BK). ColMajor A (NN): iterate m-inner ⇒ COALESCED global
+# read `A[(k-1)M+m]` (strided shared write). RowMajor A (TN): iterate k-inner ⇒
+# coalesced global read `A[(m-1)K+k]`. Edge tiles zero-fill (MMA consumes full slices).
+# `ldk` = A row stride in the K-contiguous tile. Padding it to break the power-of-2
+# (BK is a power of two for the tf32 tile ⇒ a BK stride puts consecutive M-rows in the
+# SAME shared bank → conflicts on both this write and the ldmatrix read). ldk = BK+1
+# de-phases the rows and still fits the As blob exactly (BM·(BK+1) = (BM+PC)·BK here).
+@inline function _stage_a_mma_ldm!(As, A, ::ColMajor, brow, kt, M, K, lid, wg, sh0, ldk,
+                                   ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    p = lid
+    while p <= BM * BK
+        e = p - 1
+        row = e % BM           # m (inner) → coalesced global read
+        kk  = e ÷ BM           # k
+        m = brow * BM + row + 1
+        k = kt * BK + kk + 1
+        @inbounds As[sh0 + row * ldk + kk + 1] = (m <= M && k <= K) ? @inbounds(A[(k - 1) * M + m]) : z
+        p += wg
+    end
+end
+@inline function _stage_a_mma_ldm!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, sh0, ldk,
+                                   ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    p = lid
+    while p <= BM * BK
+        e = p - 1
+        kk  = e % BK           # k (inner) → coalesced global read (RowMajor A is K-contig)
+        row = e ÷ BK           # m
+        m = brow * BM + row + 1
+        k = kt * BK + kk + 1
+        @inbounds As[sh0 + row * ldk + kk + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
+        p += wg
+    end
+end
+
 # Spill ONE accumulator COLUMN (`jsel`) of the warp's grid into the shared D-tile.
 #
 # The epilogue runs in WN column CHUNKS so the D-tile is `BM × NWN·Nt`, not
@@ -429,18 +487,24 @@ end
 @inline _align16(nbytes) = ((nbytes + 15) ÷ 16) * 16
 # `NB` = number of shared buffers (1 single-, 2 double-buffered). With NB=1 both
 # expressions below reduce EXACTLY to the pre-DB layout, byte for byte.
+# `_gemm_mma_ldm_lda(BK)` = the K-contiguous A leading dim for the ldmatrix path:
+# BK + 4 (Float32 tile). +4 keeps the row-start 16-byte aligned (ldmatrix.x4 needs it
+# — a non-multiple-of-4 stride device-traps MISALIGNED) AND de-phases the shared banks
+# (a pow2 BK stride serialises the reads). A K-contig A tile (BM rows) at this ld is
+# LARGER than the M-contig (BM+PC)×BK tile, so the shmem sizing must know `ldm`.
+@inline _gemm_mma_ldm_lda(BK) = BK + 4
 @inline function _gemm_mma_shmem(::Type{CT}, ::Type{AccT}, BM, BN, BK, DN, PC, PA,
-                                 NB::Int=1) where {CT,AccT}
+                                 NB::Int=1, ldm::Bool=false) where {CT,AccT}
     # As and Bs are each ONE array of NB·(BK resp. BN) columns, so the buffers are
     # separated by a plain column stride — the 16-byte round-up applies once, to
     # the whole As blob, never between buffers (padding between them would desync
     # the element-offset `sh0` the kernel uses to address buffer `p`).
-    ab = _gemm_mma_off_b(CT, BM, BK, PC, NB) + (BK + PC) * BN * NB * sizeof(CT)
+    ab = _gemm_mma_off_b(CT, BM, BK, PC, NB, ldm) + (BK + PC) * BN * NB * sizeof(CT)
     d  = (BM + PA) * DN * sizeof(AccT)
     return max(ab, d)
 end
-@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1) where {CT} =
-    _align16((BM + PC) * BK * NB * sizeof(CT))
+@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1, ldm::Bool=false) where {CT} =
+    _align16((ldm ? _gemm_mma_ldm_lda(BK) * BM : (BM + PC) * BK) * NB * sizeof(CT))
 
 @kernel unsafe_indices = true function gemm_mma_kernel!(
     g::G,
@@ -451,11 +515,11 @@ end
     cfg::CFG,
     ::Val{Mt}, ::Val{Nt}, ::Val{Kt}, ::Val{WS},
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
-    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK},
+    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK}, ::Val{LDM},
     ::Type{AccT},
     M::Int, N::Int, K::Int, GSW::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
-         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,AccT}
+         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,LDM,AccT}
     @uniform begin
         # `ASYNC` gates the cp.async commit/wait scaffolding: emit it only when at
         # least one operand actually stages asynchronously, else the pipeline ops
@@ -476,15 +540,22 @@ end
         ldA = BM + PC             # padded leading dims — see `default_mma_pad`
         ldB = BK + PC
         ldD = BM + PA
+        # LDM (ldmatrix tf32) A tile is K-contiguous, ld = BK+4 (16-byte aligned for
+        # ldmatrix.x4 + bank-de-phased); its blob is sized by `_gemm_mma_off_b(…, LDM)`.
+        ldLdmA = _gemm_mma_ldm_lda(BK)
         NB  = DB ? 2 : 1          # shared buffers (see the DOUBLE BUFFERING note)
-        offB = _gemm_mma_off_b(CT, BM, BK, PC, NB)
+        offB = _gemm_mma_off_b(CT, BM, BK, PC, NB, LDM)
     end
 
     # 2D tiles — ld = size(·,1) is what the fragment loads consume (W2-ld), and it
     # is INDEPENDENT of NB: widening the tile adds columns, so the fragment loads
     # are bit-identical and buffer `p` is reached by a pure column offset.
-    # Ds aliases As/Bs at offset 0 (both dead after the K-loop).
-    As = KI.@dynlocalmem CT (ldA, BK * NB) 0
+    # Ds aliases As/Bs at offset 0 (both dead after the K-loop). LDM stages A
+    # K-contiguously (ld = ldLdmA) and reads it via a raw pointer, so it declares As
+    # 1-D (bigger blob, sized into `offB`); the scalar path keeps the 2-D tile its
+    # `load_a` indexes. LDM is a compile-time `Val` ⇒ exactly one branch is emitted.
+    As = LDM ? KI.@dynlocalmem(CT, (ldLdmA * BM * NB,), 0) :
+               KI.@dynlocalmem(CT, (ldA, BK * NB), 0)
     Bs = KI.@dynlocalmem CT (ldB, BN * NB) offB
     Ds = KI.@dynlocalmem AccT (ldD, DN) 0
 
@@ -573,32 +644,63 @@ end
             end
             @synchronize                # fences As/Bs before Ds reuses the blob
         else
-            _stage_a_mma!(As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-            _stage_b_mma!(Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
-            pb = 0
-            kt = ktlo
-            while kt < kthi
+            if LDM
+                # tf32 ldmatrix DB path: K-contiguous A buffers at linear offset
+                # `qb*BM*BK` (no pad — fits As), B reused ColMajor at `qb*BN*ldB`;
+                # warp-collective ldmatrix loads read buffer `pb` via a base pointer.
+                _stage_a_mma_ldm!(As, A, layA, brow, ktlo, M, K, lid, wg, 0, ldLdmA, Val(BM), Val(BK))
+                _stage_b_mma!(Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                pb = 0
+                kt = ktlo
+                while kt < kthi
+                    @synchronize
+                    qb = 1 - pb
+                    if kt + 1 < kthi
+                        _stage_a_mma_ldm!(As, A, layA, brow, kt + 1, M, K, lid, wg,
+                                          qb * BM * ldLdmA, ldLdmA, Val(BM), Val(BK))
+                        _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                                      qb * BN * ldB, Val(BK), Val(BN))
+                    end
+                    Aptr = pointer(As, pb * BM * ldLdmA + 1)
+                    Bptr = pointer(Bs, pb * BN * ldB + 1)
+                    ks = 0
+                    while ks < WK
+                        accs = _mma_tile_step_ldm(cfg, Aptr, Bptr, wrow0 - 1, wcol0 - 1, ks * Kt,
+                                                  ldLdmA, ldB, accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                        ks += 1
+                    end
+                    pb = qb
+                    kt += 1
+                end
                 @synchronize
-                qb = 1 - pb
-                if kt + 1 < kthi
-                    _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
-                                  qb * BK * ldA, Val(BM), Val(BK))
-                    _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
-                                  qb * BN * ldB, Val(BK), Val(BN))
+            else
+                _stage_a_mma!(As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_b_mma!(Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                pb = 0
+                kt = ktlo
+                while kt < kthi
+                    @synchronize
+                    qb = 1 - pb
+                    if kt + 1 < kthi
+                        _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
+                                      qb * BK * ldA, Val(BM), Val(BK))
+                        _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                                      qb * BN * ldB, Val(BK), Val(BN))
+                    end
+                    koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
+                    wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
+                    ks = 0
+                    while ks < WK
+                        accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                                              koffA0 + ks * Kt, ks * Kt + 1, accs,
+                                              Val(WM), Val(WN), Val(Mt), Val(Nt))
+                        ks += 1
+                    end
+                    pb = qb
+                    kt += 1
                 end
-                koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
-                wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
-                ks = 0
-                while ks < WK
-                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
-                                          koffA0 + ks * Kt, ks * Kt + 1, accs,
-                                          Val(WM), Val(WN), Val(Mt), Val(Nt))
-                    ks += 1
-                end
-                pb = qb
-                kt += 1
+                @synchronize                # fences As/Bs before Ds reuses the blob
             end
-            @synchronize                # fences As/Bs before Ds reuses the blob
         end
     else
         if ASYNC
@@ -619,19 +721,43 @@ end
                 kt += 1
             end
         else
-            kt = ktlo
-            while kt < kthi
-                _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-                _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
-                @synchronize
-                ks = 0
-                while ks < WK
-                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
-                                          accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
-                    ks += 1
+            # NOTE: nested `if LDM` (NOT `elseif`) — KA's kernel-split can't handle an
+            # `elseif` whose body contains `@synchronize` (the block-wrapped condition →
+            # `unblock` → bare Symbol → `is_scope_construct(::Symbol)`). Keep it nested.
+            if LDM
+                # tf32 ldmatrix path (single-buffered): K-contiguous A stage (ld=BK, no
+                # pad, fits the As blob), B reused ColMajor, warp-collective ldmatrix loads.
+                kt = ktlo
+                while kt < kthi
+                    _stage_a_mma_ldm!(As, A, layA, brow, kt, M, K, lid, wg, 0, ldLdmA, Val(BM), Val(BK))
+                    _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                    @synchronize
+                    Aptr = pointer(As, 1)
+                    Bptr = pointer(Bs, 1)
+                    ks = 0
+                    while ks < WK
+                        accs = _mma_tile_step_ldm(cfg, Aptr, Bptr, wrow0 - 1, wcol0 - 1, ks * Kt,
+                                                  ldLdmA, ldB, accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                        ks += 1
+                    end
+                    @synchronize            # also fences As/Bs before Ds reuses the blob
+                    kt += 1
                 end
-                @synchronize            # also fences As/Bs before Ds reuses the blob
-                kt += 1
+            else
+                kt = ktlo
+                while kt < kthi
+                    _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                    _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                    @synchronize
+                    ks = 0
+                    while ks < WK
+                        accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
+                                              accs, Val(WM), Val(WN), Val(Mt), Val(Nt))
+                        ks += 1
+                    end
+                    @synchronize            # also fences As/Bs before Ds reuses the blob
+                    kt += 1
+                end
             end
         end
     end
