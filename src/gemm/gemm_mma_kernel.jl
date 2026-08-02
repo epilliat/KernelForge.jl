@@ -72,6 +72,11 @@ end
                                ::Val{BM}, ::Val{BK}) where {BM,BK}
     # Contiguous SHARED write `As[p]`; the transposed source makes the GLOBAL read
     # scattered (A stored K×M, Aop[m,k] = A[(m-1)*K+k]).
+    # NOTE: swapping to k-inner (coalesced global, strided shared write) — "Level A" —
+    # helps most shapes (square TT 5.4→2.7×) but REGRESSES B-heavy shapes (B_thin
+    # NT/TT ~2× worse) because the strided shared write bank-conflicts (16-way at
+    # ldB=40). The clean fix is a K-contiguous shared tile ("Level B", see
+    # ~/.claude/plans/gemm_shapes_transpose_optimization.md). Kept the safe order.
     z = zero(eltype(As))
     p = lid
     while p <= BM * BK
@@ -100,6 +105,10 @@ end
 end
 @inline function _stage_b_mma!(Bs, B, ::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
                                ::Val{BK}, ::Val{BN}) where {BK,BN}
+    # k-inner keeps the SHARED write contiguous; the RowMajor source makes the GLOBAL
+    # read scattered. n-inner ("Level A") coalesces the global read but its strided
+    # shared write bank-conflicts catastrophically on B-heavy shapes (B_thin NT/TT
+    # ~2× worse) — see `_stage_a_mma!(RowMajor)` note + the Level-B plan.
     z = zero(eltype(Bs))
     p = lid
     while p <= BK * BN

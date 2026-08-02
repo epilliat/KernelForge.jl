@@ -470,11 +470,28 @@ end
 end
 
 # Output (M, N) of the logical product opA(A) * opB(B), honouring transpose flags.
+# NOTE: a lazy `Adjoint`/`Transpose` wrapper reports its LOGICAL dims (`size(A',1)`
+# already accounts for the flip), so this is correct on wrappers too — the C
+# allocation in the `gemm` methods stays right even before `_norm_operand` unwraps.
 @inline function _gemm_out_dims(A, B, tA::Symbol, tB::Symbol)
     M = tA === :N ? size(A, 1) : size(A, 2)
     N = tB === :N ? size(B, 2) : size(B, 1)
     return (M, N)
 end
+
+# ── Adjoint/Transpose wrapper support ───────────────────────────────────────
+# `gemm(A', B)` / `gemm(transpose(A), B)` must be correct: a lazy wrapper cannot be
+# fed to the kernel as-is (it would be read as its col-major PARENT, i.e. wrong).
+# `_norm_operand` unwraps the wrapper to its bare parent and COMPOSES the implied
+# transpose with the caller's explicit `tA`/`tB` flag (so a wrapper AND a flag stack
+# correctly). Reals: adjoint ≡ transpose. Complex adjoint would need conjugation
+# (`:C`), which `_gemm_layout` rejects until complex is supported — a clean error.
+@inline _flip_flag(s::Symbol) = s === :N ? :T : (s === :T ? :N : s)   # :C passes through
+@inline _norm_operand(A::AbstractMatrix, flag::Symbol) = (A, flag)
+@inline _norm_operand(A::Transpose, flag::Symbol) = (parent(A), _flip_flag(flag))
+@inline _norm_operand(A::Adjoint, flag::Symbol) =
+    eltype(A) <: Real ? (parent(A), _flip_flag(flag)) :
+                        (parent(A), flag === :N ? :C : :C)   # conj-transpose → :C (errors)
 
 # Pick the compute family. `:mma` iff plain (*,+), matching CT=TA=TB with a HW MMA
 # path for (CT, AccT), and the output is at least one MMA tile. Explicit generic
@@ -536,7 +553,20 @@ function _resolve_family(family, backend, f::F, op::O,
     return (:mma, shape)
 end
 
+# Normalise lazy Adjoint/Transpose operands into bare parents + composed flags, THEN
+# dispatch to the impl on the bare array types (so the impl stays type-specialised).
 function _gemm_entry!(
+    f::F, op::O, g::G, C::AbstractMatrix, A::AbstractMatrix, B::AbstractMatrix,
+    tA::Symbol, tB::Symbol, accT, family,
+    BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch
+) where {F,O,G}
+    A2, tA2 = _norm_operand(A, tA)
+    B2, tB2 = _norm_operand(B, tB)
+    _gemm_entry_impl!(f, op, g, C, A2, B2, tA2, tB2, accT, family,
+                      BM, BN, BK, TM, TN, WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, arch)
+end
+
+function _gemm_entry_impl!(
     f::F, op::O, g::G,
     C::AbstractMatrix{S},
     A::AbstractMatrix{TA},

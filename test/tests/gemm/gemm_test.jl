@@ -6,6 +6,8 @@
 # battery of non-tile-multiple / degenerate edge shapes exercised under
 # `--check-bounds=yes` (Pkg.test default). Phase 1 = NN only.
 
+using LinearAlgebra: adjoint, transpose
+
 # ── local isbits struct eltype (top-level so `struct` is legal) ──────────────
 struct GVec2
     a::Float32
@@ -189,6 +191,30 @@ const GEMM_SHAPES = [
             C = KF.gemm(AT(Astore), AT(Bstore); tA, tB)
             rtol = S === Float32 ? 1f-3 : 1e-10
             @test isapprox(Array(C), ref; rtol)
+        end
+    end
+
+    # ── Adjoint/Transpose wrapper dispatch: gemm(A', B) ≡ gemm(A, B; tA=:T) ──────
+    # A lazy Adjoint/Transpose operand must unwrap to its bare parent + the composed
+    # transpose flag (reals: adjoint ≡ transpose). Checked vs the CPU product.
+    @testset "Adjoint/Transpose wrapper operands" begin
+        rng = Xoshiro(23)
+        shapes = [(3, 3, 3), (65, 63, 9), (100, 80, 40), (257, 129, 33)]
+        for S in (Float32, Float64), (M, N, K) in shapes
+            Ann = rand(rng, S, M, K); Bnn = rand(rng, S, K, N)   # logical operands
+            Akm = rand(rng, S, K, M); Bnk = rand(rng, S, N, K)   # parents for '/transpose
+            rtol = S === Float32 ? 1f-3 : 1e-10
+            cases = (
+                (AT(Akm)',            AT(Bnn),             permutedims(Akm) * Bnn),
+                (AT(Ann),             AT(Bnk)',            Ann * permutedims(Bnk)),
+                (AT(Akm)',            AT(Bnk)',            permutedims(Akm) * permutedims(Bnk)),
+                (transpose(AT(Akm)),  AT(Bnn),             permutedims(Akm) * Bnn),
+                (AT(Ann),             transpose(AT(Bnk)),  Ann * permutedims(Bnk)),
+            )
+            for (Aw, Bw, ref) in cases
+                C = KF.gemm(Aw, Bw)
+                @test isapprox(Array(C), S === Float32 ? Float64.(ref) : ref; rtol)
+            end
         end
     end
 

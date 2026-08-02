@@ -6,6 +6,7 @@ import KernelIntrinsics as KI
 using KernelAbstractions
 using KernelAbstractions: adapt
 using Atomix: @atomicreplace, @atomic
+using LinearAlgebra: Adjoint, Transpose
 
 
 #========== Helpers =============#
