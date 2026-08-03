@@ -752,6 +752,22 @@ end
 # non-regressing on RTX1000 Ada before shipping).
 const GEMM_STAGING_KMIN = 1024
 
+# Gate for the coalesced (`:coal`) staging of a RowMajor **B** operand. `:coal` trades
+# B's scattered global read for a strided SHARED write (bank conflict); the conflict is
+# paid over B's whole staging footprint ~ N·K (M-independent — verified: a tinyM..M=512
+# sweep at N=K=8192 all regressed equally). So coal-B WINS unless N AND K are BOTH large
+# and LOSES when they are. RTX1000 Ada (xp/gemm/rewrite/phase1_coal*, 2026-08-03):
+#   WIN  square(N=K=2048), tall(128-256), band(N≤16384 @ K=2048), deepK(K=16384 @
+#        N=2048), inner(N≥128, K≤131072), outer(N=8192, K=64)
+#   LOSS N=K=8192 (1.65-1.99× over scatter, any M), N=K=16384, N=64 @ K≥8192 (A_thin
+#        1.29-1.37×), N=32 (tiny-N masking).
+# ⇒ ON iff N ≥ GEMM_COAL_NMIN AND min(N,K) ≤ GEMM_COAL_MINKN. The N floor (128) rejects
+# the small-N × large-K masking corner (N=64 wins at K=2048 but loses at K≥8192, N=128
+# wins even at K=65536); the min(N,K) cap rejects the both-large footprint corner. coal-A
+# has no such corner (safe unconditionally) so only B is gated. Kin to `_default_splitk`.
+const GEMM_COAL_NMIN  = 128
+const GEMM_COAL_MINKN = 4096
+
 # Is global→shared staging worth its fixed per-K-panel setup cost for this shape? The
 # answer is STYLE-DEPENDENT — the two hardware primitives have very different cost
 # curves (measured, not assumed):
@@ -797,6 +813,24 @@ function _gemm_launch_mma!(
     asyncflag = ldm ? false : something(ASYNC, dASYNC)::Bool
     styleA, styleB = _gemm_async_flags(backend, CT, layA, layB, M, N, K,
                                        p.BM, p.BK, p.PC, asyncflag)
+    # Transpose staging gate (Phase 1, RTX1000-validated 2026-08-03). A RowMajor operand
+    # can't be served by cp.async (it is transposed in global) so it falls to register
+    # staging; the `:coal` variant coalesces its global read into a BIT-IDENTICAL shared
+    # tile (k/n-inner loop) — a clean win except where measured to regress:
+    #   • coal-A (RowMajor A): unconditionally safe (win/wash across M,N,K) → always on.
+    #   • coal-B (RowMajor B): loses when N,K are BOTH large (footprint bound) or N tiny →
+    #     on iff N ≥ GEMM_COAL_NMIN AND min(N,K) ≤ GEMM_COAL_MINKN.
+    # ColMajor operands are untouched (keep their `_gemm_async_flags` style), so the
+    # NN / ColMajor staging path stays byte-identical. `KF_GEMM_STAGE` overrides for
+    # benchmarking: `coal` forces coal on both RowMajor operands, `scatter` forces the
+    # old scatter path on both.
+    coalmode = get(ENV, "KF_GEMM_STAGE", "")
+    if coalmode != "scatter"
+        forceB = coalmode == "coal"
+        coalBok = N >= GEMM_COAL_NMIN && min(N, K) <= GEMM_COAL_MINKN
+        styleA = (layA isa RowMajor) ? :coal : styleA
+        styleB = (layB isa RowMajor && (forceB || coalBok)) ? :coal : styleB
+    end
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
     nbx = cld(M, p.BM); nby = cld(N, p.BN)

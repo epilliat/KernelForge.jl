@@ -274,14 +274,68 @@ end
                           vBK::Val, vBN::Val) =
     _stage_b_mma!(Bs, B, lay, bcol, kt, K, N, lid, wg, ldB, sh0, vBK, vBN)
 
-# Compile-time dispatch between register (`:none`), cp.async (`:cpasync`) and
-# buffer_load_lds (`:buffer`) staging; the host picks the per-operand style.
+# ── Level-A coalesced-global RowMajor staging (`:coal` variant) ─────────────
+# Drop-in alternative to the scatter `_stage_*_mma!(RowMajor)`: produces the
+# BIT-IDENTICAL shared tile (same M-contig `As[sh0+kk*ldA+row+1]` / K-contig
+# `Bs[sh0+col*ldB+kk+1]` layout, so the ColMajor fragment load is UNCHANGED) but
+# iterates k-INNER (A) / n-INNER (B), coalescing the GLOBAL read at the cost of a
+# strided SHARED write. Helps square/tall/outer transpose shapes (~1.4-1.7×); the
+# strided write bank-conflicts on B-heavy shapes (B_thin) → host gates it by
+# shape-regime. A ColMajor operand delegates to the already-coalesced scatter
+# method (no change), so the NN path stays byte-identical.
+@inline function _stage_a_mma_coal!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                                    ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    p = lid
+    while p <= BM * BK
+        e = p - 1
+        kk  = e % BK           # k inner → coalesced global read A[(m-1)*K+k]
+        row = e ÷ BK
+        m = brow * BM + row + 1
+        k = kt * BK + kk + 1
+        @inbounds As[sh0 + kk * ldA + row + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
+        p += wg
+    end
+end
+@inline _stage_a_mma_coal!(As, A, lay::ColMajor, brow, kt, M, K, lid, wg, ldA, sh0,
+                           vBM::Val, vBK::Val) =
+    _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldA, sh0, vBM, vBK)
+
+@inline function _stage_b_mma_coal!(Bs, B, ::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                                    ::Val{BK}, ::Val{BN}) where {BK,BN}
+    z = zero(eltype(Bs))
+    p = lid
+    while p <= BK * BN
+        e = p - 1
+        nn  = e % BN           # n inner → coalesced global read B[(k-1)*N+n]
+        kk  = e ÷ BN
+        k = kt * BK + kk + 1
+        n = bcol * BN + nn + 1
+        @inbounds Bs[sh0 + nn * ldB + kk + 1] = (k <= K && n <= N) ? @inbounds(B[(k - 1) * N + n]) : z
+        p += wg
+    end
+end
+@inline _stage_b_mma_coal!(Bs, B, lay::ColMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
+                           vBK::Val, vBN::Val) =
+    _stage_b_mma!(Bs, B, lay, bcol, kt, K, N, lid, wg, ldB, sh0, vBK, vBN)
+
+# `:coal` is a REGISTER-staging variant (no cp.async ops), so it must NOT trip the
+# async commit/wait scaffolding — see `_is_async` at the kernel's ASYNC predicate.
+# Compile-time dispatch between register (`:none`), coalesced-RowMajor register
+# (`:coal`), cp.async (`:cpasync`) and buffer_load_lds (`:buffer`) staging; the
+# host picks the per-operand style.
 @inline _stage_a(::Val{:none},    args...) = _stage_a_mma!(args...)
+@inline _stage_a(::Val{:coal},    args...) = _stage_a_mma_coal!(args...)
 @inline _stage_a(::Val{:cpasync}, args...) = _stage_a_mma_async!(args...)
 @inline _stage_a(::Val{:buffer},  args...) = _stage_a_mma_buf!(args...)
 @inline _stage_b(::Val{:none},    args...) = _stage_b_mma!(args...)
+@inline _stage_b(::Val{:coal},    args...) = _stage_b_mma_coal!(args...)
 @inline _stage_b(::Val{:cpasync}, args...) = _stage_b_mma_async!(args...)
 @inline _stage_b(::Val{:buffer},  args...) = _stage_b_mma_buf!(args...)
+
+# A staging style uses the cp.async / buffer_load_lds commit-wait scaffolding iff
+# it is one of the async hardware primitives; `:none`/`:coal` are pure register.
+@inline _is_async_style(s::Symbol) = (s === :cpasync) || (s === :buffer)
 
 # ── Register-tile primitives (TOP-LEVEL — see the closure-boxing note) ──────
 # One k-step for one warp: WM A-fragments × WN B-fragments → WM·WN `mma`s.
@@ -534,7 +588,7 @@ end
         # least one operand actually stages asynchronously, else the pipeline ops
         # would fire around a purely register-staged loop. `va`/`vb` are the
         # per-operand staging selectors (see `_stage_a`/`_stage_b`).
-        ASYNC = (ASYNCA !== :none) || (ASYNCB !== :none)
+        ASYNC = _is_async_style(ASYNCA) || _is_async_style(ASYNCB)
         va = Val(ASYNCA)
         vb = Val(ASYNCB)
         BM  = NWM * WM * Mt
@@ -683,18 +737,18 @@ end
                 end
                 @synchronize
             else
-                _stage_a_mma!(As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-                _stage_b_mma!(Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_b(vb, Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
                 pb = 0
                 kt = ktlo
                 while kt < kthi
                     @synchronize
                     qb = 1 - pb
                     if kt + 1 < kthi
-                        _stage_a_mma!(As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
-                                      qb * BK * ldA, Val(BM), Val(BK))
-                        _stage_b_mma!(Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
-                                      qb * BN * ldB, Val(BK), Val(BN))
+                        _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
+                                 qb * BK * ldA, Val(BM), Val(BK))
+                        _stage_b(vb, Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldB,
+                                 qb * BN * ldB, Val(BK), Val(BN))
                     end
                     koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
                     wcolp  = wcol0 + pb * BN    # ... and in Bs's COLUMN index
@@ -755,8 +809,8 @@ end
             else
                 kt = ktlo
                 while kt < kthi
-                    _stage_a_mma!(As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
-                    _stage_b_mma!(Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
+                    _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                    _stage_b(vb, Bs, B, layB, bcol, kt, K, N, lid, wg, ldB, 0, Val(BK), Val(BN))
                     @synchronize
                     ks = 0
                     while ks < WK
