@@ -2,9 +2,9 @@
 GEMM Performance Benchmarking Script
 ====================================
 Compares KernelForge.gemm against cuBLAS / rocBLAS (via `A * B`) for the
-matrix–matrix product, NN (non-transposed) only for now.
+matrix–matrix product across all four TRANSPOSE STATES (NN / NT / TN / TT).
 
-Design (agreed 2026-07-26):
+Design (agreed 2026-07-26; transpose states added 2026-08-03):
 - GEMM has THREE dims (M,N,K); we fix the ARITHMETIC WORK  F = M·N·K  (GEMM is
   compute-bound, so equal FLOPs is the fair "same work" comparison) and sweep 6
   canonical SHAPES at each F: square + 5 rectangular extremes. Base L = F^(1/3),
@@ -17,11 +17,20 @@ Design (agreed 2026-07-26):
     A_thin      M=L·s, N=L/s², K=L·s     (N small — GEMV-adjacent)
     B_thin      M=L/s², N=L·s, K=L·s     (M small)
     tall        M=L·s², N=L/s, K=L/s     (M large, thin N,K)
-- Types: Float16 (→F32 acc), Float32, Float64.  Transpose: NN only.
+- STATE ∈ {NN,NT,TN,TT}: tA/tB=:T stores the operand TRANSPOSED and passes it as an
+  Adjoint (the shipped wrapper), the RowMajor staging path. M,N,K are the LOGICAL
+  product dims in every state (so FLOPs match across states); the physical arrays
+  are M×K/K×M (A) and K×N/N×K (B). Vendor gets the SAME Adjoint operands (`A*B` →
+  cuBLAS/rocBLAS transpose). NN is the back-compat default row.
+- Types: Float16 (→F32 acc), Float32, Float64.
 - Methodology mirrors matvec: `bench` gives mean_kernel_μs (device events) +
   mean_total_μs (wall). Vendor = `A * B` (cuBLAS / rocBLAS gemm). KF = default
   `gemm` (auto-resolves to the tensor-core family where supported).
-- CSV → results/<GPU>/gemm.csv in the sibling benchmarks repo layout.
+- CSV → results/<GPU>/gemm.csv in the sibling benchmarks repo layout, with a
+  `state` column. INCREMENTAL + RESUMABLE: each (shape,state,type) cell is appended
+  as it completes and a re-run skips cells already present — so a heat pause / crash
+  never loses banked work. ENV filters `KF_GEMM_STATES` (e.g. "NT,TN,TT") and
+  `KF_GEMM_LS` (e.g. "2048") restrict the sweep for chunked runs.
 =#
 include("../init.jl")
 include("../vendor_int8.jl")     # `vendor_gemm_baseline` (cuBLAS / rocBLAS gemm|gemm_ex)
@@ -32,10 +41,21 @@ include("../vendor_int8.jl")     # `vendor_gemm_baseline` (cuBLAS / rocBLAS gemm
 base_sizes = [1024, 2048, 4096]     # L: square edge → F = L³ FLOP budget
 aspect_s   = 8                       # rectangular stretch factor
 types      = [Float16, Float32, Float64]
+# (state, tA, tB) — NN first (back-compat default), then the three transpose states.
+all_states = [(:NN, :N, :N), (:NT, :N, :T), (:TN, :T, :N), (:TT, :T, :T)]
+
+# Optional chunking for heat-limited runs: KF_GEMM_STATES="NT,TN" / KF_GEMM_LS="2048".
+gemm_states = let sel = get(ENV, "KF_GEMM_STATES", "")
+    isempty(sel) ? all_states :
+        filter(t -> String(t[1]) in split(sel, ','), all_states)
+end
+sel_Ls = let sel = get(ENV, "KF_GEMM_LS", "")
+    isempty(sel) ? base_sizes : parse.(Int, split(sel, ','))
+end
 
 r64(x) = max(64, 64 * round(Int, x / 64))   # nearest multiple of 64, ≥ 64
 
-# 6 canonical (name, M, N, K) at fixed F = L³.
+# 6 canonical (name, M, N, K) at fixed F = L³ — LOGICAL product dims (state-independent).
 function gemm_shapes(L::Int, s::Int)
     return [
         ("square", r64(L),     r64(L),      r64(L)),
@@ -47,14 +67,21 @@ function gemm_shapes(L::Int, s::Int)
     ]
 end
 
+# Build a LOGICAL r×c operand in the requested layout: :N → a plain r×c array;
+# :T → a c×r array passed as its Adjoint (the shipped transpose wrapper), so the
+# logical operand is still r×c but physically stored transposed (RowMajor staging).
+make_operand(::Type{T}, r, c, flag) where {T} =
+    flag === :N ? fill!(AT{T}(undef, r, c), one(T)) :
+                  adjoint(fill!(AT{T}(undef, c, r), one(T)))
+
 # ---------------------------------------------------------------------------
 # Benchmark runner — one (shape, type) cell
 # ---------------------------------------------------------------------------
-function run_gemm_benchmark(name, M, N, K, ::Type{T}) where {T}
+function run_gemm_benchmark(name, state, tA, tB, M, N, K, ::Type{T}) where {T}
     flops = Float64(M) * N * K
     vlabel = vendor_gemm_label(T)       # cuBLAS / rocBLAS gemm|gemm_ex
     println("\n" * "="^60)
-    println("GEMM $name: M=$M N=$N K=$K  T=$T   (M·N·K = $(flops))")
+    println("GEMM $name/$state: M=$M N=$N K=$K  T=$T   (M·N·K = $(flops))")
     println("="^60)
 
     # Allocate inside a guard: the extreme rectangular cells at the largest budget
@@ -62,11 +89,11 @@ function run_gemm_benchmark(name, M, N, K, ::Type{T}) where {T}
     # than crash before the CSV.
     local A, B
     try
-        A = fill!(AT{T}(undef, M, K), one(T))
-        B = fill!(AT{T}(undef, K, N), one(T))
+        A = make_operand(T, M, K, tA)   # logical M×K
+        B = make_operand(T, K, N, tB)   # logical K×N
     catch e
-        @warn "alloc failed (OOM?) — recording NaN" name M N K T
-        return [(; shape = name, M, N, K, flops, type = string(T), method = m,
+        @warn "alloc failed (OOM?) — recording NaN" name state M N K T
+        return [(; shape = name, state = string(state), M, N, K, flops, type = string(T), method = m,
                  mean_kernel_μs = NaN, std_kernel_μs = NaN,
                  mean_total_μs = NaN, std_total_μs = NaN)
                 for m in ("KernelForge", vlabel)]
@@ -92,7 +119,7 @@ function run_gemm_benchmark(name, M, N, K, ::Type{T}) where {T}
             @warn "bench failed — recording NaN" method name exception = (e, catch_backtrace())
             (mean_kernel_μs = NaN, std_kernel_μs = NaN, mean_total_μs = NaN, std_total_μs = NaN)
         end
-        push!(rows, (; shape = name, M, N, K, flops, type = string(T), method,
+        push!(rows, (; shape = name, state = string(state), M, N, K, flops, type = string(T), method,
             s.mean_kernel_μs, s.std_kernel_μs, s.mean_total_μs, s.std_total_μs))
         GC.gc(true); has_cuda() && CUDA.reclaim()
     end
@@ -107,22 +134,44 @@ let T = Float32, A = fill!(AT{T}(undef, 256, 256), one(T)), B = fill!(AT{T}(unde
 end
 
 # ---------------------------------------------------------------------------
-# Collect
+# Collect — INCREMENTAL + RESUMABLE (append per cell; skip cells already banked)
 # ---------------------------------------------------------------------------
-all_rows = NamedTuple[]
-for L in base_sizes, (name, M, N, K) in gemm_shapes(L, aspect_s), T in types
-    append!(all_rows, run_gemm_benchmark(name, M, N, K, T))
-end
-
-# ---------------------------------------------------------------------------
-# Save + display
-# ---------------------------------------------------------------------------
-df = DataFrame(all_rows)
 mkpath(RESULT_DIR)
 csv_path = joinpath(RESULT_DIR, "gemm.csv")
-CSV.write(csv_path, df)
+
+# Cells already in the CSV (shape,state,M,N,K,type) — skip on re-run. A pre-`state`
+# (NN-only) CSV is a stale schema: ignore it and overwrite fresh.
+done = Set{NTuple{6,String}}()
+has_prev = false
+if isfile(csv_path)
+    cols = propertynames(CSV.File(csv_path; limit = 1))
+    if :state in cols
+        has_prev = true
+        for r in CSV.Rows(csv_path; reusebuffer = true)
+            push!(done, (String(r.shape), String(r.state), String(r.M), String(r.N),
+                         String(r.K), String(r.type)))
+        end
+        println("Resuming: $(length(done) ÷ 2) cells already in $csv_path")
+    else
+        println("Stale NN-only CSV (no `state` column) — overwriting fresh.")
+    end
+end
+
+hdr_written = has_prev
+for L in sel_Ls, (name, M, N, K) in gemm_shapes(L, aspect_s), (state, tA, tB) in gemm_states, T in types
+    key = (name, string(state), string(M), string(N), string(K), string(T))
+    key in done && continue
+    rows = run_gemm_benchmark(name, state, tA, tB, M, N, K, T)
+    # Append immediately so a heat pause / crash never loses a completed cell.
+    CSV.write(csv_path, DataFrame(rows); append = hdr_written, writeheader = !hdr_written)
+    global hdr_written = true
+end
 println("\nResults saved to: $csv_path\n")
 
+# ---------------------------------------------------------------------------
+# Display (read back the full CSV)
+# ---------------------------------------------------------------------------
+df = DataFrame(CSV.File(csv_path))
 df_display = transform(df,
     [:mean_kernel_μs, :std_kernel_μs, :mean_total_μs, :std_total_μs] .=>
         (x -> round.(x; digits = 2)) .=>
