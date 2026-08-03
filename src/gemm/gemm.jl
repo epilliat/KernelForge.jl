@@ -597,6 +597,24 @@ function _gemm_entry_impl!(
                                  M, N, K, tA, tB, user_generic_knobs)
 
     if fam === :mma
+        # TT NN-DUALITY (L1 FUSED, opt-in `KF_GEMM_DUAL=1`). Both operands RowMajor ⇒ the
+        # passed arrays are plain col-major physicals (A is K×M, B is N×K) and Cᵀ = B·A is
+        # an NN product of two COLMAJOR operands — the fast path (free fragment loads +
+        # cp.async on both), no RowMajor staging at all. Launch NN(B,A) on the SWAPPED shape
+        # (M,N)→(N,M) and write the result TRANSPOSED into C via the fused RowMajor-store_d!
+        # epilogue (`TC=true`) — no scratch, no copy, parity at ALL shapes. Split-K composes:
+        # the transposed atomic index `(m-1)·N+n` addresses valid linear positions in `Cacc`
+        # and the linear `Cacc→C` copy matches (needed for deep-K/small-MN — `inner`). Duality
+        # proven bit-identical: xp/gemm/rewrite/tt_duality_check.jl. NN/NT/TN untouched
+        # (TC compile-time-dead there). DEFAULT-ON: it is a strict win over the RowMajor-
+        # staged TT path on every measured shape (F16 L2048 du/cB 0.87-1.72 vs 2.14-3.46),
+        # allocates nothing beyond what split-K already does, and TT is the COMMON case for
+        # row-major (Python/NumPy) callers. `KF_GEMM_DUAL=0` forces the old staged path (A/B).
+        if (layA isa RowMajor) && (layB isa RowMajor) && get(ENV, "KF_GEMM_DUAL", "") != "0"
+            return _gemm_launch_mma!(g, C, B, A, ColMajor(), ColMajor(), shape, TA, AccT,
+                                     WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, N, M, K, arch;
+                                     TC = true)
+        end
         return _gemm_launch_mma!(g, C, A, B, layA, layB, shape, TA, AccT,
                                  WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch)
     end
@@ -656,7 +674,7 @@ end
 # `shmem` comes from the ONE pure sizing fn the kernel also uses.
 function resolve_gemm_mma_parameters(
     arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
-    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false
+    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false, dualDs::Bool=false
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
     # Autotuned knobs (per shape-regime × dtype from `<arch>_gemm.jl`) sit BETWEEN the
@@ -683,7 +701,8 @@ function resolve_gemm_mma_parameters(
     dDB = default_gemm_mma_db(arch, M, N, K, CT, AccT, BM, BN, BK, DN, PC, PA,
                               KI.max_dynamic_localmem(backend))
     DB = something(DB, _t(:DB), dDB)::Bool
-    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1, ldm)
+    shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1, ldm;
+                            dualDs = dualDs, DM = NWM * Mt)
     cap = KI.max_dynamic_localmem(backend)
     @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
     return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
@@ -791,7 +810,7 @@ end
 
 function _gemm_launch_mma!(
     g::G, C, A, B, layA, layB, shape, ::Type{CT}, ::Type{AccT},
-    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch
+    WM, WN, NWM, NWN, WK, PC, PA, DB, ASYNC, splitk, M, N, K, arch; TC::Bool=false
 ) where {G,CT,AccT}
     backend = get_backend(A)
     Mt, Nt, Kt = shape.Mt, shape.Nt, shape.Kt
@@ -806,7 +825,7 @@ function _gemm_launch_mma!(
     ldm = (CT === Float32) && (Mt == 16 && Nt == 8 && Kt == 8) && KI.ldmatrix_supported(backend) &&
           haskey(ENV, "KF_LDM")
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
-                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm)
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC)
     style = KI.async_copy_style(backend)
     dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT) &&
              _staging_worthwhile(style, M, N, K, p.BM, p.BN, num_sms(backend))
@@ -844,7 +863,7 @@ function _gemm_launch_mma!(
             g, C, A, B, layA, layB, cfg,
             Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
             Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-            Val(p.DB), Val(styleA), Val(styleB), Val(1), Val(ldm), AccT, M, N, K, gsw;
+            Val(p.DB), Val(styleA), Val(styleB), Val(1), Val(ldm), Val(TC), AccT, M, N, K, gsw;
             ndrange = ndrange, shmem = p.shmem,
         )
         return C
@@ -860,7 +879,7 @@ function _gemm_launch_mma!(
         g, Cacc, A, B, layA, layB, cfg,
         Val(Mt), Val(Nt), Val(Kt), Val(p.ws),
         Val(p.WM), Val(p.WN), Val(p.NWM), Val(p.NWN), Val(p.WK), Val(p.PC), Val(p.PA),
-        Val(p.DB), Val(styleA), Val(styleB), Val(NK), Val(ldm), AccT, M, N, K, gsw;
+        Val(p.DB), Val(styleA), Val(styleB), Val(NK), Val(ldm), Val(TC), AccT, M, N, K, gsw;
         ndrange = ndrange, shmem = p.shmem,
     )
     nC = M * N

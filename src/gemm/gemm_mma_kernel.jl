@@ -505,6 +505,64 @@ end
     return nothing
 end
 
+# ── TRANSPOSED epilogue (TC — the TT NN-duality fused path) ─────────────────
+# The dual runs NN(B_phys, A_phys) = Cᵀ, so the real C (M×N here are the DUAL's
+# kernel dims) must be written TRANSPOSED: kernel element (m,n) → C[(m-1)*N + n]
+# instead of (n-1)*M + m. To keep the wide `vstore!` coalesced we lay Ds out
+# n-CONTIGUOUS (Ds is (BN+PA) × NWM·Mt) using the RowMajor `store_d!` — which writes
+# fragment (u=m, v=n) to Ds[row+v, col+u], i.e. it transposes m↔n in the fragment
+# store (free). Then the copy reads Ds contiguous in n and writes C contiguous in n.
+# Everything is the exact mirror of `_mma_tile_store_col!`/`_mma_epi_copy!` with
+# m↔n, M↔N, BM↔BN, brow↔bcol, Nt→Mt, WN→WM, DN→DM(=NWM·Mt), ldD→ldDt(=BN+PA).
+@inline function _mma_tile_store_row!(cfg, Ds, wcol0, wrowD, accs, isel,
+                                      ::Val{WM}, ::Val{WN}, ::Val{Nt}) where {WM,WN,Nt}
+    ntuple(Val(WM * WN)) do l
+        i = (l - 1) % WM + 1
+        j = (l - 1) ÷ WM + 1
+        if i == isel
+            KI.MMA.store_d!(cfg, Ds, wcol0 + (j - 1) * Nt, wrowD, accs[l], KI.MMA.RowMajor)
+        end
+        0
+    end
+    return nothing
+end
+@inline function _mma_epi_copy_t!(::Val{NK}, ::Val{EPB}, g::G, C, Ds, ::Type{S},
+                                  brow, bcol, i, BM, BN, DM, Mt, WM, ldDt, wg, lid, M, N) where {NK,EPB,G,S}
+    if NK == 1 && EPB > 1 && (N % EPB == 0) && (brow * BM + BM <= M) && (bcol * BN + BN <= N)
+        nnb = BN ÷ EPB
+        p = lid
+        while p <= nnb * DM
+            e   = p - 1
+            nb  = e % nnb
+            cD  = e ÷ nnb
+            wmc = cD ÷ Mt
+            t   = cD % Mt
+            n0  = nb * EPB
+            m   = brow * BM + wmc * (WM * Mt) + (i - 1) * Mt + t + 1
+            base = cD * ldDt + n0
+            vs = ntuple(q -> S(g(@inbounds Ds[base + q])), Val(EPB))
+            KI.vstore!(C, (m - 1) * N + bcol * BN + n0 + 1, vs, Val(false))
+            p += wg
+        end
+    else
+        p = lid
+        while p <= BN * DM
+            e   = p - 1
+            nn  = e % BN
+            cD  = e ÷ BN
+            wmc = cD ÷ Mt
+            t   = cD % Mt
+            n = bcol * BN + nn + 1
+            m = brow * BM + wmc * (WM * Mt) + (i - 1) * Mt + t + 1
+            if m <= M && n <= N
+                _mma_epi_store!(Val(NK), g, C, (m - 1) * N + n, @inbounds Ds[cD * ldDt + nn + 1])
+            end
+            p += wg
+        end
+    end
+    return nothing
+end
+
 # ── Shared-tile leading dimensions: PADDING kills the bank conflicts ────────
 # The fragment loads read a Mt×Kt (resp. Kt×Nt) sub-block COLUMN-STRIDED out of a
 # col-major shared tile. With an unpadded ld the stride is a power of two, so the
@@ -557,13 +615,15 @@ end
 # LARGER than the M-contig (BM+PC)×BK tile, so the shmem sizing must know `ldm`.
 @inline _gemm_mma_ldm_lda(BK) = BK + 4
 @inline function _gemm_mma_shmem(::Type{CT}, ::Type{AccT}, BM, BN, BK, DN, PC, PA,
-                                 NB::Int=1, ldm::Bool=false) where {CT,AccT}
+                                 NB::Int=1, ldm::Bool=false; dualDs::Bool=false, DM::Int=DN) where {CT,AccT}
     # As and Bs are each ONE array of NB·(BK resp. BN) columns, so the buffers are
     # separated by a plain column stride — the 16-byte round-up applies once, to
     # the whole As blob, never between buffers (padding between them would desync
     # the element-offset `sh0` the kernel uses to address buffer `p`).
     ab = _gemm_mma_off_b(CT, BM, BK, PC, NB, ldm) + (BK + PC) * BN * NB * sizeof(CT)
-    d  = (BM + PA) * DN * sizeof(AccT)
+    # `d` = the epilogue D-tile: (BM+PA)×DN normally, or the TRANSPOSED (BN+PA)×DM
+    # (DM=NWM·Mt) for the TT-dual fused epilogue. dualDs keeps NN sizing byte-identical.
+    d  = dualDs ? (BN + PA) * DM * sizeof(AccT) : (BM + PA) * DN * sizeof(AccT)
     return max(ab, d)
 end
 @inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1, ldm::Bool=false) where {CT} =
@@ -578,11 +638,11 @@ end
     cfg::CFG,
     ::Val{Mt}, ::Val{Nt}, ::Val{Kt}, ::Val{WS},
     ::Val{WM}, ::Val{WN}, ::Val{NWM}, ::Val{NWN}, ::Val{WK}, ::Val{PC}, ::Val{PA},
-    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK}, ::Val{LDM},
+    ::Val{DB}, ::Val{ASYNCA}, ::Val{ASYNCB}, ::Val{NK}, ::Val{LDM}, ::Val{TC},
     ::Type{AccT},
     M::Int, N::Int, K::Int, GSW::Int
 ) where {G<:Function,S,CT,LA<:FragLayout,LB<:FragLayout,CFG,
-         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,LDM,AccT}
+         Mt,Nt,Kt,WS,WM,WN,NWM,NWN,WK,PC,PA,DB,ASYNCA,ASYNCB,NK,LDM,TC,AccT}
     @uniform begin
         # `ASYNC` gates the cp.async commit/wait scaffolding: emit it only when at
         # least one operand actually stages asynchronously, else the pipeline ops
@@ -603,6 +663,9 @@ end
         ldA = BM + PC             # padded leading dims — see `default_mma_pad`
         ldB = BK + PC
         ldD = BM + PA
+        # TT-dual fused epilogue: Ds is TRANSPOSED (n-contig) — (BN+PA) × NWM·Mt.
+        ldDt = BN + PA
+        DM   = NWM * Mt           # transposed D-tile width = one epilogue ROW chunk
         # LDM (ldmatrix tf32) A tile is K-contiguous, ld = BK+4 (16-byte aligned for
         # ldmatrix.x4 + bank-de-phased); its blob is sized by `_gemm_mma_off_b(…, LDM)`.
         ldLdmA = _gemm_mma_ldm_lda(BK)
@@ -620,7 +683,7 @@ end
     As = LDM ? KI.@dynlocalmem(CT, (ldLdmA * BM * NB,), 0) :
                KI.@dynlocalmem(CT, (ldA, BK * NB), 0)
     Bs = KI.@dynlocalmem CT (ldB, BN * NB) offB
-    Ds = KI.@dynlocalmem AccT (ldD, DN) 0
+    Ds = TC ? KI.@dynlocalmem(AccT, (ldDt, DM), 0) : KI.@dynlocalmem(AccT, (ldD, DN), 0)
 
     lid  = Int(@index(Local))
     gid  = Int(@index(Group))
@@ -830,15 +893,31 @@ end
     # warp's j-th accumulator column — so Ds is COMPACTED to NWN·Nt columns and the
     # global column is re-expanded on the copy-out. `j` and `wn` are warp-uniform,
     # so no MMA call ever sits under a divergent branch.
-    wcolD = wn * Nt + 1
-    j = 1
-    while j <= WN
-        _mma_tile_store_col!(cfg, Ds, wrow0, wcolD, accs, j, Val(WM), Val(WN), Val(Mt))
-        @synchronize
-        _mma_epi_copy!(Val(NK), Val(16 ÷ sizeof(S)), g, C, Ds, S,
-                       brow, bcol, j, BM, BN, DN, Nt, WN, ldD, wg, lid, M, N)
-        @synchronize                  # before the next chunk overwrites Ds
-        j += 1
+    if TC
+        # TT-dual fused epilogue: transpose in the fragment store (RowMajor store_d!)
+        # into an n-contiguous Ds, then a mirror copy writes C transposed (m,n)→(m-1)*N+n.
+        # Chunks over the WM row-fragments (Ds compacted to NWM·Mt cols).
+        wrowD = wm * Mt + 1
+        i = 1
+        while i <= WM
+            _mma_tile_store_row!(cfg, Ds, wcol0, wrowD, accs, i, Val(WM), Val(WN), Val(Nt))
+            @synchronize
+            _mma_epi_copy_t!(Val(NK), Val(16 ÷ sizeof(S)), g, C, Ds, S,
+                             brow, bcol, i, BM, BN, DM, Mt, WM, ldDt, wg, lid, M, N)
+            @synchronize
+            i += 1
+        end
+    else
+        wcolD = wn * Nt + 1
+        j = 1
+        while j <= WN
+            _mma_tile_store_col!(cfg, Ds, wrow0, wcolD, accs, j, Val(WM), Val(WN), Val(Mt))
+            @synchronize
+            _mma_epi_copy!(Val(NK), Val(16 ÷ sizeof(S)), g, C, Ds, S,
+                           brow, bcol, j, BM, BN, DN, Nt, WN, ldD, wg, lid, M, N)
+            @synchronize                  # before the next chunk overwrites Ds
+            j += 1
+        end
     end
 end
 
