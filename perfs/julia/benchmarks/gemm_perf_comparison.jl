@@ -140,16 +140,28 @@ mkpath(RESULT_DIR)
 csv_path = joinpath(RESULT_DIR, "gemm.csv")
 
 # Cells already in the CSV (shape,state,M,N,K,type) — skip on re-run. A pre-`state`
-# (NN-only) CSV is a stale schema: ignore it and overwrite fresh.
+# (NN-only) CSV is a stale schema: ignore it and overwrite fresh. When KF_GEMM_STATES
+# is set explicitly, those states are a REFRESH: their old rows are dropped (CSV
+# rewritten keeping the others) and re-measured — so `KF_GEMM_STATES=TT` cleanly
+# updates just the TT rows in place without duplicating them.
+refresh = isempty(get(ENV, "KF_GEMM_STATES", "")) ? Set{String}() :
+          Set(String(t[1]) for t in gemm_states)
 done = Set{NTuple{6,String}}()
 has_prev = false
 if isfile(csv_path)
     cols = propertynames(CSV.File(csv_path; limit = 1))
     if :state in cols
-        has_prev = true
-        for r in CSV.Rows(csv_path; reusebuffer = true)
-            push!(done, (String(r.shape), String(r.state), String(r.M), String(r.N),
-                         String(r.K), String(r.type)))
+        prev = DataFrame(CSV.File(csv_path))
+        if !isempty(refresh)
+            keep = prev[.!in.(string.(prev.state), Ref(refresh)), :]
+            CSV.write(csv_path, keep)                 # drop the refreshed states in place
+            println("Refreshing states $(collect(refresh)): dropped $(nrow(prev) - nrow(keep)) old rows")
+            prev = keep
+        end
+        has_prev = nrow(prev) > 0
+        for r in eachrow(prev)
+            push!(done, (string(r.shape), string(r.state), string(r.M), string(r.N),
+                         string(r.K), string(r.type)))
         end
         println("Resuming: $(length(done) ÷ 2) cells already in $csv_path")
     else
