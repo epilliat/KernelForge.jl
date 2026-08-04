@@ -301,6 +301,62 @@ end
                            vBM::Val, vBK::Val) =
     _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldA, sh0, vBM, vBK)
 
+# ── NATIVE-layout staging for RowMajor A (`:natural`/`:natasync`, TN — mirror of B) ──
+# RowMajor A is K-CONTIGUOUS in global (Aop[m,k]=A[(m-1)K+k]), so stage it into a K-contig
+# tile As[k+1,m+1]=A[m,k] (ld=ldAr=BK+PC): k-inner ⇒ coalesced global read AND contiguous
+# shared write; the fragment is read RowMajor (`_mma_tile_step` LFA). `:natasync` = cp.async
+# (a 16-byte chunk is EPB contiguous k-elements). The M↔N mirror of `_stage_b_mma_natural!`/
+# `_natasync!`. ColMajor A never native → delegates to the M-contig scatter method.
+@inline function _stage_a_mma_natural!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, ldAr, sh0,
+                                       ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    p = lid
+    while p <= BM * BK
+        e = p - 1
+        kk  = e % BK           # k inner → coalesced global read AND contiguous shared write
+        row = e ÷ BK           # m
+        m = brow * BM + row + 1
+        k = kt * BK + kk + 1
+        @inbounds As[sh0 + row * ldAr + kk + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
+        p += wg
+    end
+end
+@inline _stage_a_mma_natural!(As, A, lay::ColMajor, brow, kt, M, K, lid, wg, ldAr, sh0,
+                              vBM::Val, vBK::Val) =
+    _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldAr, sh0, vBM, vBK)
+
+@inline function _stage_a_mma_natasync!(As, A, ::RowMajor, brow, kt, M, K, lid, wg, ldAr, sh0,
+                                        ::Val{BM}, ::Val{BK}) where {BM,BK}
+    z = zero(eltype(As))
+    EPB = 16 ÷ sizeof(eltype(As))       # contiguous k-elements per 16-byte cp.async chunk
+    nk = BK ÷ EPB
+    p = lid
+    while p <= nk * BM
+        e = p - 1
+        kc  = e % nk
+        row = e ÷ nk           # m
+        k0off = kc * EPB
+        m  = brow * BM + row + 1
+        k0 = kt * BK + k0off + 1
+        if m <= M && k0 + (EPB - 1) <= K
+            KI.async_copy!(pointer(As, sh0 + row * ldAr + k0off + 1),
+                           pointer(A, (m - 1) * K + k0), Val(16))
+        else
+            r = 0
+            while r < EPB
+                kk = k0off + r
+                k = kt * BK + kk + 1
+                @inbounds As[sh0 + row * ldAr + kk + 1] = (m <= M && k <= K) ? @inbounds(A[(m - 1) * K + k]) : z
+                r += 1
+            end
+        end
+        p += wg
+    end
+end
+@inline _stage_a_mma_natasync!(As, A, lay::ColMajor, brow, kt, M, K, lid, wg, ldAr, sh0,
+                               vBM::Val, vBK::Val) =
+    _stage_a_mma!(As, A, lay, brow, kt, M, K, lid, wg, ldAr, sh0, vBM, vBK)
+
 @inline function _stage_b_mma_coal!(Bs, B, ::RowMajor, bcol, kt, K, N, lid, wg, ldB, sh0,
                                     ::Val{BK}, ::Val{BN}) where {BK,BN}
     z = zero(eltype(Bs))
@@ -389,10 +445,12 @@ end
 # Compile-time dispatch between register (`:none`), coalesced-RowMajor register
 # (`:coal`), cp.async (`:cpasync`) and buffer_load_lds (`:buffer`) staging; the
 # host picks the per-operand style.
-@inline _stage_a(::Val{:none},    args...) = _stage_a_mma!(args...)
-@inline _stage_a(::Val{:coal},    args...) = _stage_a_mma_coal!(args...)
-@inline _stage_a(::Val{:cpasync}, args...) = _stage_a_mma_async!(args...)
-@inline _stage_a(::Val{:buffer},  args...) = _stage_a_mma_buf!(args...)
+@inline _stage_a(::Val{:none},     args...) = _stage_a_mma!(args...)
+@inline _stage_a(::Val{:coal},     args...) = _stage_a_mma_coal!(args...)
+@inline _stage_a(::Val{:natural},  args...) = _stage_a_mma_natural!(args...)
+@inline _stage_a(::Val{:natasync}, args...) = _stage_a_mma_natasync!(args...)
+@inline _stage_a(::Val{:cpasync},  args...) = _stage_a_mma_async!(args...)
+@inline _stage_a(::Val{:buffer},   args...) = _stage_a_mma_buf!(args...)
 @inline _stage_b(::Val{:none},     args...) = _stage_b_mma!(args...)
 @inline _stage_b(::Val{:coal},     args...) = _stage_b_mma_coal!(args...)
 @inline _stage_b(::Val{:natural},  args...) = _stage_b_mma_natural!(args...)
@@ -404,11 +462,14 @@ end
 # of the async hardware primitives; `:none`/`:coal`/`:natural` are pure register.
 @inline _is_async_style(s::Symbol) = (s === :cpasync) || (s === :buffer) || (s === :natasync)
 
-# `:natural`/`:natasync` stage B into an N-CONTIGUOUS tile (ld=BN+PC, BK cols) read with the
-# RowMajor frag tag — a different tile GEOMETRY + frag layout than every other (K-contig,
-# ColMajor) style. The kernel keys the B tile shape, buffer stride, staging ld, frag layout
-# AND the DB-buffer axis (B's K-cols, not N-cols) on this.
+# `:natural`/`:natasync` stage the RowMajor operand into a NATIVE (global-contiguous) tile
+# read with the RowMajor frag tag — a different tile GEOMETRY + frag layout than every other
+# (M/K-contig, ColMajor) style. The kernel keys the tile shape, buffer stride, staging ld,
+# frag layout AND the DB-buffer axis on this. B native → N-contig tile, buffer on B's K-cols;
+# A native → K-contig tile, buffer on A's M-cols (mirror). At most ONE operand is native
+# (NT=B, TN=A; TT routes through the NN-dual).
 @inline _is_native_style_b(s::Symbol) = (s === :natural) || (s === :natasync)
+@inline _is_native_style_a(s::Symbol) = (s === :natural) || (s === :natasync)
 
 # ── Register-tile primitives (TOP-LEVEL — see the closure-boxing note) ──────
 # One k-step for one warp: WM A-fragments × WN B-fragments → WM·WN `mma`s.
@@ -423,9 +484,14 @@ end
 # the row/col ARG POSITIONS swapped — WMMA reads element (k,n) from the N-contig tile. The
 # caller pre-shifts the buffer offset onto the correct axis (n for ColMajor, k for native).
 # LFB is a compile-time Val ⇒ exactly one branch emitted; ColMajor is byte-identical to pre.
-@inline function _mma_tile_step(cfg, As, Bs, wrow0, wcol0, koffA, koffB, accs, ::Val{LFB},
-                                ::Val{WM}, ::Val{WN}, ::Val{Mt}, ::Val{Nt}) where {LFB,WM,WN,Mt,Nt}
-    af = ntuple(i -> KI.MMA.load_a(cfg, As, wrow0 + (i - 1) * Mt, koffA, KI.MMA.ColMajor), Val(WM))
+@inline function _mma_tile_step(cfg, As, Bs, wrow0, wcol0, koffA, koffB, accs,
+                                ::Val{LFA}, ::Val{LFB},
+                                ::Val{WM}, ::Val{WN}, ::Val{Mt}, ::Val{Nt}) where {LFA,LFB,WM,WN,Mt,Nt}
+    # A RowMajor (`:natural` A, TN): K-contig tile → swap the (m,k) arg positions, exactly like
+    # B. `wrow0` stays the m-origin and `koffA` the k-origin; only which is row vs col flips.
+    af = LFA === KI.MMA.RowMajor ?
+        ntuple(i -> KI.MMA.load_a(cfg, As, koffA, wrow0 + (i - 1) * Mt, KI.MMA.RowMajor), Val(WM)) :
+        ntuple(i -> KI.MMA.load_a(cfg, As, wrow0 + (i - 1) * Mt, koffA, KI.MMA.ColMajor), Val(WM))
     bf = LFB === KI.MMA.RowMajor ?
         ntuple(j -> KI.MMA.load_b(cfg, Bs, wcol0 + (j - 1) * Nt, koffB, KI.MMA.RowMajor), Val(WN)) :
         ntuple(j -> KI.MMA.load_b(cfg, Bs, koffB, wcol0 + (j - 1) * Nt, KI.MMA.ColMajor), Val(WN))
@@ -696,21 +762,24 @@ end
 @inline _gemm_mma_ldm_lda(BK) = BK + 4
 @inline function _gemm_mma_shmem(::Type{CT}, ::Type{AccT}, BM, BN, BK, DN, PC, PA,
                                  NB::Int=1, ldm::Bool=false; dualDs::Bool=false, DM::Int=DN,
-                                 natB::Bool=false) where {CT,AccT}
+                                 natB::Bool=false, natA::Bool=false) where {CT,AccT}
     # As and Bs are each ONE array of NB·(BK resp. BN) columns, so the buffers are
     # separated by a plain column stride — the 16-byte round-up applies once, to
     # the whole As blob, never between buffers (padding between them would desync
     # the element-offset `sh0` the kernel uses to address buffer `p`).
-    # `natB` (NT native staging): B is an N-CONTIGUOUS tile (BN+PC)×BK, not (BK+PC)×BN.
+    # `natB` (NT native): B is N-CONTIGUOUS (BN+PC)×BK, not (BK+PC)×BN. `natA` (TN native):
+    # A is K-CONTIGUOUS (BK+PC)×BM, not (BM+PC)×BK — `_gemm_mma_off_b` folds it.
     bblob = (natB ? (BN + PC) * BK : (BK + PC) * BN) * NB * sizeof(CT)
-    ab = _gemm_mma_off_b(CT, BM, BK, PC, NB, ldm) + bblob
+    ab = _gemm_mma_off_b(CT, BM, BK, PC, NB, ldm, natA) + bblob
     # `d` = the epilogue D-tile: (BM+PA)×DN normally, or the TRANSPOSED (BN+PA)×DM
     # (DM=NWM·Mt) for the TT-dual fused epilogue. dualDs keeps NN sizing byte-identical.
     d  = dualDs ? (BN + PA) * DM * sizeof(AccT) : (BM + PA) * DN * sizeof(AccT)
     return max(ab, d)
 end
-@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1, ldm::Bool=false) where {CT} =
-    _align16((ldm ? _gemm_mma_ldm_lda(BK) * BM : (BM + PC) * BK) * NB * sizeof(CT))
+@inline _gemm_mma_off_b(::Type{CT}, BM, BK, PC, NB::Int=1, ldm::Bool=false,
+                        natA::Bool=false) where {CT} =
+    _align16((ldm ? _gemm_mma_ldm_lda(BK) * BM :
+              natA ? (BK + PC) * BM : (BM + PC) * BK) * NB * sizeof(CT))
 
 @kernel unsafe_indices = true function gemm_mma_kernel!(
     g::G,
@@ -755,6 +824,14 @@ end
         ldBe  = NATB ? ldBr : ldB
         bBcols = NATB ? BK : BN
         LFB   = NATB ? KI.MMA.RowMajor : KI.MMA.ColMajor
+        # `:natural`/`:natasync` A staging (TN native): A tile is K-CONTIGUOUS (ld=ldAr=BK+PC,
+        # BM cols) read RowMajor; every other style keeps the M-contig ColMajor tile. Mirror of
+        # NATB. NATA=false ⇒ ldAe=ldA, aAcols=BK, LFA=ColMajor ⇒ byte-identical to pre.
+        NATA  = _is_native_style_a(ASYNCA)
+        ldAr  = BK + PC
+        ldAe  = NATA ? ldAr : ldA
+        aAcols = NATA ? BM : BK
+        LFA   = NATA ? KI.MMA.RowMajor : KI.MMA.ColMajor
         # TT-dual fused epilogue: Ds is TRANSPOSED (n-contig) — (BN+PA) × NWM·Mt.
         ldDt = BN + PA
         DM   = NWM * Mt           # transposed D-tile width = one epilogue ROW chunk
@@ -762,7 +839,7 @@ end
         # ldmatrix.x4 + bank-de-phased); its blob is sized by `_gemm_mma_off_b(…, LDM)`.
         ldLdmA = _gemm_mma_ldm_lda(BK)
         NB  = DB ? 2 : 1          # shared buffers (see the DOUBLE BUFFERING note)
-        offB = _gemm_mma_off_b(CT, BM, BK, PC, NB, LDM)
+        offB = _gemm_mma_off_b(CT, BM, BK, PC, NB, LDM, NATA)
     end
 
     # 2D tiles — ld = size(·,1) is what the fragment loads consume (W2-ld), and it
@@ -773,7 +850,7 @@ end
     # 1-D (bigger blob, sized into `offB`); the scalar path keeps the 2-D tile its
     # `load_a` indexes. LDM is a compile-time `Val` ⇒ exactly one branch is emitted.
     As = LDM ? KI.@dynlocalmem(CT, (ldLdmA * BM * NB,), 0) :
-               KI.@dynlocalmem(CT, (ldA, BK * NB), 0)
+               KI.@dynlocalmem(CT, (ldAe, aAcols * NB), 0)
     Bs = KI.@dynlocalmem CT (ldBe, bBcols * NB) offB
     Ds = TC ? KI.@dynlocalmem(AccT, (ldDt, DM), 0) : KI.@dynlocalmem(AccT, (ldD, DN), 0)
 
@@ -829,7 +906,7 @@ end
             # proved; `Val(1)` to keep the next tile in flight is a later refinement.
             # The HYBRID staging also emits register stores for edge/misaligned
             # chunks — synchronous, made visible by the same barrier.
-            _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+            _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldAe, 0, Val(BM), Val(BK))
             _stage_b(vb, Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldBe, 0, Val(BK), Val(BN))
             KI.async_commit()
             KI.async_wait(Val(0))
@@ -839,22 +916,25 @@ end
                 @synchronize
                 qb = 1 - pb
                 if kt + 1 < kthi
-                    _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
-                             qb * BK * ldA, Val(BM), Val(BK))
+                    # native A: buffer on M-cols (qb·BM·ldAr); ColMajor A: on K-cols (qb·BK·ldA)
+                    _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldAe,
+                             qb * aAcols * ldAe, Val(BM), Val(BK))
                     # native B: buffer on K-cols (qb·BK·ldBr); ColMajor B: on N-cols (qb·BN·ldB)
                     _stage_b(vb, Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldBe,
                              qb * bBcols * ldBe, Val(BK), Val(BN))
                     KI.async_commit()
                 end
-                koffA0 = pb * BK + 1
-                # native B carries the buffer on its K-cols (koffB0), ColMajor B on N-cols (wcolp)
+                # native A carries the buffer on its M-cols (wrowp), ColMajor A on K-cols (koffA0);
+                # native B on its K-cols (koffB0), ColMajor B on N-cols (wcolp).
+                wrowp  = NATA ? (wrow0 + pb * BM) : wrow0
+                koffA0 = NATA ? 1 : (pb * BK + 1)
                 wcolp  = NATB ? wcol0 : (wcol0 + pb * BN)
                 koffB0 = NATB ? (pb * BK + 1) : 1
                 ks = 0
                 while ks < WK
-                    accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                    accs = _mma_tile_step(cfg, As, Bs, wrowp, wcolp,
                                           koffA0 + ks * Kt, koffB0 + ks * Kt, accs,
-                                          Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
+                                          Val(LFA), Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
                     ks += 1
                 end
                 if kt + 1 < kthi
@@ -895,7 +975,7 @@ end
                 end
                 @synchronize
             else
-                _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_a(va, As, A, layA, brow, ktlo, M, K, lid, wg, ldAe, 0, Val(BM), Val(BK))
                 _stage_b(vb, Bs, B, layB, bcol, ktlo, K, N, lid, wg, ldBe, 0, Val(BK), Val(BN))
                 pb = 0
                 kt = ktlo
@@ -903,24 +983,24 @@ end
                     @synchronize
                     qb = 1 - pb
                     if kt + 1 < kthi
-                        _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldA,
-                                 qb * BK * ldA, Val(BM), Val(BK))
-                        # native B tile buffers are BK columns wide (N-contig) → stride
-                        # qb·BK·ldBr; ColMajor B is BN columns wide → qb·BN·ldB. `bBcols`
-                        # (=BK native / BN else) and `ldBe` fold both.
+                        # native A: buffer on M-cols (qb·BM·ldAr); ColMajor A: on K-cols (qb·BK·ldA)
+                        _stage_a(va, As, A, layA, brow, kt + 1, M, K, lid, wg, ldAe,
+                                 qb * aAcols * ldAe, Val(BM), Val(BK))
+                        # native B: BK cols wide (N-contig) → qb·BK·ldBr; ColMajor B: BN → qb·BN·ldB.
                         _stage_b(vb, Bs, B, layB, bcol, kt + 1, K, N, lid, wg, ldBe,
                                  qb * bBcols * ldBe, Val(BK), Val(BN))
                     end
-                    koffA0 = pb * BK + 1        # buffer offset lives in As's COLUMN index
-                    # ColMajor B carries the buffer on its N-columns (wcolp); native B on its
-                    # K-columns (koffB0) — the two axes the buffer lives on for each layout.
+                    # buffer axis per layout: native A on M-cols (wrowp), ColMajor A on K-cols
+                    # (koffA0); native B on K-cols (koffB0), ColMajor B on N-cols (wcolp).
+                    wrowp  = NATA ? (wrow0 + pb * BM) : wrow0
+                    koffA0 = NATA ? 1 : (pb * BK + 1)
                     wcolp  = NATB ? wcol0 : (wcol0 + pb * BN)
                     koffB0 = NATB ? (pb * BK + 1) : 1
                     ks = 0
                     while ks < WK
-                        accs = _mma_tile_step(cfg, As, Bs, wrow0, wcolp,
+                        accs = _mma_tile_step(cfg, As, Bs, wrowp, wcolp,
                                               koffA0 + ks * Kt, koffB0 + ks * Kt, accs,
-                                              Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
+                                              Val(LFA), Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
                         ks += 1
                     end
                     pb = qb
@@ -933,7 +1013,7 @@ end
         if ASYNC
             kt = ktlo
             while kt < kthi
-                _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldAe, 0, Val(BM), Val(BK))
                 _stage_b(vb, Bs, B, layB, bcol, kt, K, N, lid, wg, ldBe, 0, Val(BK), Val(BN))
                 KI.async_commit()
                 KI.async_wait(Val(0))
@@ -941,7 +1021,7 @@ end
                 ks = 0
                 while ks < WK
                     accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
-                                          accs, Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
+                                          accs, Val(LFA), Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
                     ks += 1
                 end
                 @synchronize            # also fences As/Bs before Ds reuses the blob
@@ -973,13 +1053,13 @@ end
             else
                 kt = ktlo
                 while kt < kthi
-                    _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldA, 0, Val(BM), Val(BK))
+                    _stage_a(va, As, A, layA, brow, kt, M, K, lid, wg, ldAe, 0, Val(BM), Val(BK))
                     _stage_b(vb, Bs, B, layB, bcol, kt, K, N, lid, wg, ldBe, 0, Val(BK), Val(BN))
                     @synchronize
                     ks = 0
                     while ks < WK
                         accs = _mma_tile_step(cfg, As, Bs, wrow0, wcol0, ks * Kt + 1, ks * Kt + 1,
-                                              accs, Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
+                                              accs, Val(LFA), Val(LFB), Val(WM), Val(WN), Val(Mt), Val(Nt))
                         ks += 1
                     end
                     @synchronize            # also fences As/Bs before Ds reuses the blob

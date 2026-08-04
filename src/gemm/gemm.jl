@@ -675,7 +675,7 @@ end
 function resolve_gemm_mma_parameters(
     arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false, dualDs::Bool=false,
-    natB::Bool=false
+    natB::Bool=false, natA::Bool=false
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
     # Autotuned knobs (per shape-regime × dtype from `<arch>_gemm.jl`) sit BETWEEN the
@@ -703,7 +703,7 @@ function resolve_gemm_mma_parameters(
                               KI.max_dynamic_localmem(backend))
     DB = something(DB, _t(:DB), dDB)::Bool
     shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1, ldm;
-                            dualDs = dualDs, DM = NWM * Mt, natB = natB)
+                            dualDs = dualDs, DM = NWM * Mt, natB = natB, natA = natA)
     cap = KI.max_dynamic_localmem(backend)
     @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
     return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
@@ -829,9 +829,12 @@ function _gemm_launch_mma!(
     # RowMajor (the CUTLASS approach — coalesced global + contiguous shared write, cp.async-
     # able). Opt-in via KF_GEMM_STAGE=natural for now (NT-first). Decided BEFORE resolve so
     # the B blob (BN+PC)×BK is sized into shmem. Only a genuine RowMajor B (real NT/TT-native).
-    wantNatB = (get(ENV, "KF_GEMM_STAGE", "") == "natural") && (layB isa RowMajor)
+    _natenv = get(ENV, "KF_GEMM_STAGE", "") == "natural"
+    wantNatB = _natenv && (layB isa RowMajor)
+    wantNatA = _natenv && (layA isa RowMajor)   # TN mirror (K-contig native A tile)
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
-                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC, wantNatB)
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC,
+                                    wantNatB, wantNatA)
     style = KI.async_copy_style(backend)
     dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT) &&
              _staging_worthwhile(style, M, N, K, p.BM, p.BN, num_sms(backend))
@@ -866,6 +869,15 @@ function _gemm_launch_mma!(
         natAsyncOk = asyncflag && (style === :cpasync) && (N % EPB == 0)
         styleB = natAsyncOk ? :natasync : :natural
         styleB === :natural && (styleA = _is_async_style(styleA) ? :none : styleA)
+    end
+    # TN mirror: native A (K-contig tile, RowMajor load). cp.async chunk = EPB contiguous
+    # k-elements ⇒ source aligned iff K % EPB == 0 (A's RowMajor row stride is K). Register
+    # `:natural` forces B off-async; `:natasync` lets B stay cp.async.
+    if wantNatA
+        EPB = 16 ÷ sizeof(CT)
+        natAsyncOkA = asyncflag && (style === :cpasync) && (K % EPB == 0)
+        styleA = natAsyncOkA ? :natasync : :natural
+        styleA === :natural && (styleB = _is_async_style(styleB) ? :none : styleB)
     end
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
