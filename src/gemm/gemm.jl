@@ -829,9 +829,17 @@ function _gemm_launch_mma!(
     # RowMajor (the CUTLASS approach — coalesced global + contiguous shared write, cp.async-
     # able). Opt-in via KF_GEMM_STAGE=natural for now (NT-first). Decided BEFORE resolve so
     # the B blob (BN+PC)×BK is sized into shmem. Only a genuine RowMajor B (real NT/TT-native).
-    _natenv = get(ENV, "KF_GEMM_STAGE", "") == "natural"
-    wantNatB = _natenv && (layB isa RowMajor)
-    wantNatA = _natenv && (layA isa RowMajor)   # TN mirror (K-contig native A tile)
+    # Native staging is the DEFAULT for a RowMajor operand on a cp.async backend (NVIDIA
+    # sm_80+) — it reaches cuBLAS parity-or-better and beats `:coal` on every measured shape
+    # (RTX1000). `KF_GEMM_STAGE=natural` forces it on ANY backend (experimental on AMD MFMA,
+    # whose RowMajor-load path is not yet validated); `scatter`/`coal` opt back to the old
+    # register paths. Sizing (native blob) must be known before resolve, so gate on the
+    # backend+layout only here; the natasync-vs-natural choice (alignment) is post-resolve.
+    _stage_env = get(ENV, "KF_GEMM_STAGE", "")
+    _wantnat = (_stage_env == "natural") ||
+               ((KI.async_copy_style(backend) === :cpasync) && !(_stage_env in ("scatter", "coal")))
+    wantNatB = _wantnat && (layB isa RowMajor)
+    wantNatA = _wantnat && (layA isa RowMajor)   # TN mirror (K-contig native A tile)
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
                                     Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC,
                                     wantNatB, wantNatA)
