@@ -674,7 +674,8 @@ end
 # `shmem` comes from the ONE pure sizing fn the kernel also uses.
 function resolve_gemm_mma_parameters(
     arch::AbstractArch, backend, M, N, K, ::Type{CT}, ::Type{AccT},
-    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false, dualDs::Bool=false
+    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm::Bool=false, dualDs::Bool=false,
+    natB::Bool=false
 ) where {CT,AccT}
     dWM, dWN, dNWM, dNWN, dWK = default_gemm_mma_tile(arch, M, N, K, CT, AccT, Mt, Nt, Kt)
     # Autotuned knobs (per shape-regime × dtype from `<arch>_gemm.jl`) sit BETWEEN the
@@ -702,7 +703,7 @@ function resolve_gemm_mma_parameters(
                               KI.max_dynamic_localmem(backend))
     DB = something(DB, _t(:DB), dDB)::Bool
     shmem = _gemm_mma_shmem(CT, AccT, BM, BN, BK, DN, PC, PA, DB ? 2 : 1, ldm;
-                            dualDs = dualDs, DM = NWM * Mt)
+                            dualDs = dualDs, DM = NWM * Mt, natB = natB)
     cap = KI.max_dynamic_localmem(backend)
     @assert shmem <= cap "gemm :mma tile needs $shmem B of workgroup memory (DB=$DB), device cap is $cap B; shrink WM/WN/NWM/NWN/WK or pass DB=false"
     return (; WM, WN, NWM, NWN, WK, PC, PA, DB, ws, wg, BM, BN, BK, shmem)
@@ -824,8 +825,13 @@ function _gemm_launch_mma!(
     # future case, not enabled as a default. See project_gemm_mma_sync_ldmatrix memory.
     ldm = (CT === Float32) && (Mt == 16 && Nt == 8 && Kt == 8) && KI.ldmatrix_supported(backend) &&
           haskey(ENV, "KF_LDM")
+    # NT NATIVE B staging (`:natural`): stage the RowMajor B in an N-CONTIGUOUS tile read
+    # RowMajor (the CUTLASS approach — coalesced global + contiguous shared write, cp.async-
+    # able). Opt-in via KF_GEMM_STAGE=natural for now (NT-first). Decided BEFORE resolve so
+    # the B blob (BN+PC)×BK is sized into shmem. Only a genuine RowMajor B (real NT/TT-native).
+    wantNatB = (get(ENV, "KF_GEMM_STAGE", "") == "natural") && (layB isa RowMajor)
     p = resolve_gemm_mma_parameters(arch, backend, M, N, K, CT, AccT,
-                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC)
+                                    Mt, Nt, Kt, WM, WN, NWM, NWN, WK, PC, PA, DB, ldm, TC, wantNatB)
     style = KI.async_copy_style(backend)
     dASYNC = default_gemm_mma_async(arch, M, N, K, CT, AccT) &&
              _staging_worthwhile(style, M, N, K, p.BM, p.BN, num_sms(backend))
@@ -849,6 +855,17 @@ function _gemm_launch_mma!(
         coalBok = N >= GEMM_COAL_NMIN && min(N, K) <= GEMM_COAL_MINKN
         styleA = (layA isa RowMajor) ? :coal : styleA
         styleB = (layB isa RowMajor && (forceB || coalBok)) ? :coal : styleB
+    end
+    # NT native B: `:natasync` (cp.async on the N-contig tile — THE win, overlaps staging with
+    # the tensor math) when async is worthwhile on an NVIDIA cp.async backend and the source is
+    # 16-byte aligned (N % EPB == 0; ldBr=BN+PC is auto-aligned since PC=EPB); else `:natural`
+    # (register). Only the register path forces A off-async (no scaffold); `:natasync` lets A
+    # stay cp.async so BOTH operands overlap.
+    if wantNatB
+        EPB = 16 ÷ sizeof(CT)
+        natAsyncOk = asyncflag && (style === :cpasync) && (N % EPB == 0)
+        styleB = natAsyncOk ? :natasync : :natural
+        styleB === :natural && (styleA = _is_async_style(styleA) ? :none : styleA)
     end
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
