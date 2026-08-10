@@ -112,6 +112,18 @@ hardware-relative candidate grids (e.g. `blocks = K × num_sms`).
 """
 function num_sms end
 
+"""
+    l2_cache_bytes(backend) -> Int
+
+L2 cache size in bytes on the active device of `backend` (implemented per backend
+in the extensions). Used by the gemm threadblock-swizzle gate to enable the
+L2-reuse block ordering only when the A/B working set actually exceeds L2. The
+generic fallback is `typemax(Int)` — an unknown backend then never trips the
+`A+B > L2` test, so the swizzle stays off (safe: no regression) until a real query
+is provided.
+"""
+l2_cache_bytes(::Any) = typemax(Int)
+
 # ---------------------------------------------------------------------------
 # detect_arch: CuDevice / ROCmDevice / AbstractArray / Val → AbstractArch
 # ---------------------------------------------------------------------------

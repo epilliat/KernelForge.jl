@@ -29,6 +29,8 @@ _unsafe_free!(arr::ROCArray) = AMDGPU.unsafe_free!(arr)
 KernelForge.num_sms(::ROCBackend) =
     Int(AMDGPU.HIP.properties(AMDGPU.device()).multiProcessorCount)
 KernelForge.Random._n_sms(be::ROCBackend) = KernelForge.num_sms(be)
+KernelForge.l2_cache_bytes(::ROCBackend) =
+    Int(AMDGPU.HIP.properties(AMDGPU.device()).l2CacheSize)
 
 # Compile-only path for the autotune script. Mirrors the prelude of KA's
 # ROC functor (AMDGPU.jl `src/ROCKernels.jl:99-102`) but stops at the

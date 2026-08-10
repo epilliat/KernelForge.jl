@@ -1,25 +1,67 @@
 # KernelForge.jl
 
-High-performance, portable GPU primitives for Julia — a pure Julia
-implementation delivering performance competitive with optimized CUDA C++
-libraries.
+A pure-Julia GPU primitives library that is **flexible** — every primitive
+takes an arbitrary operator and an arbitrary element type, your own structs and
+comparators included; **cross-architecture** — one implementation runs on both
+NVIDIA and AMD through KernelAbstractions; and **performant** — matching, or
+coming close to, the hand-tuned vendor libraries (CUB / cuBLAS on NVIDIA,
+rocPRIM / rocBLAS on AMD).
+
+### NVIDIA A100 (Ampere, 80 GB) — vs CUB / cuBLAS
 
 <table>
   <tr>
-    <td align="center"><img src="docs/src/assets/matvec_A40_comparison.png" alt="matvec — A40" width="100%"></td>
-    <td align="center"><img src="docs/src/assets/vecmat_A40_comparison.png" alt="vecmat — A40" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A100/matvec_A100_comparison.png" alt="matvec — A100" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A100/vecmat_A100_comparison.png" alt="vecmat — A100" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/src/assets/scan_A40_comparison.png" alt="scan — A40" width="100%"></td>
-    <td align="center"><img src="docs/src/assets/mapreduce_A40_comparison.png" alt="mapreduce — A40" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A100/scan_A100_comparison.png" alt="scan — A100" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A100/mapreduce_A100_comparison.png" alt="mapreduce — A100" width="100%"></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/src/assets/copy_A40_bandwidth.png" alt="copy bandwidth — A40" width="50%"></td>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A100/sort_A100_comparison.png" alt="sort — A100" width="100%"></td>
   </tr>
 </table>
 
-<sub>Benchmarked on an <b>NVIDIA A40</b> (Ampere) against optimized CUDA C++
-baselines (CUB / cuBLAS). More GPUs (RTX 1000, MI300X) and raw CSV data in the
+### AMD MI300A (CDNA3, ROCm 6.4) — vs rocPRIM / rocBLAS
+
+<table>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/MI300A/matvec_MI300A_comparison.png" alt="matvec — MI300A" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/MI300A/vecmat_MI300A_comparison.png" alt="vecmat — MI300A" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/MI300A/scan_MI300A_comparison.png" alt="scan — MI300A" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/MI300A/mapreduce_MI300A_comparison.png" alt="mapreduce — MI300A" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/MI300A/sort_MI300A_comparison.png" alt="sort — MI300A" width="100%"></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>NVIDIA A40</b> (Ampere) — vs CUB / cuBLAS, plus copy bandwidth</summary>
+
+<table>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A40/matvec_A40_comparison.png" alt="matvec — A40" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A40/vecmat_A40_comparison.png" alt="vecmat — A40" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A40/scan_A40_comparison.png" alt="scan — A40" width="100%"></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A40/mapreduce_A40_comparison.png" alt="mapreduce — A40" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/epilliat/KernelForge-benchmarks/main/figures/A40/copy_A40_bandwidth.png" alt="copy bandwidth — A40" width="50%"></td>
+  </tr>
+</table>
+
+</details>
+
+<sub>Each figure states its own op, GPU and metric. <b>Forge</b> = KernelForge,
+<b>AK</b> = <a href="https://github.com/JuliaGPU/AcceleratedKernels.jl">AcceleratedKernels</a>;
+a hatched bar runs off the top of its panel and is labelled with its real
+value. More GPUs (A40, RTX 1000, MI300X) and the raw CSV data live in the
 <a href="https://github.com/epilliat/KernelForge-benchmarks"><b>KernelForge-benchmarks</b></a>
 repo.</sub>
 
@@ -65,6 +107,8 @@ KernelForge.sort!(x)
 - **Map-reduce** with custom functions and operators, supporting arbitrary dimensions and multidimensional arrays
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
+- **Matrix-matrix product** (`gemm`) with customizable element-wise, reduction and
+  epilogue operations, all four transpose states, and an opt-in tensor-core path
 - **Search** — `findfirst`, `findlast`, `argmax`, `argmin` on GPU arrays
 - **Vectorized copy** with configurable load/store widths
 - Views and strided arrays supported throughout
@@ -72,8 +116,8 @@ KernelForge.sort!(x)
 ## Backends
 
 CUDA (NVIDIA) and AMDGPU (AMD) via weak dependencies; the backend is selected
-through KernelAbstractions extensions. Tested on NVIDIA A40, RTX 1000, and AMD
-MI300X.
+through KernelAbstractions extensions. Tested on NVIDIA A100, A40, RTX 1000 and
+AMD MI300A, MI300X.
 
 ## Sponsors
 

@@ -34,6 +34,12 @@ read from `data/tuning/<tag>.jl`. Populated lazily by `load_tunings_for!`.
 """
 const TUNING_TABLE = Ref{Dict{Symbol,Any}}(Dict{Symbol,Any}())
 
+# GEMM tunings live in their OWN table (not TUNING_TABLE) so the matvec/vecmat
+# "already loaded" fast-path in `load_tunings_for!` can never skip them, and vice
+# versa. Outer key = arch tag; inner value = the Dict read from `<tag>_gemm.jl`
+# (a `"gemm"` → dtype → shape-regime → knobs nesting).
+const GEMM_TUNING_TABLE = Ref{Dict{Symbol,Any}}(Dict{Symbol,Any}())
+
 # ---------------------------------------------------------------------------
 # Lookup memoization.
 #
@@ -52,12 +58,16 @@ const MATVEC_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int},Any}()
 const VECMAT_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int},Any}()
 const ARCH_ROWTHREAD_CACHE = Dict{Symbol,Bool}()
 const ARCH_MLP_CACHE       = Dict{Symbol,Bool}()
+const GEMM_LOOKUP_CACHE    = Dict{Tuple{Symbol,DataType,Int,Int,Int},Any}()
+const GEMM_K1_LOOKUP_CACHE = Dict{Tuple{Symbol,DataType,Int,Int,Int},Any}()
 
 @inline function _clear_lookup_caches!()
     empty!(MATVEC_LOOKUP_CACHE)
     empty!(VECMAT_LOOKUP_CACHE)
     empty!(ARCH_ROWTHREAD_CACHE)
     empty!(ARCH_MLP_CACHE)
+    empty!(GEMM_LOOKUP_CACHE)
+    empty!(GEMM_K1_LOOKUP_CACHE)
     return nothing
 end
 
@@ -104,6 +114,26 @@ function load_tunings_for!(tag::Symbol)
                 Base.include(@__MODULE__, inline_path)
             catch e
                 @warn "tuning: failed to load inline $(inline_path)" exception=(e, catch_backtrace())
+            end
+        end
+    end
+
+    # 1b. GEMM tunings — a separate `<tag>_gemm.jl` (a Dict with a `"gemm"` key),
+    # emitted by data/tuning/gemm/autotune.jl. Loaded into GEMM_TUNING_TABLE (its own
+    # table) so it is independent of the matvec/vecmat dict below.
+    if !haskey(GEMM_TUNING_TABLE[], tag)
+        gpath = joinpath(root, "data", "tuning", string(tag) * "_gemm.jl")
+        if isfile(gpath)
+            gp = try
+                Base.include(@__MODULE__, gpath)
+            catch e
+                @warn "tuning: failed to load $(gpath)" exception = (e, catch_backtrace())
+                nothing
+            end
+            if gp isa AbstractDict && get(gp, "schema_version", nothing) == TUNING_SCHEMA_VERSION
+                GEMM_TUNING_TABLE[][tag] = gp
+                empty!(GEMM_LOOKUP_CACHE)
+                empty!(GEMM_K1_LOOKUP_CACHE)
             end
         end
     end
@@ -193,6 +223,92 @@ function _lookup_matvec_uncached(arch::AbstractArch, ::Type{T}, n::Int, p::Int) 
         end
     end
     return nothing
+end
+
+# Classify a runtime GEMM shape into one of the 6 tuned regimes (square, outer,
+# inner, A_thin, B_thin, tall) by the most extreme dimension vs the geometric mean —
+# mirrors the shapes swept by data/tuning/gemm/autotune.jl.
+function _gemm_regime(M::Int, N::Int, K::Int)
+    g = cbrt(float(M) * float(N) * float(K))
+    lM = log(M / g); lN = log(N / g); lK = log(K / g)
+    m = max(abs(lM), abs(lN), abs(lK))
+    m < log(2.0) && return "square"          # all dims within 2× of the mean
+    if abs(lK) == m
+        return lK < 0 ? "outer" : "inner"    # K smallest → outer; largest → inner
+    elseif abs(lM) == m
+        return lM > 0 ? "tall" : "B_thin"    # M largest → tall; smallest → B_thin
+    else
+        return lN < 0 ? "A_thin" : "tall"    # N smallest → A_thin; largest ≈ tall
+    end
+end
+
+"""
+    lookup_gemm(arch, CT, M, N, K) -> Union{NamedTuple,Nothing}
+
+Autotuned MMA warp/register knobs `(; WM, WN, NWM, NWN, WK, PC, PA, DB)` for the GEMM
+shape regime closest to `(M,N,K)` at compute-type `CT`, or `nothing` if no
+`<arch>_gemm.jl` tuning covers `CT`. Consulted by `resolve_gemm_mma_parameters` ahead
+of the `default_gemm_mma_*` heuristics; a knob the caller passed explicitly still wins
+(the launcher `something`-fills only the `nothing`s).
+"""
+function lookup_gemm(arch::AbstractArch, ::Type{CT}, M::Int, N::Int, K::Int) where {CT}
+    tag = nameof(typeof(arch))
+    key = (tag, CT, M, N, K)
+    cached = get(GEMM_LOOKUP_CACHE, key, _LOOKUP_MISS)
+    cached === _LOOKUP_MISS || return cached
+    val = _lookup_gemm_uncached(arch, CT, M, N, K)
+    GEMM_LOOKUP_CACHE[key] = val
+    return val
+end
+
+function _lookup_gemm_uncached(arch::AbstractArch, ::Type{CT}, M, N, K) where {CT}
+    tag = nameof(typeof(arch))
+    haskey(GEMM_TUNING_TABLE[], tag) || return nothing
+    g = get(GEMM_TUNING_TABLE[][tag], "gemm", nothing)
+    g isa AbstractDict || return nothing
+    tbl = get(g, string(CT), nothing)
+    tbl isa AbstractDict || return nothing
+    regime = _gemm_regime(Int(M), Int(N), Int(K))
+    cell = get(tbl, regime, nothing)
+    cell === nothing && (cell = get(tbl, "square", nothing))
+    cell isa AbstractDict || return nothing
+    gi(k) = Int(cell[k])
+    return (; WM = gi("WM"), WN = gi("WN"), NWM = gi("NWM"), NWN = gi("NWN"),
+            WK = gi("WK"), PC = gi("PC"), PA = gi("PA"), DB = Bool(cell["DB"]))
+end
+
+"""
+    lookup_gemm_k1(arch, CT, M, N, K) -> Union{NamedTuple,Nothing}
+
+Autotuned K1 (generic, CUDA-core) tile knobs `(; BM, BN, BK, TM, TN)` for the shape
+regime closest to `(M,N,K)` at compute-type `CT`, or `nothing` if no `<arch>_gemm.jl`
+tuning has a `gemm_k1` section covering `CT`. Consulted by `resolve_gemm_parameters`
+ahead of `default_gemm_tile`; a knob the caller passed explicitly still wins. This is
+the F32 (and F64/Int8 where there is no tensor path) analogue of `lookup_gemm`.
+"""
+function lookup_gemm_k1(arch::AbstractArch, ::Type{CT}, M::Int, N::Int, K::Int) where {CT}
+    tag = nameof(typeof(arch))
+    key = (tag, CT, M, N, K)
+    cached = get(GEMM_K1_LOOKUP_CACHE, key, _LOOKUP_MISS)
+    cached === _LOOKUP_MISS || return cached
+    val = _lookup_gemm_k1_uncached(arch, CT, M, N, K)
+    GEMM_K1_LOOKUP_CACHE[key] = val
+    return val
+end
+
+function _lookup_gemm_k1_uncached(arch::AbstractArch, ::Type{CT}, M, N, K) where {CT}
+    tag = nameof(typeof(arch))
+    haskey(GEMM_TUNING_TABLE[], tag) || return nothing
+    g = get(GEMM_TUNING_TABLE[][tag], "gemm_k1", nothing)
+    g isa AbstractDict || return nothing
+    tbl = get(g, string(CT), nothing)
+    tbl isa AbstractDict || return nothing
+    regime = _gemm_regime(Int(M), Int(N), Int(K))
+    cell = get(tbl, regime, nothing)
+    cell === nothing && (cell = get(tbl, "square", nothing))
+    cell isa AbstractDict || return nothing
+    gi(k) = Int(cell[k])
+    return (; BM = gi("BM"), BN = gi("BN"), BK = gi("BK"), TM = gi("TM"), TN = gi("TN"))
 end
 
 # True if this arch's loaded matvec tuning contains ≥1 row-thread cell. Used by

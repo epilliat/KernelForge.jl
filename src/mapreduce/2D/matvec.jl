@@ -207,6 +207,19 @@ end
 ```
 """
 
+# Convenience arity matching the simplified `matvec(src, x)` entry point (which
+# defaults `f=*`, `op=+`), so `KernelForge.@allocate matvec(A, x)` resolves like
+# the call it mirrors. No ambiguity with the `f, op` method below: an
+# `AbstractMatrix` is never a `Function`.
+function get_allocation(
+    ::Type{MatVec},
+    src::AbstractMatrix,
+    x::Union{AbstractArray,Nothing},
+    args...
+)
+    return get_allocation(MatVec, *, +, src, x, args...)
+end
+
 function get_allocation(
     ::Type{MatVec},
     f::F,

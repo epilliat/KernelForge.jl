@@ -25,8 +25,9 @@ include("../init.jl")
 # ---------------------------------------------------------------------------
 # Sweep cells: regular K sweep with K * M ≈ 4 M elements held constant
 # per cell. Same grid for every dtype, so the per-key time line plot
-# (`plots_from_csv.jl`) is directly comparable across panels and shows
-# the OEM/radix crossover at a glance.
+# (`plots/plots_from_csv.jl` in the KernelForge-benchmarks repo) is
+# directly comparable across panels and shows the OEM/radix crossover
+# at a glance.
 # ---------------------------------------------------------------------------
 
 const SORT_COLUMNS_KS = (64, 256, 1_024, 4_096,

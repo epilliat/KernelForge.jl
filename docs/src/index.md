@@ -31,6 +31,9 @@ Pkg.add("KernelForge")
   multidimensional arrays including non-contiguous dimension reduction via `mapreducedims`
 - **Prefix scan** supporting non-commutative operations
 - **Matrix-vector operations** with customizable element-wise and reduction operations
+- **Matrix-matrix product** — `gemm`/`gemm!` with customizable element-wise, reduction
+  and epilogue operations (arbitrary isbits eltypes, no operator identity required),
+  all four transpose states, and an opt-in tensor-core family (`family=:mma`)
 - **Sort** — 1D radix `sort`/`sort!` with optional `keys=` keyval form, `sortperm`
   for permutation indices, `sample_sort` accepting an arbitrary `lt` comparator, and
   `sort_columns` for batched per-column sort of `K × M` matrices
