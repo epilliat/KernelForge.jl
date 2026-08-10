@@ -15,9 +15,11 @@
 #   :mma     — K2 tensor-core core (`gemm_mma_kernel!`). PLAIN (*, +) only, HW MMA
 #              (WMMA/MFMA), for whatever (compute, acc) pairs the device announces
 #              via `KI.MMA.mma_shapes` — F16/BF16→F32, plus F64 (CDNA3 MFMA 16×16×4)
-#              and Int8→Int32 where the hardware has them. OPT-IN: `_resolve_family`
-#              never auto-selects it (see the comment there); a forced `family=:mma`
-#              on an unsupported config is a loud error (never a silent fallback).
+#              and Int8→Int32 where the hardware has them. AUTO-SELECTED by
+#              `_resolve_family` for NON-LOSSY dtypes (F16/BF16/Int8) once the product
+#              exceeds `MMA_AUTO_FLOP_GATE`; the LOSSY F32→TF32 path stays OPT-IN
+#              (`family=:mma`). A forced `family=:mma` on an unsupported config is a
+#              loud error (never a silent fallback).
 
 # ---------------------------------------------------------------------------
 # Generic (K1) per-arch tiling defaults. Returns (BM, BN, BK, TM, TN).
@@ -204,9 +206,11 @@ inner dimension `k`. For standard matrix multiplication (`f=*`, `op=+`,
 Arbitrary isbits element types (custom structs included) and arbitrary operators
 are supported: `f` need not be a multiplication and may change type
 (`f: TA × TB → H`). The accumulator is seeded from a real computed value
-`f(A[m,1], B[1,n])` rather than `zero(H)`, so `op` needs no identity element; and
-because there is no split-K the reduction is a strictly ordered left fold, so `op`
-need not be associative or commutative either.
+`f(A[m,1], B[1,n])` rather than `zero(H)`, so `op` needs no identity element. Split-K
+(parallel K-reduction) engages ONLY for `op === +` over a word-sized primitive `AccT`;
+for every other `op` the reduction is a strictly ordered left fold, so `op` need not be
+associative or commutative either. (Even the `+` split is a legal reorder — `+` is
+associative — so results stay correct up to floating-point reassociation.)
 
 # Arguments
 - `f`: Binary operation applied element-wise (default: `*`)
@@ -231,8 +235,11 @@ need not be associative or commutative either.
   Ada F16 `outer` 16384²×64: F32-out 2.5× vs cuBLAS → F16-out 1.3×, cuBLAS itself
   storing F16). Allocating entry points only; `gemm!` takes the eltype from `C`.
 - `family=nothing`: `:generic` (K1, the universal path) | `:mma` (K2 tensor-core) |
-  `nothing` (auto). `:mma` is **opt-in** — auto always picks `:generic` — and a
-  forced `:mma` on an unsupported config is a loud error, never a silent fallback.
+  `nothing` (auto). Auto **selects `:mma`** for a NON-LOSSY HW path (F16/BF16→F32,
+  Int8→Int32) once `M·N·K ≥ MMA_AUTO_FLOP_GATE` (≈6.7e7); below that, or when generic
+  tile knobs are supplied, it stays `:generic`. The one exception is the LOSSY F32→TF32
+  path, which stays **opt-in** (see below). A forced `:mma` on an unsupported config is
+  a loud error, never a silent fallback.
   K2 needs plain (`*`,`+`), `eltype(A) === eltype(B)`, and a (compute, accumulate)
   pair the device announces via `KI.MMA.mma_shapes`: `Float16`/`BFloat16` → `Float32`,
   plus `Float64` (CDNA3 MFMA 16×16×4) and `Int8` → `Int32` where the hardware has
@@ -246,8 +253,9 @@ need not be associative or commutative either.
   The silicon implements one fixed multiply-add, so a custom `(f, op)` can never
   be hardware-accelerated — every such call correctly runs K1. K2 vs K1 on RTX1000 Ada,
   F16 square: 0.90× @256, 2.97× @512, 5.81× @1024, 6.53× @2048, 7.49× @4096 (~10.3
-  TFLOP/s at 2048³ ≈ 54% of cuBLAS on the same part) — that small-size crossover is
-  why auto does not select it.
+  TFLOP/s at 2048³ ≈ 54% of cuBLAS on the same part) — that small-size crossover
+  (K2 loses at n=256) is exactly why auto gates on total work rather than always
+  selecting K2.
 - `BM,BN,BK,TM,TN=nothing`: generic (K1) tile knobs (auto per-arch if `nothing`;
   supplying any of them forces the generic family, and is an error together with
   `family=:mma`).
@@ -259,7 +267,21 @@ need not be associative or commutative either.
   (8 for `Float16`, 4 for `Float32`); `0` disables. Breaks the bank conflicts of the
   column-strided fragment loads — worth ~1.33× on RTX1000 Ada (F16 2048³: 6.9 → 9.1
   TFLOP/s). `PC` carries essentially all of it; `PA` (the epilogue tile) is noise.
+- `splitk=nothing`: number of K-slices for split-K (auto per shape/device if `nothing`;
+  `1` disables). Each slice sums its K-range in a separate workgroup and atomic-adds the
+  raw partial into an `M×N` `AccT` scratch, reduced by a second epilogue kernel. Applies
+  ONLY to `op === +` over a word-sized (4/8-byte) primitive `AccT` — any other monoid or
+  a sub-word/struct `AccT` ignores it and keeps the single-workgroup-per-tile path.
+  `NK` is trimmed so no slice is empty. Deep-K, few-tile shapes benefit most.
+- `DB=nothing`, `ASYNC=nothing`: MMA staging knobs — double-buffered shared staging and
+  `cp.async`/`buffer` async copy (auto per arch if `nothing`). See the `KF_GEMM_*` env
+  overrides below.
 - `arch=nothing`: architecture (auto-detected from `A`).
+
+Environment overrides (mostly for A/B lever screening — leave unset for the tuned default):
+`KF_GEMM_DUAL` (default on) toggles the fused NN-duality TT path; `KF_GEMM_STAGE`
+selects the MMA staging style (native cp.async is the default on cp.async devices);
+`KF_LDM` forces the `ldmatrix` fragment-load path where supported.
 
 # Examples
 ```julia
@@ -318,11 +340,12 @@ function gemm! end
 """
     get_allocation(::Type{GEMM}, f, op, A, B, arch=nothing) -> KernelBuffer
 
-Allocate a `KernelBuffer` for `gemm!`. GEMM needs **no scratch**: every block owns
-a full tile of `C` and there is no split-K, so this returns an EMPTY buffer. It
-exists only so `KernelForge.@allocate gemm(*, +, A, B)` resolves and the allocation
-contract stays uniform across operations — `gemm!` has no `tmp` keyword, and
-repeated calls allocate nothing beyond `C` itself.
+Allocate a `KernelBuffer` for `gemm!`. This returns an EMPTY buffer: `gemm!` has no
+`tmp` keyword, and it exists only so `KernelForge.@allocate gemm(*, +, A, B)` resolves
+and the allocation contract stays uniform across operations. NOTE: the split-K path
+(`op === +`, deep-K, auto or `splitk>1`) allocates its own `M×N` `AccT` scratch INTERNALLY
+per call — that scratch is not routed through this `KernelBuffer`; the non-split path
+(every block owns a full tile of `C`) allocates nothing beyond `C`.
 """
 function get_allocation(
     ::Type{GEMM},
@@ -380,6 +403,11 @@ function resolve_gemm_parameters(
     warpsz = get_warpsize(arch)
     @assert wg <= 1024 "workgroup ($wg) exceeds 1024; shrink BM/BN or grow TM/TN"
     @assert wg % warpsz == 0 "workgroup ($wg) must be a multiple of the warp size ($warpsz)"
+    # Shared As+Bs tile must fit the 48 KB static @localmem cap (see the header invariant);
+    # fail loudly here rather than as an opaque ptxas allocation death. Mirrors the MMA
+    # resolver's shmem assert.
+    tile_bytes = (BM * BK + BK * BN) * sizeof(T)
+    @assert tile_bytes <= (48 << 10) "K1 shared tile ($tile_bytes B) exceeds the 48 KB cap; shrink BM/BN/BK"
     return (; BM, BN, BK, TM, TN, wg)
 end
 
@@ -491,7 +519,7 @@ end
 @inline _norm_operand(A::Transpose, flag::Symbol) = (parent(A), _flip_flag(flag))
 @inline _norm_operand(A::Adjoint, flag::Symbol) =
     eltype(A) <: Real ? (parent(A), _flip_flag(flag)) :
-                        (parent(A), flag === :N ? :C : :C)   # conj-transpose → :C (errors)
+                        (parent(A), :C)   # complex adjoint → :C (rejected downstream: reals only)
 
 # Pick the compute family. `:mma` iff plain (*,+), matching CT=TA=TB with a HW MMA
 # path for (CT, AccT), and the output is at least one MMA tile. Explicit generic
@@ -546,11 +574,9 @@ function _resolve_family(family, backend, f::F, op::O,
                     "(compute=$TA, acc=$AccT, f=$f, op=$op) on this device (or output < one MMA tile)")
         return (:mma, shape)
     end
-    # Anything else (an unrecognised `family` symbol): explicit generic knobs →
-    # generic; else :mma when available. `family === nothing` returned above, so
-    # AUTO never reaches this line — flipping auto on is the single return above.
-    (user_generic_knobs || !ok) && return (:generic, nothing)
-    return (:mma, shape)
+    # Unreachable: `family` is validated to nothing/:generic/:mma above, and all three
+    # already returned. Kept as a total-function backstop.
+    return (:generic, nothing)
 end
 
 # Normalise lazy Adjoint/Transpose operands into bare parents + composed flags, THEN
@@ -584,6 +610,9 @@ function _gemm_entry_impl!(
     Kb = tB === :N ? size(B, 1) : size(B, 2)
     N  = tB === :N ? size(B, 2) : size(B, 1)
     @assert Ka == Kb "inner dimensions must match: Aop k=$Ka vs Bop k=$Kb (tA=:$tA, tB=:$tB)"
+    # The accumulator is seeded from A[1]/B[1] under @inbounds (op has no identity), so an
+    # empty inner dimension has no defined result and would OOB-read empty operands.
+    @assert Ka >= 1 "gemm: inner dimension K must be ≥ 1 (got K=$Ka); the reduction has no identity element"
     K = Ka
     @assert size(C) == (M, N) "C has size $(size(C)), expected ($M, $N)"
 
@@ -627,9 +656,12 @@ end
 # sub-sum and the cross-slice combine is `+`. Any other `op` (tropical max, boolean,
 # a custom monoid) or a non-primitive AccT (struct eltype) has no global atomic, so
 # it keeps the single-workgroup-per-tile path. `f`/`g` are unrestricted: `g` applies
-# once in the epilogue, and `+`-splitting holds for any map `f`.
+# once in the epilogue, and `+`-splitting holds for any map `f`. AccT is further
+# restricted to word-sized (4/8-byte) primitives: GPU `@atomic +=` on 1/2-byte
+# integers (Bool/Int8/Int16) is unreliable, so those keep the single-slice path.
 @inline _generic_splitk_ok(op, ::Type{AccT}) where {AccT} =
-    op === Base.:+ && (AccT <: AbstractFloat || AccT <: Integer)
+    op === Base.:+ && !(AccT === Bool) &&
+    (AccT <: AbstractFloat || AccT <: Integer) && sizeof(AccT) in (4, 8)
 
 function _gemm_launch_generic!(
     f::F, op::O, g::G, C, A, B, layA, layB, ::Type{AccT},
@@ -641,6 +673,11 @@ function _gemm_launch_generic!(
     NK = _generic_splitk_ok(op, AccT) ?
          something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int : 1
     @assert NK >= 1 "splitk must be ≥ 1"
+    # Trim NK so every K-slice is nonempty: with pps = cld(nkt, NK) panels/slice, a
+    # caller-supplied (or defaulted) NK > cld(nkt, pps) would leave trailing slices
+    # empty (they'd atomic-add an unseeded accumulator — see the K1 kernel guard).
+    nkt = cld(K, p.BK)
+    NK  = min(NK, cld(nkt, cld(nkt, NK)))
 
     if NK == 1
         ndrange = nbx * nby * p.wg      # exact workgroup multiple → no bare-@index OOB
@@ -827,7 +864,8 @@ function _gemm_launch_mma!(
           haskey(ENV, "KF_LDM")
     # NT NATIVE B staging (`:natural`): stage the RowMajor B in an N-CONTIGUOUS tile read
     # RowMajor (the CUTLASS approach — coalesced global + contiguous shared write, cp.async-
-    # able). Opt-in via KF_GEMM_STAGE=natural for now (NT-first). Decided BEFORE resolve so
+    # able). This is the DEFAULT for a RowMajor operand on a cp.async backend (see below);
+    # `KF_GEMM_STAGE=natural` also forces it on non-cp.async backends. Decided BEFORE resolve so
     # the B blob (BN+PC)×BK is sized into shmem. Only a genuine RowMajor B (real NT/TT-native).
     # Native staging is the DEFAULT for a RowMajor operand on a cp.async backend (NVIDIA
     # sm_80+) — it reaches cuBLAS parity-or-better and beats `:coal` on every measured shape
@@ -859,8 +897,8 @@ function _gemm_launch_mma!(
     # ColMajor operands are untouched (keep their `_gemm_async_flags` style), so the
     # NN / ColMajor staging path stays byte-identical. `KF_GEMM_STAGE` overrides for
     # benchmarking: `coal` forces coal on both RowMajor operands, `scatter` forces the
-    # old scatter path on both.
-    coalmode = get(ENV, "KF_GEMM_STAGE", "")
+    # old scatter path on both. Same read as `_stage_env` above (hoisted).
+    coalmode = _stage_env
     if coalmode != "scatter"
         forceB = coalmode == "coal"
         coalBok = N >= GEMM_COAL_NMIN && min(N, K) <= GEMM_COAL_MINKN
@@ -889,6 +927,11 @@ function _gemm_launch_mma!(
     end
     NK = something(splitk, _default_splitk(M, N, K, p.BM, p.BN, p.BK, num_sms(backend)))::Int
     @assert NK >= 1 "splitk must be ≥ 1"
+    # Trim NK so no K-slice is empty (the MMA kernel is immune — accs start at 0 — but
+    # a dead workgroup is wasted launch; keep it in lock-step with the generic path).
+    let nkt = cld(K, p.WK * Kt)
+        NK = min(NK, cld(nkt, cld(nkt, NK)))
+    end
     nbx = cld(M, p.BM); nby = cld(N, p.BN)
     gsw = default_gemm_swizzle(arch, nbx, nby, (M * K + K * N) * sizeof(CT),
                                l2_cache_bytes(backend))::Int

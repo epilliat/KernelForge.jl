@@ -128,6 +128,24 @@ const GEMM_SHAPES = [
             end
             @test isapprox(Array(KF.gemm(dA, dB)), ref; rtol=rt)   # default routes here
         end
+        # B1 regression: NON-DIVISIBLE nkt and `splitk > nkt`. The old code let the
+        # tail slices go empty (ktlo>=kthi) → their unseeded accumulator was atomic-added
+        # as garbage. NK is now trimmed so every slice is nonempty; both cases must match
+        # the non-split result. The prior tests only used divisible nkt/NK and missed it.
+        for T in (Float32, Float64)
+            rt = T === Float64 ? 1f-4 : 1f-3
+            for (M, N, K) in ((64, 64, 520), (64, 64, 64), (48, 80, 300))
+                A = rand(rng, T, M, K); B = rand(rng, T, K, N)
+                ref = Array(A) * Array(B)
+                dA = AT(A); dB = AT(B)
+                C1 = Array(KF.gemm(dA, dB; family=:generic, splitk=1))
+                for nk in (7, 16, 64)          # 64 exceeds nkt on the small-K shapes
+                    C = Array(KF.gemm(dA, dB; family=:generic, splitk=nk))
+                    @test isapprox(C, ref; rtol=rt)
+                    @test isapprox(C, C1; rtol=rt)
+                end
+            end
+        end
         # A non-`+` reduction must NOT split (no global atomic for it) yet stay
         # correct on a deep-K shape even with splitk explicitly requested.
         let M = 64, N = 64, K = 4096

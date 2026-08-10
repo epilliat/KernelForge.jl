@@ -240,5 +240,11 @@ end
         kt += 1
     end
 
-    _gemm_epi!(Val(NK), g, C, acc, m0, n0, M, N, Val(TM), Val(TN))
+    # Split-K empty slice (ktlo >= kthi): the K-loop never ran, so `acc` still holds
+    # the unseeded typed seed (garbage). Such a slice legitimately contributes no
+    # partial → skip the atomic-add. `ktlo`/`kthi` are block-uniform, so this branch
+    # is divergence-safe (no @synchronize inside `_gemm_epi!`). NK==1 always stores.
+    if NK == 1 || ktlo < kthi
+        _gemm_epi!(Val(NK), g, C, acc, m0, n0, M, N, Val(TM), Val(TN))
+    end
 end
