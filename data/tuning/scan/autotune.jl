@@ -106,7 +106,17 @@ function _wg_grid(arch)
     return Tuple(wp * m for m in WG_WAVES if wp * m <= 1024)
 end
 
-function _warmup(f, ms::Int = 5)
+# WARMUP = 500 ms, matching `quick_duration()` in perfs/julia/bench_utils.jl.
+# MEASURED on the MI300X VF (AMD dev cloud): clocks CANNOT be pinned there
+# (`rocm-smi --setperflevel high` is refused on an SR-IOV VF) and the idle floor
+# is 144 MHz. The DVFS profile at N=2^26 is three-regime: 307 us on the first
+# call after idle (3.4x), 92-105 us in a transient window at 5-20 ms of load,
+# then 116-139 us once sustained load throttles it. A 5 ms warmup therefore
+# sampled ACROSS regimes -- and the bias is systematic, not random: every config
+# measured right after a GPUCompiler pass (GPU idle for seconds) was penalised,
+# which MIS-RANKS configs rather than just adding noise. 500 ms puts every
+# candidate in the same sustained regime the benchmark harness reports.
+function _warmup(f, ms::Int = 500)
     t0 = time_ns()
     while (time_ns() - t0) < ms * 1_000_000
         f(); KA.synchronize(_gpu_backend())
@@ -120,6 +130,17 @@ end
 function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
                      arch = nothing, trials::Int = 30, verbose::Bool = true) where T_ref
     A = _gpu_rand(T_ref, N); dst = similar(A)
+    # ZERO-ALLOCATION timed path -- see the WARMUP/allocation note in
+    # mapreduce1d/autotune.jl. The benchmark times `scan!(+, dst, src; tmp=tmp_kf)`
+    # with a pre-allocated workspace; timing the allocating form instead measured a
+    # different code path AND made the numbers swing 3.1x (worst cells 10x+), which
+    # is what produced the physically impossible per-N winners (N=2^24 "winning" at
+    # 950 us where a direct measurement of the same config gives 379, and a better
+    # config 177). Buffer sized for the WORST CASE over the grid -- the smallest
+    # tile gives the MOST blocks -- because an undersized tmp makes the lookback
+    # spin forever (documented deadlock, no Julia error).
+    tmp_tune = KF.get_allocation(KF.Scan1D, identity, +, A,
+                                 cld(N, minimum(ni * wg for ni in NITEM_GRID, wg in wg_grid)))
     warpsz = arch === nothing ? 32 : KF.get_warpsize(arch)
     # Which split-path families to bench (2-family knob). For the autotune f=g=identity
     # so H=S=T_ref; `:transposed` is a candidate only where the transposed kernel is
@@ -157,7 +178,7 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
             # within-thread underflow at larger Nitem) and mis-ranked the tiles —
             # it made the autotune pick Nitem=8 when Nitem=16 is ~3-13% faster in the
             # real (`+`) benchmark on A100. `+` on rand∈[0,1) never degenerates.
-            f = () -> KF.scan!(+, dst, A; Nitem=Ni, workgroup=wg, family=fam)
+            f = () -> KF.scan!(+, dst, A; Nitem=Ni, workgroup=wg, family=fam, tmp=tmp_tune)
             try
                 _warmup(f)
                 us = _bench_us(f; trials)
@@ -192,7 +213,7 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid;
             fits_ok = dfam === :blocked ||
                       (applicable && KF.scan_transposed_fits(T_ref, dni, dwg, warpsz))
             if dni * dwg <= N && fits_ok
-                f = () -> KF.scan!(+, dst, A; Nitem=dni, workgroup=dwg, family=dfam)
+                f = () -> KF.scan!(+, dst, A; Nitem=dni, workgroup=dwg, family=dfam, tmp=tmp_tune)
                 _warmup(f)
                 push!(runs, (; Nitem=dni, workgroup=dwg, family=dfam, us=_bench_us(f; trials)))
             end

@@ -131,6 +131,17 @@ for n in sizes, T in types
     src = fill!(AT{T}(undef, n), one(T))
     f(x) = Float32(x)
     label = "UnitFloat8→Float32"
+    # KF row uses the SAME pre-allocated in-place path as every other dtype above
+    # (`mapreduce!(...; tmp)`). It used to call the ALLOCATING `mapreduce(f,+,src)`,
+    # which allocates a fresh dst AND a fresh lookback workspace on EVERY timed
+    # call -- a different code path from the rest of the CSV, so this one row was
+    # not comparable with its own table. MEASURED on MI300X: per-call workspace
+    # allocation inflates and destabilises timings by 3-44x (a control kernel that
+    # allocates nothing stays at 1.5x), which is exactly the shape this row showed:
+    # 37-51x "behind" rocPRIM and NON-MONOTONE in n (300 -> 447 -> 320 -> 630 us
+    # for a 1000x volume range). Widening map => H=Float32, so dst is Float32.
+    dst_uf8 = AT{Float32}(undef, 1)
+    tmp_uf8 = KF.@allocate mapreduce1d(f, +, src)
     for (name, method, call) in [
       (has_cuda() ? "CUDA [$label]" : "Base [$label]",
         has_cuda() ? "CUDA" : "Base",
@@ -138,7 +149,7 @@ for n in sizes, T in types
       ("AcceleratedKernels [$label]", "AK",
         () -> AcceleratedKernels.mapreduce(f, +, src; init=T(0))),
       ("KernelForge [$label]", "KernelForge",
-        () -> KernelForge.mapreduce(f, +, src)),
+        () -> KernelForge.mapreduce!(f, +, dst_uf8, src; tmp=tmp_uf8)),
     ]
       s = bench(name, call; backend)
       push!(all_rows, (; n, type=label, method,

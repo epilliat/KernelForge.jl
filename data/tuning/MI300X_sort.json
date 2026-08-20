@@ -1,0 +1,71 @@
+{
+    "sort_override": true,
+    "arch": "MI300X",
+    "sort": {
+        "size_4": {
+            "100000000": {
+                "Nitem": 8,
+                "rr": false,
+                "family": "value",
+                "default_us": 6082.1,
+                "tile": 12288,
+                "us": 4172.1,
+                "Nchunks": 3,
+                "workgroup": 512
+            },
+            "10000000": {
+                "Nitem": 8,
+                "rr": false,
+                "family": "value",
+                "default_us": 692.4,
+                "tile": 12288,
+                "us": 496.7,
+                "Nchunks": 3,
+                "workgroup": 512
+            },
+            "1000000": {
+                "Nitem": 8,
+                "rr": false,
+                "family": "value",
+                "default_us": 157.7,
+                "tile": 12288,
+                "us": 134.3,
+                "Nchunks": 3,
+                "workgroup": 512
+            }
+        },
+        "size_8": {
+            "100000000": {
+                "Nitem": 8,
+                "rr": false,
+                "family": "idxstage",
+                "default_us": 11555.1,
+                "tile": 16384,
+                "us": 9902.7,
+                "Nchunks": 2,
+                "workgroup": 1024
+            },
+            "10000000": {
+                "Nitem": 4,
+                "rr": false,
+                "family": "idxstage",
+                "default_us": 1299,
+                "tile": 12288,
+                "us": 1299,
+                "Nchunks": 3,
+                "workgroup": 1024
+            },
+            "1000000": {
+                "Nitem": 4,
+                "rr": false,
+                "family": "idxstage",
+                "default_us": 322.7,
+                "tile": 12288,
+                "us": 322.7,
+                "Nchunks": 3,
+                "workgroup": 1024
+            }
+        }
+    },
+    "generated": "2026-08-19"
+}

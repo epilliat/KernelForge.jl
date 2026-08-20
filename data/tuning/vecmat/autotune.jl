@@ -518,7 +518,13 @@ function tune_cell(n::Int, p::Int, ::Type{T};
         f_us, f_re, f_ok = NaN, NaN, false
         try
             f = _run_closure(params, x, A, dst, H, n, p, arch)
-            _warmup_for(f, 5)
+            _warmup_for(f, 5)   # 5 ms, NOT 500: this sweep is hierarchical (~850 coarse
+            # candidates x ~149 cells per dtype), so a 500 ms per-candidate warmup costs
+            # ~17 h/dtype -- measured, it ran 2h24 without finishing one. 5 ms is what the
+            # documented 5-12 min/dtype budget is calibrated for. Safe here (unlike
+            # mapreduce1d/scan, which DO use 500 ms): matvec/vecmat already PRE-ALLOCATE
+            # tmp, so the per-call-allocation pathology does not apply, and the pass-2
+            # robustness refinement re-measures the finalists, filtering coarse-pass noise.
             # Fine phase trials default to 10 (autotune driver passes
             # `fine_trials`). Median is the right reducer here: we tried
             # min-of-5 — it cut the F64 (64, 262144) bad-winner from 1126µs
@@ -612,7 +618,13 @@ function _bench_shape(params::NamedTuple, n::Int, p::Int, ::Type{T};
         arch = KF.detect_arch(A)
         f = _run_closure(params, x, A, dst, H, n, p, arch)
         f(); KA.synchronize(backend)
-        _warmup_for(f, 5)
+        _warmup_for(f, 5)   # 5 ms, NOT 500: this sweep is hierarchical (~850 coarse
+            # candidates x ~149 cells per dtype), so a 500 ms per-candidate warmup costs
+            # ~17 h/dtype -- measured, it ran 2h24 without finishing one. 5 ms is what the
+            # documented 5-12 min/dtype budget is calibrated for. Safe here (unlike
+            # mapreduce1d/scan, which DO use 500 ms): matvec/vecmat already PRE-ALLOCATE
+            # tmp, so the per-call-allocation pathology does not apply, and the pass-2
+            # robustness refinement re-measures the finalists, filtering coarse-pass noise.
         return _bench_us(f; trials)
     catch
         return NaN

@@ -133,7 +133,17 @@ function _wg_grid(arch)
     return Tuple(wp * m for m in WG_WAVES if wp * m <= 1024)
 end
 
-function _warmup(f, ms::Int = 5)
+# WARMUP = 500 ms, matching `quick_duration()` in perfs/julia/bench_utils.jl.
+# MEASURED on the MI300X VF (AMD dev cloud): clocks CANNOT be pinned there
+# (`rocm-smi --setperflevel high` is refused on an SR-IOV VF) and the idle floor
+# is 144 MHz. The DVFS profile at N=2^26 is three-regime: 307 us on the first
+# call after idle (3.4x), 92-105 us in a transient window at 5-20 ms of load,
+# then 116-139 us once sustained load throttles it. A 5 ms warmup therefore
+# sampled ACROSS regimes -- and the bias is systematic, not random: every config
+# measured right after a GPUCompiler pass (GPU idle for seconds) was penalised,
+# which MIS-RANKS configs rather than just adding noise. 500 ms puts every
+# candidate in the same sustained regime the benchmark harness reports.
+function _warmup(f, ms::Int = 500)
     t0 = time_ns()
     while (time_ns() - t0) < ms * 1_000_000
         f(); KA.synchronize(_gpu_backend())
@@ -147,11 +157,29 @@ end
 function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid, bl_grid; arch = nothing,
                      trials::Int = 30, verbose::Bool = true) where T_ref
     A = _gpu_rand(T_ref, N)
+    # ZERO-ALLOCATION timed path. This is what the BENCHMARK measures --
+    # `mapreduce!(f, +, dst, src; tmp=tmp_kf)` with both buffers pre-allocated
+    # (perfs/julia/benchmarks/mapreduce_perf_comparison.jl) -- whereas this
+    # autotune used to time the ALLOCATING `mapreduce1d(...)`, which allocates a
+    # fresh dst AND a fresh workspace on EVERY call. That is a different code
+    # path from the one being published, and its per-call GPU allocation
+    # dominates and destabilises the measurement.
+    # MEASURED on MI300X (same process, interleaved): the allocating scan path
+    # swings 3.1x run-to-run (and mapreduce 44x, degrading progressively under
+    # sustained submission) while the pre-allocated path holds 1.2x; a plain
+    # `y .= x .* 2` control kernel stayed at 1.5x throughout. So this is
+    # allocator pressure, NOT the GPU, NOT the clocks (sclk stayed at 2100 MHz).
+    # ONE worst-case buffer reused across the whole grid is the documented sweep
+    # pattern: `blocks` is a swept knob, so size for max(bl_grid). Oversizing is
+    # harmless (the kernel only touches [1..blocks]); UNDERsizing deadlocks the
+    # lookback (see the tmp-reuse trap in .claude/CLAUDE.md).
+    dst_tune = KA.allocate(_gpu_backend(), T_ref, 1)
+    tmp_tune = KF.get_allocation(KF.MapReduce1D, *, +, A, nothing, maximum(bl_grid))
     runs = NamedTuple[]
     for Ni in NITEM_GRID, wg in wg_grid, bl in bl_grid
         Ni * wg <= N || continue
-        f = () -> KF.mapreduce1d(*, +, A; Nitem=Ni, workgroup=wg, blocks=bl,
-                                  to_cpu=false)
+        f = () -> KF.mapreduce!(*, +, dst_tune, A; tmp=tmp_tune,
+                                Nitem=Ni, workgroup=wg, blocks=bl)
         try
             _warmup(f)
             us = _bench_us(f; trials)
@@ -168,8 +196,8 @@ function _tune_per_n(N::Int, ::Type{T_ref}, wg_grid, bl_grid; arch = nothing,
             dwg = KF.default_workgroup(arch, KF.MapReduce1D, N, T_ref)
             dbl = KF.default_blocks(arch, KF.MapReduce1D, N, T_ref)
             if dni * dwg <= N
-                f = () -> KF.mapreduce1d(*, +, A; Nitem=dni, workgroup=dwg,
-                                          blocks=dbl, to_cpu=false)
+                f = () -> KF.mapreduce!(*, +, dst_tune, A; tmp=tmp_tune,
+                                        Nitem=dni, workgroup=dwg, blocks=dbl)
                 _warmup(f)
                 push!(runs, (; Nitem=dni, workgroup=dwg, blocks=dbl, us=_bench_us(f; trials)))
             end
