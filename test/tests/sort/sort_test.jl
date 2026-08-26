@@ -401,6 +401,21 @@ end
             KF._CHAIN_MAX_N[] = maxn
             @test Array(KF.sort(src; family = :idxstage)) == expected
         end
+
+        # So does the key/value kernel — and there STABILITY is observable, which
+        # it is not for a keys-only sort. Unique value tags make the value
+        # permutation a witness: an unstable pass reorders equal keys and the
+        # element-wise comparison against Base's stable sortperm fails.
+        keys_cpu = rand(UInt32, n)
+        vals_cpu = collect(UInt32(1):UInt32(n))
+        keys, vals = AT(keys_cpu), AT(vals_cpu)
+        perm = sortperm(keys_cpu)
+        for maxn in (typemax(Int), 1)
+            KF._CHAIN_MAX_N[] = maxn
+            sv, sk = KF.sort(vals; keys = keys)
+            @test Array(sk) == keys_cpu[perm]
+            @test Array(sv) == vals_cpu[perm]
+        end
     finally
         KF._CHAIN_MAX_N[] = saved
     end

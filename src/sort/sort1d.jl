@@ -1026,6 +1026,32 @@ end
 
 # --- Keyval onesweep path (any npasses ≥ 1) ----------------------------------
 
+# `_onesweep_passes!` for the key/value kernel: same protocol fork, different
+# launch signature (two ping-pongs, values and keys, and a direct kernel call
+# rather than `KernelIntrinsics.launch!`).
+@inline function _keyval_passes!(inst, chain::Bool, a_v, b_v, a_k, b_k,
+                                 by::F, uint_map::M, hist, partial1, partial2, flag,
+                                 npasses::Int, vals::Tuple) where {F,M}
+    if chain
+        fill!(partial1, CHAIN_SENTINEL)
+    else
+        fill!(flag, UInt8(0))
+    end
+
+    for pass in 1:npasses
+        p1_view = @view partial1[:, :, pass]
+        p2_view = @view partial2[:, :, pass]
+        fl_view = @view flag[:, pass]
+        excl_col = @view hist[:, pass]
+        inst(b_v, a_v, b_k, a_k, by, uint_map, Int32(8 * (pass - 1)),
+             excl_col, p1_view, p2_view, fl_view, vals...)
+        a_v, b_v = b_v, a_v
+        a_k, b_k = b_k, a_k
+    end
+    return nothing
+end
+
+
 # Nothing-dispatch: allocate buffer (with scratch_keys) then forward.
 function _sort1d_keyval_impl!(
     ker::KER, by::F, uint_map::M,
@@ -1083,7 +1109,9 @@ function _sort1d_keyval_impl!(
     # the final write lands in (dst, dst_keys) regardless of parity.
     # When dst === src and dst_keys === src_keys (in-place form), skip
     # the redundant src → src and keys → keys self-copies.
-    inst = ker(backend, workgroup, nblocks * workgroup)
+    vals = (Val(Nbuckets), Val(warpsz), Val(wpb),
+            sort_desc_bypass(arch) ? Val(true) : Val(false))
+    ndrange = nblocks * workgroup
 
     in_place = (dst === src) && (dst_keys === src_keys)
     if in_place
@@ -1108,24 +1136,15 @@ function _sort1d_keyval_impl!(
         a_k, b_k = scratch_keys, dst_keys
     end
 
-    # Only `flag` needs zeroing. `partial1`/`partial2` do NOT: phase 3a writes every
-    # (bucket, gid) entry of both, and only then publishes flag[gid], and the lookback
-    # reads partial{1,2}[bucket, b] ONLY after it has seen flag[b] != 0 -- so no entry
-    # is ever read before it is written, whatever stale contents a reused `tmp` holds.
-    # Zeroing them cost two launches AND, at N=1e8, two 12.5 MB memsets of pure waste.
-    fill!(flag, UInt8(0))
-
-    for pass in 1:npasses
-        p1_view = @view partial1[:, :, pass]
-        p2_view = @view partial2[:, :, pass]
-        fl_view = @view flag[:, pass]
-        excl_col = @view hist[:, pass]
-        inst(b_v, a_v, b_k, a_k, by, uint_map, Int32(8 * (pass - 1)),
-             excl_col, p1_view, p2_view, fl_view,
-             Val(Nbuckets), Val(warpsz), Val(wpb),
-             sort_desc_bypass(arch) ? Val(true) : Val(false))
-        a_v, b_v = b_v, a_v
-        a_k, b_k = b_k, a_k
+    # Protocol fork — see `_sort1d_impl!`.
+    if chain_protocol_applicable(n)
+        _keyval_passes!(ker(backend, workgroup, ndrange), true, a_v, b_v, a_k, b_k,
+                        by, uint_map, hist, partial1, partial2, flag, npasses, vals)
+    else
+        ker_flag = get_keyval_kernel_flag(Val(Nitem), Val(Nchunks))
+        inst_flag = Base.invokelatest(ker_flag, backend, workgroup, ndrange)
+        Base.invokelatest(_keyval_passes!, inst_flag, false, a_v, b_v, a_k, b_k,
+                          by, uint_map, hist, partial1, partial2, flag, npasses, vals)
     end
     return dst
 end

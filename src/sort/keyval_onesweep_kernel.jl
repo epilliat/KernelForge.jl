@@ -39,10 +39,10 @@ using Base.Cartesian: @nexprs
 using KernelAbstractions: @atomic
 
 
-const _keyval_onesweep_kernel_cache = Dict{Tuple{Int,Int},Any}()
+const _keyval_onesweep_kernel_cache = Dict{Tuple{Int,Int,Bool},Any}()
 
 
-function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
+function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int, Chain::Bool)
     Niter_5b = Nchunks * Nitem
     body = quote
         @uniform begin
@@ -58,6 +58,12 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         warp_id = (lid - 1) ÷ warpsz + 1
         lane    = (lid - 1) % warpsz + 1
         global_warp = (gid - 1) * wpb + warp_id
+
+        # This kernel is NOT workgroup-decoupled: workgroup == Nbuckets, so EVERY
+        # thread carries a bucket. `has_bucket` is a literal `true` only so the
+        # shared chain-protocol fragments (onesweep_kernel.jl) compile here
+        # unchanged; the guard folds away.
+        has_bucket = true
 
         warp_first_pos = (global_warp - 1) * $Nchunks * warpsz * $Nitem + 1
 
@@ -124,25 +130,8 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         block_total_b = prefix_acc
 
         # Phase 3a: publish aggregate (transposed layout).
-        # `Bypass` (AMD): see sort_desc_bypass. The release fence runs on EVERY thread
-        # BEFORE the barrier — vmcnt is per-wave, so fencing on lid==1 alone would not
-        # drain the partial stores issued by the other waves.
-        if Bypass
-            @access Device Relaxed partial1[bucket, gid] = block_total_b
-            @access Device Relaxed partial2[bucket, gid] = block_total_b
-            @fence Workgroup Release
-        else
-            @access partial1[bucket, gid] = block_total_b
-            @access partial2[bucket, gid] = block_total_b
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x01
-            else
-                @access flag[gid] = 0x01
-            end
-        end
+        # See the CHAIN PROTOCOL block in onesweep_kernel.jl.
+        $(_chain_publish_aggregate(Chain))
 
         # Phase 4.5: warp-totals reduction.
         val_inc = block_total_b
@@ -207,72 +196,10 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        # Phase 3b: decoupled lookback, BARRIER-FREE.
-        #
-        # Each of the Nbuckets bucket-carrying threads walks back on its own. They all
-        # poll the SAME flag[b], so `flg` and `b` advance identically across them: the
-        # loop is warp-uniform BY CONSTRUCTION and needs no barrier, no shared slot,
-        # and no descriptor hand-off. The 256 threads polling one address coalesce into
-        # a single request.
-        #
-        # The previous version centralised the poll on one lane and published through
-        # shared_hist[1, 1], which cost TWO block barriers per step of the walk -- and
-        # at wg=512/1024 a barrier is expensive. Measured on A100: -2.8% to -8.6% end
-        # to end. It also removes the read-then-overwrite race on shared_hist[1, 1]
-        # (fixed in 4a6848d) at the source: there is no shared descriptor left to race on.
-        #
-        # This kernel is NOT workgroup-decoupled (bucket = lid, workgroup == Nbuckets),
-        # so every thread carries a bucket and takes part in the walk.
-        cross_block_prefix = UInt32(0)
-        if gid >= 2
-            b_lb = gid - 1
-            done_lb = false
-            while !done_lb
-                flg_lb = UInt32(0)
-                while flg_lb == UInt32(0)
-                    # Device-scope RELAXED (Bypass): coherent, but no per-round acquire.
-                    # That acquire is what made this walk 66-68% of the sort on gfx942.
-                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
-                                    (@access flag[b_lb])        # Device Acquire
-                    flg_lb = UInt32(f_lb)
-                end
-                if Bypass
-                    @fence Workgroup Acquire   # once per FOUND block, not per spin
-                end
-                if flg_lb == UInt32(0x02)
-                    # inclusive prefix published -> the walk ends here
-                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
-                                     (@access partial2[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    done_lb = true
-                else
-                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
-                                     (@access partial1[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    if b_lb == 1
-                        done_lb = true
-                    else
-                        b_lb -= 1
-                    end
-                end
-            end
-        end
-        @synchronize
-
-        if Bypass
-            @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
-            @fence Workgroup Release   # per-wave drain, BEFORE the barrier
-        else
-            @access partial2[bucket, gid] = cross_block_prefix + block_total_b
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x02
-            else
-                @access flag[gid] = 0x02
-            end
-        end
+        # Phase 3b: decoupled lookback + phase 4 publish
+        # (see the CHAIN PROTOCOL block in onesweep_kernel.jl).
+        $(_chain_lookback(Chain))
+        $(_chain_publish_inclusive(Chain))
 
         # Phase 4 second.
         shared_hist[bucket, 1] = global_excl_hist[bucket] + cross_block_prefix - own_bds_reg
@@ -317,24 +244,33 @@ function build_keyval_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 end
 
 
-function _define_keyval_kernel!(Nitem::Int, Nchunks::Int)
-    name = Symbol("keyval_onesweep_kernel_", Nitem, "_", Nchunks, "!")
+# `Chain` picks the lookback protocol at BUILD time, exactly as in
+# onesweep_kernel.jl. The flag variant is only ever built for N >= 2^31.
+function _define_keyval_kernel!(Nitem::Int, Nchunks::Int, Chain::Bool=true)
+    name = Symbol("keyval_onesweep_kernel_", Chain ? "" : "flag_", Nitem, "_", Nchunks, "!")
+    getter = Chain ? :get_keyval_kernel : :get_keyval_kernel_flag
     fn = Core.eval(@__MODULE__, quote
-        $(build_keyval_kernel_def(name, Nitem, Nchunks))
+        $(build_keyval_kernel_def(name, Nitem, Nchunks, Chain))
         $name
     end)
     Core.eval(@__MODULE__,
-        :(@inline get_keyval_kernel(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
-    _keyval_onesweep_kernel_cache[(Nitem, Nchunks)] = fn
+        :(@inline $getter(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
+    _keyval_onesweep_kernel_cache[(Nitem, Nchunks, Chain)] = fn
     return fn
 end
 
 
 # Generic fallback for exotic specs.
 function get_keyval_kernel(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
-    key = (Nitem, Nchunks)
+    key = (Nitem, Nchunks, true)
     haskey(_keyval_onesweep_kernel_cache, key) && return _keyval_onesweep_kernel_cache[key]
-    return _define_keyval_kernel!(Nitem, Nchunks)
+    return _define_keyval_kernel!(Nitem, Nchunks, true)
+end
+
+function get_keyval_kernel_flag(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
+    key = (Nitem, Nchunks, false)
+    haskey(_keyval_onesweep_kernel_cache, key) && return _keyval_onesweep_kernel_cache[key]
+    return _define_keyval_kernel!(Nitem, Nchunks, false)
 end
 
 
