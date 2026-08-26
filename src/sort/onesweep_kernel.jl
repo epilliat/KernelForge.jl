@@ -107,10 +107,211 @@ end
 
 
 # Cache: (Nitem, Nchunks) → compiled @kernel function object.
-const _onesweep_kernel_cache = Dict{Tuple{Int,Int},Any}()
+const _onesweep_kernel_cache = Dict{Tuple{Int,Int,Bool},Any}()
 
 
-function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
+# ============================================================================
+# Decoupled-lookback CHAIN PROTOCOL
+# ============================================================================
+# Both onesweep families (value- and index-staged) publish their aggregate,
+# walk back, and publish their inclusive prefix through the THREE fragments
+# below, so the protocol is written down exactly once. Which of the two
+# protocols a kernel carries is fixed at BUILD time by `Chain` -- there is no
+# runtime branch, and no `@synchronize` inside a conditional.
+#
+# `Chain = true` (default) -- the lookback state is FOLDED INTO THE DESCRIPTOR.
+# A single UInt32 per (bucket, block) carries all three states:
+#     CHAIN_SENTINEL       not published yet
+#     v, bit 31 clear      block AGGREGATE   (bounded by the tile)
+#     v | CHAIN_INCL_BIT   INCLUSIVE prefix  (bounded by N)
+# The thread carrying bucket k in block b writes partial1[k, b], and it is THAT
+# SAME thread, in block b+1, that reads it back, so the chain needs no
+# coordination between warps at all. Its critical path therefore carries
+# NEITHER a block barrier NOR a separate flag. The flag protocol paid both: every
+# successor waited for all `workgroup` threads of its predecessor to converge on
+# a barrier so that ONE of them could set flag[b], and then paid a second,
+# DEPENDENT round trip (read the flag, THEN read the value).
+# MEASURED on MI300A (1e8 keys, min of 10, same job): 4 B 4667.9 -> 2769.5 us,
+# 8 B 17876.9 -> 9889.0 us -- from 1.42x / 1.71x BEHIND rocPRIM to ahead of it.
+# Small N is unaffected because the descriptor fill! REPLACES the flag fill!:
+# one launch either way (the bytes are noise -- 0.13 us at N=1e6; it was the
+# LAUNCH that cost).
+#
+# `Chain = false` -- the legacy flag protocol, kept as the fallback for
+# N >= 2^31, where the inclusive prefix no longer fits in 31 bits. That case
+# would be silently WRONG rather than a crash, so it is guarded on the host by
+# `chain_protocol_applicable`.
+
+const CHAIN_SENTINEL = typemax(UInt32)
+const CHAIN_INCL_BIT = UInt32(0x80000000)
+
+
+# Phase 3a: publish this block's per-bucket aggregate.
+function _chain_publish_aggregate(Chain::Bool)
+    Chain && return quote
+        if has_bucket
+            # `Bypass` (AMD): Device-scope RELAXED store -- coherent, with no
+            # ordering of its own. None is needed: the descriptor is the ONLY
+            # datum the chain communicates, so there are no two locations to
+            # order against each other. See sort_desc_bypass.
+            if Bypass
+                @access Device Relaxed partial1[bucket, gid] = block_total_b
+            else
+                @access partial1[bucket, gid] = block_total_b
+            end
+        end
+    end
+    return quote
+        # `Bypass` (AMD): Device-scope RELAXED stores -- coherent, but no ordering of
+        # their own. See sort_desc_bypass for why, and for why the release fence below
+        # must run on EVERY thread BEFORE the barrier (vmcnt is per-wave).
+        if has_bucket
+            if Bypass
+                @access Device Relaxed partial1[bucket, gid] = block_total_b
+                @access Device Relaxed partial2[bucket, gid] = block_total_b
+            else
+                @access partial1[bucket, gid] = block_total_b
+                @access partial2[bucket, gid] = block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release   # every wave drains ITS OWN partial stores
+        end
+        @synchronize
+        if lid == 1
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x01
+            else
+                @access flag[gid] = 0x01
+            end
+        end
+    end
+end
+
+
+# Phase 3b: the walk itself, BARRIER-FREE.
+#
+# Each of the Nbuckets bucket-carrying threads walks back on its own. They all
+# poll the SAME block b, so `b_lb` advances identically across them: the loop is
+# warp-uniform BY CONSTRUCTION and needs no barrier, no shared slot, and no
+# descriptor hand-off. The Nbuckets threads polling one cache line coalesce into
+# a single request.
+#
+# The pre-4a6848d version centralised the poll on one lane and published through
+# shared_hist[1, 1], which cost TWO block barriers per step of the walk -- and at
+# workgroup 512/1024 a barrier is expensive. Measured on A100: -2.8% to -8.6%
+# end to end. It also removes the read-then-overwrite race on shared_hist[1, 1]
+# at the source: there is no shared descriptor left to race on.
+#
+# Threads with no bucket skip the loop entirely and wait at the barrier below --
+# legal precisely because there is no @synchronize *inside* the loop.
+function _chain_lookback(Chain::Bool)
+    step = Chain ? quote
+        # ONE dependent read per link, on ONE array. The flag protocol needed
+        # two chained round trips per link (flag, THEN value).
+        v_lb = CHAIN_SENTINEL
+        while v_lb == CHAIN_SENTINEL
+            v_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
+                            (@access partial1[bucket, b_lb])
+        end
+        if (v_lb & CHAIN_INCL_BIT) != UInt32(0)
+            # inclusive prefix published -> the walk ends here
+            cross_block_prefix += (v_lb & ~CHAIN_INCL_BIT)
+            done_lb = true
+        else
+            cross_block_prefix += v_lb
+            if b_lb == 1
+                done_lb = true
+            else
+                b_lb -= 1
+            end
+        end
+    end : quote
+        flg_lb = UInt32(0)
+        while flg_lb == UInt32(0)
+            # `Bypass` (AMD): Device-scope RELAXED load -- always fresh from the
+            # coherent point, but WITHOUT the per-round acquire, which on gfx942
+            # L1-invalidates on every single spin. A @sleep backoff on top of it
+            # is a WASH (+0.1%) -- the cost was the cache traffic, not the spinning.
+            f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
+                            (@access flag[b_lb])        # Device Acquire
+            flg_lb = UInt32(f_lb)
+        end
+        if Bypass
+            # ONE acquire per FOUND block (not per spin): pairs with the producer's
+            # release and orders the partial read after the flag read.
+            @fence Workgroup Acquire
+        end
+        if flg_lb == UInt32(0x02)
+            pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
+                             (@access partial2[bucket, b_lb])
+            cross_block_prefix += pv_lb
+            done_lb = true
+        else
+            pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
+                             (@access partial1[bucket, b_lb])
+            cross_block_prefix += pv_lb
+            if b_lb == 1
+                done_lb = true
+            else
+                b_lb -= 1
+            end
+        end
+    end
+    return quote
+        cross_block_prefix = UInt32(0)
+        if has_bucket && gid >= 2
+            b_lb = gid - 1
+            done_lb = false
+            while !done_lb
+                $step
+            end
+        end
+        @synchronize
+    end
+end
+
+
+# Phase 4: publish the inclusive prefix. Under `Chain` this store IS the signal.
+function _chain_publish_inclusive(Chain::Bool)
+    Chain && return quote
+        if has_bucket
+            incl_v = (cross_block_prefix + block_total_b) | CHAIN_INCL_BIT
+            if Bypass
+                @access Device Relaxed partial1[bucket, gid] = incl_v
+            else
+                @access partial1[bucket, gid] = incl_v
+            end
+        end
+        if Bypass
+            @fence Workgroup Release   # per-wave drain, BEFORE the barrier
+        end
+        @synchronize
+    end
+    return quote
+        if has_bucket
+            if Bypass
+                @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
+            else
+                @access partial2[bucket, gid] = cross_block_prefix + block_total_b
+            end
+        end
+        if Bypass
+            @fence Workgroup Release   # per-wave drain, BEFORE the barrier (see phase 3a)
+        end
+        @synchronize
+        if lid == 1
+            if Bypass
+                @access Device Relaxed flag[gid] = 0x02
+            else
+                @access flag[gid] = 0x02
+            end
+        end
+    end
+end
+
+
+function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int, Chain::Bool)
     # All numeric constants below get interpolated as LITERALS into @nexprs
     # counts and Val(...) — so the @kernel macro sees plain @nexprs Nc/Ni
     # forms, identical to a hand-written hardcoded body.
@@ -263,29 +464,8 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
 
         # Phase 3a: publish aggregate (TRANSPOSED layout for coalescing).
-        # `Bypass` (AMD): Device-scope RELAXED stores — coherent, but no ordering of
-        # their own. See sort_desc_bypass for why, and for why the release fence below
-        # must run on EVERY thread BEFORE the barrier (vmcnt is per-wave).
-        if has_bucket
-            if Bypass
-                @access Device Relaxed partial1[bucket, gid] = block_total_b
-                @access Device Relaxed partial2[bucket, gid] = block_total_b
-            else
-                @access partial1[bucket, gid] = block_total_b
-                @access partial2[bucket, gid] = block_total_b
-            end
-        end
-        if Bypass
-            @fence Workgroup Release   # every wave drains ITS OWN partial stores
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x01
-            else
-                @access flag[gid] = 0x01
-            end
-        end
+        # See the CHAIN PROTOCOL block above for the two protocols.
+        $(_chain_publish_aggregate(Chain))
 
         # Phase 4.5: exclusive scan of the Nbuckets block totals, which live in
         # threads 1..Nbuckets, i.e. in warps 1..nwg. The guard is warp-uniform,
@@ -368,82 +548,10 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        # Phase 3b: decoupled lookback, BARRIER-FREE.
-        #
-        # Each of the Nbuckets bucket-carrying threads walks back on its own. They all
-        # poll the SAME flag[b], so `flg` and `b` advance identically across them: the
-        # loop is warp-uniform BY CONSTRUCTION and needs no barrier, no shared slot,
-        # and no descriptor hand-off. The 256 threads polling one address coalesce into
-        # a single request.
-        #
-        # The previous version centralised the poll on one lane and published through
-        # shared_hist[1, 1], which cost TWO block barriers per step of the walk -- and
-        # at wg=512/1024 a barrier is expensive. Measured on A100: -2.8% to -8.6% end
-        # to end. It also removes the read-then-overwrite race on shared_hist[1, 1]
-        # (fixed in 4a6848d) at the source: there is no shared descriptor left to race on.
-        #
-        # Threads with no bucket skip the loop entirely and wait at the barrier below --
-        # legal precisely because there is no @synchronize *inside* the loop.
-        cross_block_prefix = UInt32(0)
-        if has_bucket && gid >= 2
-            b_lb = gid - 1
-            done_lb = false
-            while !done_lb
-                flg_lb = UInt32(0)
-                while flg_lb == UInt32(0)
-                    # `Bypass` (AMD): Device-scope RELAXED load — always fresh from the
-                    # coherent point, but WITHOUT the per-round acquire, which on gfx942
-                    # L1-invalidates on every single spin. That acquire was the whole
-                    # bill: this walk is 66-68% of the sort on MI300A and 1.7% on A100.
-                    # A @sleep backoff on top of it is a WASH (+0.1%) — the cost was the
-                    # cache traffic, not the spinning.
-                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
-                                    (@access flag[b_lb])        # Device Acquire
-                    flg_lb = UInt32(f_lb)
-                end
-                if Bypass
-                    # ONE acquire per FOUND block (not per spin): pairs with the
-                    # producer's release and orders the partial read after the flag read.
-                    @fence Workgroup Acquire
-                end
-                if flg_lb == UInt32(0x02)
-                    # inclusive prefix published -> the walk ends here
-                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
-                                     (@access partial2[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    done_lb = true
-                else
-                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
-                                     (@access partial1[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    if b_lb == 1
-                        done_lb = true
-                    else
-                        b_lb -= 1
-                    end
-                end
-            end
-        end
-        @synchronize
-
-        if has_bucket
-            if Bypass
-                @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
-            else
-                @access partial2[bucket, gid] = cross_block_prefix + block_total_b
-            end
-        end
-        if Bypass
-            @fence Workgroup Release   # per-wave drain, BEFORE the barrier (see phase 3a)
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x02
-            else
-                @access flag[gid] = 0x02
-            end
-        end
+        # Phase 3b: decoupled lookback + phase 4 publish
+        # (see the CHAIN PROTOCOL block above).
+        $(_chain_lookback(Chain))
+        $(_chain_publish_inclusive(Chain))
 
         # Phase 4 second: write block_global_offset[d] into shared_hist[d, 1].
         if has_bucket
@@ -488,20 +596,26 @@ function build_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 end
 
 
-function _define_kernel!(Nitem::Int, Nchunks::Int)
-    name = Symbol("onesweep_kernel_", Nitem, "_", Nchunks, "!")
+# `Chain` picks the lookback protocol AT BUILD TIME (see the CHAIN PROTOCOL
+# block above), so each variant is its own uniquely-named kernel with no runtime
+# branch in its body. `get_radix_kernel` returns the chain kernel; the flag
+# fallback lives behind `get_radix_kernel_flag` and is built ONLY if a sort ever
+# reaches N >= 2^31 — until then it costs nothing, not even compile time.
+function _define_kernel!(Nitem::Int, Nchunks::Int, Chain::Bool=true)
+    name = Symbol("onesweep_kernel_", Chain ? "" : "flag_", Nitem, "_", Nchunks, "!")
+    getter = Chain ? :get_radix_kernel : :get_radix_kernel_flag
     # Define the kernel AND retrieve it in the same Core.eval. The trailing
     # `$name` evaluates the freshly-defined binding in the latest world,
     # avoiding the world-age warning a separate `getfield` would trigger.
     fn = Core.eval(@__MODULE__, quote
-        $(build_kernel_def(name, Nitem, Nchunks))
+        $(build_kernel_def(name, Nitem, Nchunks, Chain))
         $name
     end)
     # Install a typed dispatch method whose body returns `fn` as a literal
     # singleton — no global-binding access at any point in the call chain.
     Core.eval(@__MODULE__,
-        :(@inline get_radix_kernel(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
-    _onesweep_kernel_cache[(Nitem, Nchunks)] = fn
+        :(@inline $getter(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
+    _onesweep_kernel_cache[(Nitem, Nchunks, Chain)] = fn
     return fn
 end
 
@@ -510,16 +624,23 @@ end
 # prevents a second @eval if the typed method is not yet visible
 # (it was installed in a world that hasn't propagated to our caller).
 function get_radix_kernel(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
-    key = (Nitem, Nchunks)
+    key = (Nitem, Nchunks, true)
     haskey(_onesweep_kernel_cache, key) && return _onesweep_kernel_cache[key]
-    return _define_kernel!(Nitem, Nchunks)
+    return _define_kernel!(Nitem, Nchunks, true)
+end
+
+function get_radix_kernel_flag(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
+    key = (Nitem, Nchunks, false)
+    haskey(_onesweep_kernel_cache, key) && return _onesweep_kernel_cache[key]
+    return _define_kernel!(Nitem, Nchunks, false)
 end
 
 
 # Pre-compile the two default specs at package load. We reuse
 # `_define_kernel!`, which both defines the @kernel and installs the
 # typed `Val` dispatch method, so the default code path needs neither
-# @eval nor invokelatest at runtime.
+# @eval nor invokelatest at runtime. Only the CHAIN variants are pre-built:
+# the flag fallback is for N >= 2^31 and is not worth the load-time cost.
 _define_kernel!(16, 1)
 _define_kernel!(16, 2)
 
@@ -565,10 +686,10 @@ _define_kernel!(16, 2)
 end
 
 
-const _onesweep_idxstage_kernel_cache = Dict{Tuple{Int,Int},Any}()
+const _onesweep_idxstage_kernel_cache = Dict{Tuple{Int,Int,Bool},Any}()
 
 
-function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
+function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int, Chain::Bool)
     Niter_5b = Nchunks * Nitem
 
     # Phase 1b full-tile, cross-chunk MLP-batched — IDENTICAL to the value-staged
@@ -665,27 +786,8 @@ function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
             block_total_b = prefix_acc
         end
 
-        # Phase 3a: publish aggregate.
-        if has_bucket
-            if Bypass
-                @access Device Relaxed partial1[bucket, gid] = block_total_b
-                @access Device Relaxed partial2[bucket, gid] = block_total_b
-            else
-                @access partial1[bucket, gid] = block_total_b
-                @access partial2[bucket, gid] = block_total_b
-            end
-        end
-        if Bypass
-            @fence Workgroup Release
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x01
-            else
-                @access flag[gid] = 0x01
-            end
-        end
+        # Phase 3a: publish aggregate (see the CHAIN PROTOCOL block above).
+        $(_chain_publish_aggregate(Chain))
 
         # Phase 4.5: exclusive scan of the Nbuckets block totals.
         val_exc_within = UInt32(0)
@@ -755,58 +857,10 @@ function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
         end
         @synchronize
 
-        # Phase 3b: decoupled lookback, barrier-free (identical to value-staged).
-        cross_block_prefix = UInt32(0)
-        if has_bucket && gid >= 2
-            b_lb = gid - 1
-            done_lb = false
-            while !done_lb
-                flg_lb = UInt32(0)
-                while flg_lb == UInt32(0)
-                    f_lb = Bypass ? (@access Device Relaxed flag[b_lb]) :
-                                    (@access flag[b_lb])
-                    flg_lb = UInt32(f_lb)
-                end
-                if Bypass
-                    @fence Workgroup Acquire
-                end
-                if flg_lb == UInt32(0x02)
-                    pv_lb = Bypass ? (@access Device Relaxed partial2[bucket, b_lb]) :
-                                     (@access partial2[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    done_lb = true
-                else
-                    pv_lb = Bypass ? (@access Device Relaxed partial1[bucket, b_lb]) :
-                                     (@access partial1[bucket, b_lb])
-                    cross_block_prefix += pv_lb
-                    if b_lb == 1
-                        done_lb = true
-                    else
-                        b_lb -= 1
-                    end
-                end
-            end
-        end
-        @synchronize
-
-        if has_bucket
-            if Bypass
-                @access Device Relaxed partial2[bucket, gid] = cross_block_prefix + block_total_b
-            else
-                @access partial2[bucket, gid] = cross_block_prefix + block_total_b
-            end
-        end
-        if Bypass
-            @fence Workgroup Release
-        end
-        @synchronize
-        if lid == 1
-            if Bypass
-                @access Device Relaxed flag[gid] = 0x02
-            else
-                @access flag[gid] = 0x02
-            end
-        end
+        # Phase 3b: decoupled lookback + phase 4 publish
+        # (see the CHAIN PROTOCOL block above).
+        $(_chain_lookback(Chain))
+        $(_chain_publish_inclusive(Chain))
 
         # Phase 4 second: block_global_offset[d] into shared_hist[d, 1].
         if has_bucket
@@ -852,23 +906,30 @@ function build_idxstage_kernel_def(name::Symbol, Nitem::Int, Nchunks::Int)
 end
 
 
-function _define_idxstage_kernel!(Nitem::Int, Nchunks::Int)
-    name = Symbol("onesweep_idxstage_kernel_", Nitem, "_", Nchunks, "!")
+function _define_idxstage_kernel!(Nitem::Int, Nchunks::Int, Chain::Bool=true)
+    name = Symbol("onesweep_idxstage_kernel_", Chain ? "" : "flag_", Nitem, "_", Nchunks, "!")
+    getter = Chain ? :get_radix_kernel_idxstage : :get_radix_kernel_idxstage_flag
     fn = Core.eval(@__MODULE__, quote
-        $(build_idxstage_kernel_def(name, Nitem, Nchunks))
+        $(build_idxstage_kernel_def(name, Nitem, Nchunks, Chain))
         $name
     end)
     Core.eval(@__MODULE__,
-        :(@inline get_radix_kernel_idxstage(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
-    _onesweep_idxstage_kernel_cache[(Nitem, Nchunks)] = fn
+        :(@inline $getter(::Val{$Nitem}, ::Val{$Nchunks}) = $fn))
+    _onesweep_idxstage_kernel_cache[(Nitem, Nchunks, Chain)] = fn
     return fn
 end
 
 
 function get_radix_kernel_idxstage(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
-    key = (Nitem, Nchunks)
+    key = (Nitem, Nchunks, true)
     haskey(_onesweep_idxstage_kernel_cache, key) && return _onesweep_idxstage_kernel_cache[key]
-    return _define_idxstage_kernel!(Nitem, Nchunks)
+    return _define_idxstage_kernel!(Nitem, Nchunks, true)
+end
+
+function get_radix_kernel_idxstage_flag(::Val{Nitem}, ::Val{Nchunks}) where {Nitem,Nchunks}
+    key = (Nitem, Nchunks, false)
+    haskey(_onesweep_idxstage_kernel_cache, key) && return _onesweep_idxstage_kernel_cache[key]
+    return _define_idxstage_kernel!(Nitem, Nchunks, false)
 end
 
 

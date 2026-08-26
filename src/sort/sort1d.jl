@@ -761,6 +761,60 @@ end
 
 # --- Onesweep path (npasses ≥ 2) ---------------------------------------------
 
+# The chain protocol (see the CHAIN PROTOCOL block in onesweep_kernel.jl) tags
+# the inclusive prefix with bit 31 and reserves `typemax(UInt32)` for "not
+# published", so it needs every inclusive prefix to fit in 31 bits. A prefix is
+# bounded by N, so `N < 2^31` keeps all three encodings unambiguous. AT OR ABOVE
+# that the descriptor would alias SILENTLY — a wrong sort, not a crash — so those
+# sorts take the legacy flag protocol instead. `_CHAIN_MAX_N` is a Ref purely so
+# the tests can lower the threshold and exercise BOTH routes on a small array;
+# nothing in the library writes it.
+const _CHAIN_MAX_N = Ref{Int}(2^31)
+@inline chain_protocol_applicable(n::Integer) = n < _CHAIN_MAX_N[]
+
+# The onesweep pass loop, shared by the value- and index-staged families (they
+# differ only in the trailing `Val`s, passed through as `vals`). `chain` selects
+# WHICH buffer gets cleared, and must match the protocol `inst` was built with.
+#
+# Only ONE array needs clearing either way. Under the flag protocol that is
+# `flag`: phase 3a writes every (bucket, gid) entry of partial1/partial2 and only
+# then publishes flag[gid], and the lookback reads partial{1,2}[bucket, b] ONLY
+# after seeing flag[b] != 0 — so no entry is ever read before it is written,
+# whatever stale contents a reused `tmp` holds. Under the chain protocol the
+# descriptor IS the flag, so `partial1` is cleared to the sentinel and `flag`
+# stops being touched at all: the same single launch, and at N=1e6 the extra
+# bytes cost 0.13 µs.
+@inline function _onesweep_passes!(inst, chain::Bool, a, b, dst, src, scratch,
+                                   by::F, uint_map::M, hist, partial1, partial2, flag,
+                                   npasses::Int, vals::Tuple, ndrange::Int, shmem::Int) where {F,M}
+    if chain
+        fill!(partial1, CHAIN_SENTINEL)
+    else
+        fill!(flag, UInt8(0))
+    end
+
+    for pass in 1:npasses
+        p1_view = @view partial1[:, :, pass]
+        p2_view = @view partial2[:, :, pass]
+        fl_view = @view flag[:, pass]
+        excl_col = @view hist[:, pass]
+        KernelIntrinsics.launch!(
+            inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
+            excl_col, p1_view, p2_view, fl_view, vals...;
+            ndrange, shmem)
+        a, b = b, a
+        # No-copy `dst !== src` + even npasses path: pass 1 reads src
+        # directly into scratch, then ping-pong (scratch, dst) so the
+        # final pass writes to dst. The standard swap above would
+        # otherwise leave `b = src` and clobber the user's input.
+        if pass == 1 && dst !== src && iseven(npasses)
+            a, b = scratch, dst
+        end
+    end
+    return nothing
+end
+
+
 # Nothing-dispatch: allocate buffer then forward.
 function _sort1d_impl!(
     ker::KER, by::F, uint_map::M,
@@ -823,10 +877,10 @@ function _sort1d_impl!(
     # `ker(backend, workgroup)` — NOT `ker(backend, workgroup, ndrange)`. Passing
     # the ndrange positionally bakes it in as a StaticSize type parameter, which
     # recompiles the kernel for every distinct n.
-    inst = ker(backend, workgroup)
     ndrange = nblocks * workgroup
     rr_val = rr ? Val(true) : Val(false)   # keep the launch statically dispatched
     bp_val = sort_desc_bypass(arch) ? Val(true) : Val(false)
+    vals = (Val(Nbuckets), Val(warpsz), Val(wpb), rr_val, bp_val)
 
     if dst === src
         if iseven(npasses)
@@ -844,31 +898,22 @@ function _sort1d_impl!(
         a, b = scratch, dst
     end
 
-    # Only `flag` needs zeroing. `partial1`/`partial2` do NOT: phase 3a writes every
-    # (bucket, gid) entry of both, and only then publishes flag[gid], and the lookback
-    # reads partial{1,2}[bucket, b] ONLY after it has seen flag[b] != 0 -- so no entry
-    # is ever read before it is written, whatever stale contents a reused `tmp` holds.
-    # Zeroing them cost two launches AND, at N=1e8, two 12.5 MB memsets of pure waste.
-    fill!(flag, UInt8(0))
-
-    for pass in 1:npasses
-        p1_view = @view partial1[:, :, pass]
-        p2_view = @view partial2[:, :, pass]
-        fl_view = @view flag[:, pass]
-        excl_col = @view hist[:, pass]
-        KernelIntrinsics.launch!(
-            inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
-            excl_col, p1_view, p2_view, fl_view,
-            Val(Nbuckets), Val(warpsz), Val(wpb), rr_val, bp_val;
-            ndrange, shmem)
-        a, b = b, a
-        # No-copy `dst !== src` + even npasses path: pass 1 reads src
-        # directly into scratch, then ping-pong (scratch, dst) so the
-        # final pass writes to dst. The standard swap above would
-        # otherwise leave `b = src` and clobber the user's input.
-        if pass == 1 && dst !== src && iseven(npasses)
-            a, b = scratch, dst
-        end
+    # Protocol fork. Both branches are statically typed; the fallback pays one
+    # dynamic dispatch per sort, which is nothing next to a >= 2^31-element sort.
+    if chain_protocol_applicable(n)
+        _onesweep_passes!(ker(backend, workgroup), true, a, b, dst, src, scratch,
+                          by, uint_map, hist, partial1, partial2, flag,
+                          npasses, vals, ndrange, shmem)
+    else
+        # The factory may have just @eval'd this kernel, so BOTH the instantiation
+        # and the launch must run in the latest world -- `ker_flag(backend, wg)`
+        # calls a method @kernel defined in a world newer than ours.
+        ker_flag = get_radix_kernel_flag(Val(Nitem), Val(Nchunks))
+        inst_flag = Base.invokelatest(ker_flag, backend, workgroup)
+        Base.invokelatest(_onesweep_passes!, inst_flag, false,
+                          a, b, dst, src, scratch,
+                          by, uint_map, hist, partial1, partial2, flag,
+                          npasses, vals, ndrange, shmem)
     end
     return dst
 end
@@ -942,9 +987,9 @@ function _sort1d_impl_idxstage!(
     _sort_histograms!(by, uint_map, src, hist, hist_g, hist_partials,
                       hist_ni, Nbuckets, warpsz, wpb, npasses, workgroup, backend, arch)
 
-    inst = ker(backend, workgroup)
     ndrange = nblocks * workgroup
     bp_val = sort_desc_bypass(arch) ? Val(true) : Val(false)
+    vals = (Val(Nbuckets), Val(warpsz), Val(wpb), bp_val)
 
     # Identical ping-pong to `_sort1d_impl!`. `a` is the pass read buffer, `b`
     # the write buffer; phase 5b gathers from the kernel's `src` arg (= `a`).
@@ -962,22 +1007,18 @@ function _sort1d_impl_idxstage!(
         a, b = scratch, dst
     end
 
-    fill!(flag, UInt8(0))
-
-    for pass in 1:npasses
-        p1_view = @view partial1[:, :, pass]
-        p2_view = @view partial2[:, :, pass]
-        fl_view = @view flag[:, pass]
-        excl_col = @view hist[:, pass]
-        KernelIntrinsics.launch!(
-            inst, b, a, by, uint_map, Int32(8 * (pass - 1)),
-            excl_col, p1_view, p2_view, fl_view,
-            Val(Nbuckets), Val(warpsz), Val(wpb), bp_val;
-            ndrange, shmem)
-        a, b = b, a
-        if pass == 1 && dst !== src && iseven(npasses)
-            a, b = scratch, dst
-        end
+    # Protocol fork — see `_sort1d_impl!`.
+    if chain_protocol_applicable(n)
+        _onesweep_passes!(ker(backend, workgroup), true, a, b, dst, src, scratch,
+                          by, uint_map, hist, partial1, partial2, flag,
+                          npasses, vals, ndrange, shmem)
+    else
+        ker_flag = get_radix_kernel_idxstage_flag(Val(Nitem), Val(Nchunks))
+        inst_flag = Base.invokelatest(ker_flag, backend, workgroup)
+        Base.invokelatest(_onesweep_passes!, inst_flag, false,
+                          a, b, dst, src, scratch,
+                          by, uint_map, hist, partial1, partial2, flag,
+                          npasses, vals, ndrange, shmem)
     end
     return dst
 end

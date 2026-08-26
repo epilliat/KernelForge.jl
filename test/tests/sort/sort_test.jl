@@ -362,3 +362,46 @@ end
         @test Array(KF.sort(src)) == sort(Array(src))
     end
 end
+
+@testset "lookback protocol: chain and flag routes agree" begin
+    # The default chain protocol folds the lookback state into the descriptor,
+    # which needs every inclusive prefix to fit in 31 bits. At N >= 2^31 that
+    # encoding would alias SILENTLY (a wrong sort, not a crash), so those sorts
+    # fall back to the legacy flag protocol.
+    #
+    # 2^31 UInt32 keys is 8 GB of input plus as much scratch, so the threshold
+    # itself is not testable. What IS testable — and what actually matters — is
+    # that the fallback ROUTE is correct and agrees with the default one. We
+    # lower `_CHAIN_MAX_N` so a small array takes it, which exercises the flag
+    # kernel, its own `fill!`, and the host fork that picks between them.
+    n = 4_000_000                     # enough blocks that the walk really spins
+    saved = KF._CHAIN_MAX_N[]
+    try
+        for T in (UInt32, UInt64, Float32)
+            src = AT(rand(T, n))
+            expected = sort(Array(src))
+
+            KF._CHAIN_MAX_N[] = typemax(Int)          # chain (the default)
+            chain_res = Array(KF.sort(src))
+            @test chain_res == expected
+
+            KF._CHAIN_MAX_N[] = 1                     # force the flag fallback
+            @test Array(KF.sort(src)) == expected
+
+            # Same answer either way — the point of having two routes.
+            KF._CHAIN_MAX_N[] = saved
+            @test Array(KF.sort(src)) == chain_res
+        end
+
+        # The index-staging family carries its own copy of the protocol, so it
+        # needs its own pass through both routes.
+        src = AT(rand(UInt64, n))
+        expected = sort(Array(src))
+        for maxn in (typemax(Int), 1)
+            KF._CHAIN_MAX_N[] = maxn
+            @test Array(KF.sort(src; family = :idxstage)) == expected
+        end
+    finally
+        KF._CHAIN_MAX_N[] = saved
+    end
+end
