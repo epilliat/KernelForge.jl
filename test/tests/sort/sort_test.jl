@@ -420,3 +420,42 @@ end
         KF._CHAIN_MAX_N[] = saved
     end
 end
+
+@testset "uint_map is an order-preserving bijection" begin
+    # `uint_map` is written as a bit trick (a single XOR against a sign-broadcast
+    # mask) because the sort applies it three times per element per pass. What the
+    # sort actually relies on is ORDER PRESERVATION plus invertibility, so test
+    # those directly rather than the formula: an equivalent-looking rewrite that
+    # broke either would silently produce a wrongly-ordered result, not an error.
+    for T in (Float32, Float64, Int32, Int64, UInt32, UInt64, Int8, UInt8, Int16, UInt16)
+        edges = T <: AbstractFloat ?
+            T[0, -0.0, 1, -1, floatmin(T), -floatmin(T), floatmax(T), -floatmax(T),
+              eps(T), -eps(T), Inf, -Inf] :
+            T[0, 1, typemin(T), typemax(T), typemin(T) + one(T), typemax(T) - one(T)]
+        vals = unique(vcat(edges, T <: AbstractFloat ? randn(T, 2000) : rand(T, 2000)))
+        u = map(KernelForge.uint_map, vals)
+        # invertible
+        @test all(KernelForge.uint_unmap(T, KernelForge.uint_map(v)) === v for v in vals)
+        # order-preserving: sorting the images must order the pre-images
+        @test vals[sortperm(u)] == sort(vals)
+    end
+
+    # Float32's mapping is small enough to check on EVERY bit pattern, so do it:
+    # sign-bit clear must set the top bit, sign-bit set must invert, no exceptions.
+    # MUST live in a function: a bare loop inside @testset runs at GLOBAL scope,
+    # where `u` and `bad` are untyped globals and 2^32 iterations take ~30 min
+    # instead of ~4 s (measured -- it hung a suite run before this was caught).
+    function _sweep_float32_uint_map()
+        bad = 0
+        u = UInt32(0)
+        while true
+            m = KernelForge.uint_map(reinterpret(Float32, u))
+            want = (u & 0x80000000) == 0 ? u | 0x80000000 : ~u
+            m === want || (bad += 1)
+            u == typemax(UInt32) && break
+            u += UInt32(1)
+        end
+        bad
+    end
+    @test _sweep_float32_uint_map() == 0
+end
