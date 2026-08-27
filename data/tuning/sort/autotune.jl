@@ -34,6 +34,9 @@
 #     'include("data/tuning/sort/autotune.jl"); autotune_sort_all()'
 #   # single size class (UInt32 ⇒ size_4):
 #   julia ... -e 'include("data/tuning/sort/autotune.jl"); autotune_sort(UInt32)'
+#   # tune extra dtypes precisely (default Float32; they get a `T === <DType>`
+#   # branch ahead of the byte-width ones, and only if their winners differ):
+#   julia ... -e '…; autotune_sort_all(precise_types = (Float32, Float64))'
 # =============================================================================
 
 using KernelForge
@@ -203,6 +206,11 @@ end
 # Tune one size class (represented by dtype T) across N.
 # Returns Vector of (N => (best_ni, best_nc, best_wg, best_us, cub_ratio_unknown)).
 # -----------------------------------------------------------------------------
+# Dispatch to the arch-GENERIC `default_*` method while passing the concrete
+# arch instance (`AbstractArch` cannot be constructed — it is abstract).
+@inline _sort_generic(f::F, arch, N, ::Type{T}) where {F,T} =
+    invoke(f, Tuple{KF.AbstractArch,Type{KF.Sort1D},Any,Type{T}}, arch, KF.Sort1D, N, T)
+
 function autotune_sort(::Type{T} = UInt32;
                        sizes = (1_000_000, 10_000_000, 100_000_000),
                        wg_grid = WG_GRID_DEFAULT,
@@ -213,18 +221,43 @@ function autotune_sort(::Type{T} = UInt32;
     verbose && @printf("[sort autotune] arch=%s  T=%s (size_%d)  %d candidates  sizes=%s\n",
                        arch_tag, string(T), sizeof(T), length(cands), string(sizes))
 
-    # default (untuned) config for the never-worse guard
-    n0 = first(sizes)
-    dni = KF.default_nitem(arch, KF.Sort1D, n0, T)
-    dnc = KF.default_nchunks(arch, KF.Sort1D, n0, T)
-    dwg = KF.default_workgroup(arch, KF.Sort1D, n0, T)
-    drr = KF.default_sort_rr(arch, KF.Sort1D, n0, T)
-    dcfg = (dni, dnc, dwg, drr)
-
     # N, ni, nc, wg, rr, us, default_us
     results = Tuple{Int,Int,Int,Int,Bool,Float64,Float64}[]
+    # Each N now has its OWN anchor, so "did anything win" has to be accumulated
+    # inside the loop rather than compared against a single config afterwards.
+    any_win = false
+    defaults = Tuple{Int,Int,Int,Bool}[]
     for N in sizes
-        # measure the current default first (anchor for the never-worse guard)
+        # NEVER-WORSE ANCHOR, PER N. `default_*` are per-N regimes, so the anchor
+        # MUST be re-read at each N -- it used to be computed once at
+        # `n0 = first(sizes)` and reused for every size, which compared 1e7 and
+        # 1e8 against the 1e6 regime's config rather than against what would
+        # actually ship there. Two consequences, both observed on A100 2026-08-27:
+        # a re-run LOST a win it had already found (8-byte 1e8 flipped from
+        # (8,3,512) tile 12288 back to (8,4,256) tile 8192, costing 1.04x), and a
+        # reported "WIN 1.07x" for Float32 at 1e7 was measured against a config
+        # that cell never had. The anchor is the emitted tuning, so a wrong anchor
+        # also makes the search PATH-DEPENDENT across runs.
+        dni = KF.default_nitem(arch, KF.Sort1D, N, T)
+        dnc = KF.default_nchunks(arch, KF.Sort1D, N, T)
+        dwg = KF.default_workgroup(arch, KF.Sort1D, N, T)
+        drr = KF.default_sort_rr(arch, KF.Sort1D, N, T)
+        dcfg = (dni, dnc, dwg, drr)
+        # ...and the ARCH-GENERIC config, which is a DIFFERENT thing: the anchor
+        # above is what currently ships (so a re-run can never make things
+        # worse), while `any_win` below must be measured against the generic
+        # fallback, because that is what the emitted block EXISTS to override.
+        # Conflating the two self-destructs: once a tuning is optimal every cell
+        # reports "[default]" against its own anchor, `any_win` goes false, and
+        # persistence strips the very block that made it optimal. Observed on
+        # A100 2026-08-27 — a re-run erased the tuning and the benchmark fell
+        # back to generic defaults (1e8 UInt32 3458 → 4014 µs).
+        # `KF.AbstractArch` is an ABSTRACT type, so `AbstractArch()` is a
+        # MethodError — reach the generic method with `invoke` on the real arch.
+        gcfg = (_sort_generic(KF.default_nitem, arch, N, T),
+                _sort_generic(KF.default_nchunks, arch, N, T),
+                _sort_generic(KF.default_workgroup, arch, N, T),
+                _sort_generic(KF.default_sort_rr, arch, N, T))
         default_us, ok0 = _bench_sort_us(T, N, dni, dnc, dwg, drr)
         rawbest = (dni, dnc, dwg, drr, ok0 ? default_us : Inf)
         for (ni, nc, wg, rr) in cands
@@ -252,6 +285,8 @@ function autotune_sort(::Type{T} = UInt32;
             end
         end
         push!(results, (N, chosen[1], chosen[2], chosen[3], chosen[4], chosen[5], default_us))
+        push!(defaults, dcfg)
+        any_win |= chosen[1:4] != gcfg
         if verbose
             spd = isfinite(default_us) && chosen[5] > 0 ? default_us / chosen[5] : NaN
             tag = chosen[1:4] == dcfg ? "[default]" : "[WIN vs ($dni,$dnc,$dwg,rr=$drr)]"
@@ -261,26 +296,58 @@ function autotune_sort(::Type{T} = UInt32;
         end
         flush(stdout)
     end
-    any_win = any(r -> (r[2], r[3], r[4], r[5]) != dcfg, results)
-    (; arch_tag, T, size_class = sizeof(T), results, default = dcfg, any_win)
+    (; arch_tag, T, size_class = sizeof(T), results, defaults, any_win)
 end
 
-autotune_sort_all(; kwargs...) = begin
+# Sort tuning is keyed by BYTE WIDTH: Float32 inherits whatever UInt32 won.
+# That is wrong as soon as a dtype's compute/memory balance differs from its
+# size-class representative. MEASURED on A100 2026-08-27: Float32's optimum is
+# (ni=8, nc=4, wg=1024, rr=true) tile 32768 while UInt32's is (16,3,256) tile
+# 12288 — completely different cells — and inheriting UInt32's cost Float32
+# 1.14x at 1e8. `uint_map` is the identity for integers and real work for
+# floats, so the two are not interchangeable and never were.
+#
+# `precise_types` therefore get their OWN `T === <DType>` branch, emitted BEFORE
+# the size-class ones. A precise block is dropped when its winners match its
+# size class at every N: identical output is pure duplication, and it would rot
+# independently the next time only one of the two is re-tuned.
+autotune_sort_all(; precise_types = (Float32,), kwargs...) = begin
     r4 = autotune_sort(UInt32; kwargs...)
     r8 = autotune_sort(UInt64; kwargs...)
-    persist_sort_tunings([r4, r8]; dev = get(kwargs, :dev, false))
-    (r4, r8)
+    rp = [autotune_sort(T; kwargs...) for T in precise_types]
+    persist_sort_tunings([r4, r8], rp; dev = get(kwargs, :dev, false))
+    (r4, r8, rp...)
 end
+
+# Two tunes agree when every per-N winner (Nitem, Nchunks, workgroup, rr) matches.
+_sort_same_winners(a, b) =
+    length(a.results) == length(b.results) &&
+    all(ra[2:5] == rb[2:5] for (ra, rb) in zip(a.results, b.results))
 
 # -----------------------------------------------------------------------------
 # Persistence: JSON summary + regenerate the Sort1D block of <arch>_inline.jl.
 # -----------------------------------------------------------------------------
 _tuning_dir() = joinpath(pkgdir(KernelForge), "data", "tuning")
 
-function persist_sort_tunings(tunes; dev::Bool = false)
+function persist_sort_tunings(tunes, precise = (); dev::Bool = false)
     isempty(tunes) && return
     arch_tag = first(tunes).arch_tag
     dir = _tuning_dir()
+
+    # Keep only the precise tunes that actually disagree with their size class.
+    kept = similar(collect(precise), 0)
+    for pt in precise
+        cls = findfirst(t -> t.size_class == pt.size_class, tunes)
+        if cls === nothing || !_sort_same_winners(pt, tunes[cls])
+            push!(kept, pt)
+            @printf("[sort autotune] %s gets its OWN entry (differs from size_%d)\n",
+                    string(pt.T), pt.size_class)
+        else
+            @printf("[sort autotune] %s matches size_%d — no separate entry\n",
+                    string(pt.T), pt.size_class)
+        end
+    end
+    precise = kept
 
     # 1) JSON summary --------------------------------------------------------
     payload = Dict{String,Any}("arch" => arch_tag, "generated" => string(today()), "sort" => Dict{String,Any}())
@@ -292,6 +359,15 @@ function persist_sort_tunings(tunes; dev::Bool = false)
                                    "us"=>round(us; digits=1), "default_us"=>round(dus; digits=1))
         end
         payload["sort"]["size_$(t.size_class)"] = cell
+    end
+    for t in precise
+        cell = Dict{String,Any}()
+        for (N, ni, nc, wg, rr, us, dus) in t.results
+            cell[string(N)] = Dict("Nitem"=>ni, "Nchunks"=>nc, "workgroup"=>wg, "rr"=>rr,
+                                   "tile"=>wg*nc*ni,
+                                   "us"=>round(us; digits=1), "default_us"=>round(dus; digits=1))
+        end
+        payload["sort"][string(t.T)] = cell
     end
     any_win_all = any(t -> get(t, :any_win, true), tunes)
     payload["sort_override"] = any_win_all
@@ -307,7 +383,7 @@ function persist_sort_tunings(tunes; dev::Bool = false)
     # a noise-driven override (the loaded block would become the next "default").
     ipath = joinpath(dir, "$(arch_tag)_inline.jl")
     if any_win_all
-        block = _emit_sort_inline_block(arch_tag, tunes)
+        block = _emit_sort_inline_block(arch_tag, tunes, precise)
         _splice_inline_block!(ipath, "Sort1D", block)
         # Retire the legacy per-size-class blocks. They dispatch on
         # `T<:Union{UInt32,Int32,Float32}`, which is MORE SPECIFIC than the block
@@ -353,16 +429,27 @@ function _regime_expr(pairs::Vector{<:Pair{Int,<:Any}})
     join(parts, " :\n            ")
 end
 
-function _emit_sort_inline_block(arch_tag, tunes)
+function _emit_sort_inline_block(arch_tag, tunes, precise = ())
     io = IOBuffer()
     println(io, "# Generated by data/tuning/sort/autotune.jl on $(today())")
     println(io, "# WHOLE-SORT tuned (not per-kernel); per-N winners for Nitem/Nchunks/workgroup/rr.")
+    if !isempty(precise)
+        println(io, "# Per-dtype branches come FIRST and win over the byte-width ones: a dtype")
+        println(io, "# whose optimum differs from its size-class representative must not inherit it.")
+    end
     for knob in ("nitem", "nchunks", "workgroup", "sort_rr")
         field = knob == "nitem" ? 2 : knob == "nchunks" ? 3 : knob == "workgroup" ? 4 : 5
         println(io, "@inline function KernelForge.default_$(knob)(")
-        println(io, "        ::KernelForge.$(arch_tag), ::Type{KernelForge.Sort1D}, n, ::Type{T}) where T")
+        println(io, "        arch::KernelForge.$(arch_tag), ::Type{KernelForge.Sort1D}, n, ::Type{T}) where T")
         println(io, "    s = sizeof(T)")
         first_class = true
+        for t in precise
+            pairs = [Int(r[1]) => (knob == "sort_rr" ? r[field] : Int(r[field])) for r in t.results]
+            kw = first_class ? "if" : "elseif"
+            println(io, "    $kw T === $(t.T)")
+            println(io, "        $(_regime_expr(pairs))")
+            first_class = false
+        end
         for t in tunes
             pairs = [Int(r[1]) => (knob == "sort_rr" ? r[field] : Int(r[field])) for r in t.results]
             cond = t.size_class <= 4 ? "s <= 4" : "s <= 8"
@@ -372,7 +459,13 @@ function _emit_sort_inline_block(arch_tag, tunes)
             first_class = false
         end
         println(io, "    else")
-        println(io, "        KernelForge.default_$(knob)(KernelForge.AbstractArch(), KernelForge.Sort1D, n, T)")
+        # `AbstractArch()` here was a latent MethodError: the type is abstract, and
+        # the branch only fires for sizeof(T) > 8, which no tuned dtype reaches --
+        # so it never crashed and never got caught. `invoke` on the real arch does
+        # what it always meant to.
+        println(io, "        invoke(KernelForge.default_$(knob), " *
+                    "Tuple{KernelForge.AbstractArch,Type{KernelForge.Sort1D},Any,Type{T}}, " *
+                    "arch, KernelForge.Sort1D, n, T)")
         println(io, "    end")
         println(io, "end\n")
     end
