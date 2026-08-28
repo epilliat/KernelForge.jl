@@ -769,8 +769,13 @@ end
 # sorts take the legacy flag protocol instead. `_CHAIN_MAX_N` is a Ref purely so
 # the tests can lower the threshold and exercise BOTH routes on a small array;
 # nothing in the library writes it.
-const _CHAIN_MAX_N = Ref{Int}(2^31)
-@inline chain_protocol_applicable(n::Integer) = n < _CHAIN_MAX_N[]
+const CHAIN_MAX_N = 2^31
+const _CHAIN_MAX_N = Ref{Int}(CHAIN_MAX_N)
+# The Ref can only ever LOWER the bound, never raise it past `CHAIN_MAX_N`: a
+# test that sets it to `typemax(Int)` to force the chain route on a small array
+# must not also be able to force it on an array where the encoding aliases and
+# the sort comes out silently WRONG.
+@inline chain_protocol_applicable(n::Integer) = n < min(_CHAIN_MAX_N[], CHAIN_MAX_N)
 
 # The onesweep pass loop, shared by the value- and index-staged families (they
 # differ only in the trailing `Val`s, passed through as `vals`). `chain` selects
