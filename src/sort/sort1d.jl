@@ -275,10 +275,10 @@ function get_allocation(
     backend = get_backend(src)
     Nbuckets = 256
     # `partial1/partial2/flag` carry an extra `npasses` dimension so the
-    # whole tile gets zeroed in ONE `fill!` per buffer before the pass
-    # loop, rather than 3× per pass × npasses passes. Each pass takes a
-    # 2D / 1D view `[:, :, pass]` / `[:, pass]`. Memory overhead is
-    # `(npasses - 1) × old_partials_size` — small compared to scratch.
+    # whole tile gets cleared in ONE `fill!` before the pass loop rather
+    # than once per pass. Each pass takes a 2D / 1D view `[:, :, pass]` /
+    # `[:, pass]`. Memory overhead is `(npasses - 1) × old_partials_size`
+    # — small compared to scratch.
     hist     = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses)
     # 2-stage histogram partials: one (Nbuckets, npasses) slice per count block on
     # CDNA3; a dummy (nhblk=1) elsewhere so NVIDIA pays no extra memory. `_hist_nhblk`
@@ -287,7 +287,15 @@ function get_allocation(
     # 2-stage combine level-1 partials (KT slices on CDNA3, dummy elsewhere).
     hist_partials = KernelAbstractions.allocate(backend, UInt32, Nbuckets, npasses, _hist_combine_kt(arch))
     partial1 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
-    partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, nblocks, npasses)
+    # `partial2` holds the inclusive prefix for the LEGACY FLAG PROTOCOL only, and
+    # the onesweep takes that protocol only at N >= 2^31 (`chain_protocol_applicable`).
+    # Everywhere else the chain protocol folds that state into `partial1` and never
+    # reads or writes `partial2` — so a full-size allocation is dead weight: 33 MB at
+    # 1e8 UInt32, 67 MB at UInt64, about 7% of the workspace. Give it zero columns
+    # there. The impls still pass the (empty) view, and the flag path checks the size
+    # before using it rather than indexing past the end.
+    p2_blocks = chain_protocol_applicable(n) ? 0 : nblocks
+    partial2 = KernelAbstractions.allocate(backend, UInt32, Nbuckets, p2_blocks, npasses)
     flag     = KernelAbstractions.allocate(backend, UInt8,  nblocks, npasses)
     scratch  = KernelAbstractions.allocate(backend, T,      n)
     if keys === nothing
@@ -777,6 +785,19 @@ const _CHAIN_MAX_N = Ref{Int}(CHAIN_MAX_N)
 # the sort comes out silently WRONG.
 @inline chain_protocol_applicable(n::Integer) = n < min(_CHAIN_MAX_N[], CHAIN_MAX_N)
 
+# `get_allocation` sizes `partial2` to zero columns whenever the chain protocol
+# applies, so a `tmp` built for one array cannot serve a flag-protocol sort of a
+# different one. Reject that with a catchable error instead of an OOB write —
+# same contract as the over-cap tile.
+@inline function _require_flag_workspace(partial2, nblocks::Int)
+    size(partial2, 2) >= nblocks && return nothing
+    throw(ArgumentError(
+        "this sort needs the legacy flag protocol (n >= $(CHAIN_MAX_N)), but `tmp` was " *
+        "allocated for the chain protocol, which sizes `partial2` to zero columns. " *
+        "Allocate `tmp` for THIS array with `get_allocation(Sort1D, src; …)`, or omit " *
+        "`tmp` and let the sort allocate."))
+end
+
 # The onesweep pass loop, shared by the value- and index-staged families (they
 # differ only in the trailing `Val`s, passed through as `vals`). `chain` selects
 # WHICH buffer gets cleared, and must match the protocol `inst` was built with.
@@ -913,6 +934,7 @@ function _sort1d_impl!(
         # The factory may have just @eval'd this kernel, so BOTH the instantiation
         # and the launch must run in the latest world -- `ker_flag(backend, wg)`
         # calls a method @kernel defined in a world newer than ours.
+        _require_flag_workspace(partial2, nblocks)
         ker_flag = get_radix_kernel_flag(Val(Nitem), Val(Nchunks))
         inst_flag = Base.invokelatest(ker_flag, backend, workgroup)
         Base.invokelatest(_onesweep_passes!, inst_flag, false,
@@ -1018,6 +1040,7 @@ function _sort1d_impl_idxstage!(
                           by, uint_map, hist, partial1, partial2, flag,
                           npasses, vals, ndrange, shmem)
     else
+        _require_flag_workspace(partial2, nblocks)
         ker_flag = get_radix_kernel_idxstage_flag(Val(Nitem), Val(Nchunks))
         inst_flag = Base.invokelatest(ker_flag, backend, workgroup)
         Base.invokelatest(_onesweep_passes!, inst_flag, false,
@@ -1146,6 +1169,7 @@ function _sort1d_keyval_impl!(
         _keyval_passes!(ker(backend, workgroup, ndrange), true, a_v, b_v, a_k, b_k,
                         by, uint_map, hist, partial1, partial2, flag, npasses, vals)
     else
+        _require_flag_workspace(partial2, nblocks)
         ker_flag = get_keyval_kernel_flag(Val(Nitem), Val(Nchunks))
         inst_flag = Base.invokelatest(ker_flag, backend, workgroup, ndrange)
         Base.invokelatest(_keyval_passes!, inst_flag, false, a_v, b_v, a_k, b_k,

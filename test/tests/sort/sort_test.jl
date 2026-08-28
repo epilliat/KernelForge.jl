@@ -416,6 +416,19 @@ end
             @test Array(sk) == keys_cpu[perm]
             @test Array(sv) == vals_cpu[perm]
         end
+        # A `tmp` built while the chain protocol applies has `partial2` sized to
+        # zero columns, so it cannot serve a flag-protocol sort. That must be a
+        # catchable error, not an out-of-bounds write.
+        KF._CHAIN_MAX_N[] = saved                       # chain: partial2 is a stub
+        small = AT(rand(UInt32, 100_000))
+        tmp_chain = KF.get_allocation(KF.Sort1D, small)
+        @test size(tmp_chain.arrays.partial2, 2) == 0
+        KF._CHAIN_MAX_N[] = 1                           # now force the flag route
+        @test_throws ArgumentError KF.sort(small; tmp = tmp_chain)
+        # ...and a `tmp` allocated under the same setting works.
+        tmp_flag = KF.get_allocation(KF.Sort1D, small)
+        @test size(tmp_flag.arrays.partial2, 2) > 0
+        @test Array(KF.sort(small; tmp = tmp_flag)) == sort(Array(small))
     finally
         KF._CHAIN_MAX_N[] = saved
     end
